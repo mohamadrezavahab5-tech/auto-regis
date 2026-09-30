@@ -87,7 +87,7 @@ def fetch_rows(mapping=None, runner=None):
     if not m.get("entity_set") or not all(f.get(k) for k in ("smr", "status", "site")):
         raise RuntimeError("CRM mapping is not filled in yet (config/crm_api.json) - run 'Discover CRM structure' first")
     sel = ",".join(sorted({f["smr"], f["status"], f["site"]}))
-    path = f"{m['entity_set']}?$select={sel}" + (f"&$filter={quote(m['filter'], safe='(),' + chr(39) + ' ')}" if m.get("filter") else "")
+    path = f"{m['entity_set']}?$select={sel}" + (f"&$filter={quote(m['filter'], safe='(),' + chr(39))}" if m.get("filter") else "")
     rows = []
     for r in get_all(path, runner):
         status = r.get(f["status"] + FORMATTED) if m.get("status_labels_are_formatted_values", True) else r.get(f["status"])

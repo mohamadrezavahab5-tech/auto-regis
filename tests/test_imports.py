@@ -35,7 +35,7 @@ def test_import_then_dupes_end_to_end(tmp_path, capsys):
     nbo, crm, pend = tmp_path / "nbo.csv", tmp_path / "crm.csv", tmp_path / "pend.csv"
     write_csv(nbo, [("h", "h", "h"), ("SMR-9", "COMPLETED", "a.ir"), ("SMR-8", "PENDING", "c.ir")])
     crm_rows = [[""] * 18 for _ in range(2)]
-    crm_rows[1][0], crm_rows[1][8], crm_rows[1][17] = "MRG-1", "تایید قرارداد", "http://b.ir"
+    crm_rows[1][0], crm_rows[1][8], crm_rows[1][17] = "MRG-1", "درخواست تایید شده است", "http://b.ir"
     with open(crm, "w", newline="", encoding="utf-8") as fh:
         csv.writer(fh).writerows(crm_rows)
     write_csv(pend, [("h", "h", "h"), ("SMR-1", "PENDING", "www.a.ir"), ("SMR-2", "PENDING", "b.ir"), ("SMR-3", "PENDING", "c.ir")])

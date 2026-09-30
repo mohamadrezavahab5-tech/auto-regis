@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .normalize import normalize_text
 from .paths import config_dir
 
 
@@ -35,6 +36,11 @@ def read_export(file, source: str, columns: dict = None):
     return rows
 
 
+def _key(label) -> str:
+    """Status labels differ in spacing between systems ('فعالسازی' vs 'فعال سازی'): compare without spaces/ZWNJ."""
+    return normalize_text(label).replace(" ", "")
+
+
 def approved_rows(rows, statuses):
-    wanted = {s.strip() for s in statuses}
-    return [r for r in rows if r.get("status", "").strip() in wanted]
+    wanted = {_key(s) for s in statuses}
+    return [r for r in rows if _key(r.get("status", "")) in wanted]

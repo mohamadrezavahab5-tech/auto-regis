@@ -70,10 +70,11 @@
       "PENDING_ACTIVATION"
     ],
     "crm": [
-      "تایید قرارداد",
-      "اتمام فعالسازی فنی",
-      "درحال فعالسازی فنی"
-    ]
+      "درخواست تایید شده است",
+      "درحال فعال سازی فنی",
+      "اتمام فعال سازی فنی"
+    ],
+    "_crm_note": "Labels of CRM picklist new_merchantstatus. The old script's 'تایید قرارداد' does not exist there; 'درخواست تایید شده است' is the approved state. 'ثبت نام انجام شده' (20k rows) is NOT counted as approved - owner to confirm."
   },
   "backlog": {
     "statuses": [

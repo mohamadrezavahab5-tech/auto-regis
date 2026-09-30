@@ -1,7 +1,11 @@
 {
-  "_note": "Read-only CRM Web API mapping for the 'Merchant Registrations' list. entity_set and fields are null until discovered: log in from the app (CRM login), press 'Discover CRM structure', then fill these in. filter is optional OData.",
-  "entity_set": null,
-  "fields": { "smr": null, "status": null, "site": null },
+  "_note": "Discovered read-only from the live CRM metadata. Entity 'new_merchantregistration' (list: Merchant Registrations). smr = new_caseid (code MRG-...), status = new_merchantstatus (picklist, label read from the formatted value), site = new_urlsite. The OData filter keeps only the approved statuses: 100000005 request approved, 100000001 technical activation in progress, 100000003 technical activation finished.",
+  "entity_set": "new_merchantregistrations",
+  "fields": {
+    "smr": "new_caseid",
+    "status": "new_merchantstatus",
+    "site": "new_urlsite"
+  },
   "status_labels_are_formatted_values": true,
-  "filter": null
+  "filter": "new_merchantstatus eq 100000005 or new_merchantstatus eq 100000001 or new_merchantstatus eq 100000003"
 }

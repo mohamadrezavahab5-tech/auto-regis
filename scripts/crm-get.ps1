@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $cred = Import-Clixml -Path $CredFile
 $base = 'http://crm.snapppay.ir/CRM-SnappPay-DB/api/data/v9.0/'
 $uri = if ($Path -match '^https?://') { $Path } else { $base + $Path }
-$headers = @{ 'Accept' = 'application/json'; 'OData-MaxVersion' = '4.0'; 'OData-Version' = '4.0'; 'Prefer' = 'odata.maxpagesize=5000' }
+$headers = @{ 'Accept' = 'application/json'; 'OData-MaxVersion' = '4.0'; 'OData-Version' = '4.0'; 'Prefer' = 'odata.include-annotations="*",odata.maxpagesize=5000' }
 try {
   $resp = Invoke-RestMethod -Uri $uri -Method GET -Credential $cred -Headers $headers -TimeoutSec 180
   ($resp | ConvertTo-Json -Depth 12 -Compress) -replace '[\x00-\x1F]', ''
