@@ -1,5 +1,9 @@
 {
-  "_note": "Column POSITIONS of the exports, taken from the old Apps Script (letters). Fields not listed are unknown and must be added here before the feature that needs them is used - the tool never guesses a column.",
-  "nbo": { "smr": "A", "status": "D", "site": "AG" },
+  "_note": "Column POSITIONS of the real NBO export 'merchant-request-*.xlsx' (headers verified on the 2026-09-30 sample, 40 columns). CRM positions come from the old Apps Script and are NOT verified against a real CRM export yet.",
+  "nbo": {
+    "smr": "A", "created_at": "B", "updated_at": "C", "status": "D", "edit_reason": "E", "cancel_reason": "F",
+    "category": "J", "ownership": "K", "account_holder": "N", "has_online": "O", "online_term": "P", "has_instore": "R",
+    "owner_name": "V", "owner_family": "W", "site": "AG", "infra": "AH"
+  },
   "crm": { "smr": "A", "status": "I", "site": "R" }
 }

@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import duplicates, imports, store
+from . import backlog, duplicates, imports, store
 
 ROOT = Path(__file__).resolve().parent.parent
 RULES = json.loads((ROOT / "config" / "rules.json").read_text(encoding="utf-8"))
@@ -32,6 +32,22 @@ def cmd_dupes(a):
         print(f"  {r['id']}  {r['site']}  ~ {', '.join(r['related'])}")
 
 
+def cmd_backlog(a):
+    rows = imports.read_export(a.file, "nbo")
+    cfg = RULES["backlog"]
+    picked, why = backlog.select(rows, cfg, include_optional=a.with_commercial_in_progress)
+    size = a.batch_size or cfg["batch_size"]
+    out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    parts = backlog.batches(picked, size)
+    for n, part in enumerate(parts, 1):
+        with open(out / f"batch_{n:02d}.csv", "w", encoding="utf-8-sig", newline="") as f:
+            f.write("smr,site,created_at\n")
+            f.writelines(",".join([r["smr"], r["site"], r["created_at"]]) + "\n" for r in part)
+    print(f"{len(rows)} rows in export -> {len(picked)} in today's backlog, {len(parts)} batch file(s) in {out}")
+    for k, v in why.items():
+        print(f"  skipped {v}: {k}")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="autoreview")
     p.add_argument("--db", default=str(ROOT / "data" / "autoreview.db"))
@@ -40,6 +56,9 @@ def main(argv=None):
     i.add_argument("source", choices=["nbo", "crm"]); i.add_argument("file"); i.set_defaults(fn=cmd_import)
     d = sub.add_parser("dupes", help="duplicate check of a pending export against the approved sets (no action taken)")
     d.add_argument("pending"); d.set_defaults(fn=cmd_dupes)
+    b = sub.add_parser("backlog", help="today\x27s PENDING backlog from an NBO export, newest first, split into batch files")
+    b.add_argument("file"); b.add_argument("--out", default=str(ROOT / "data" / "batches")); b.add_argument("--batch-size", type=int)
+    b.add_argument("--with-commercial-in-progress", action="store_true"); b.set_defaults(fn=cmd_backlog)
     a = p.parse_args(argv)
     Path(a.db).parent.mkdir(parents=True, exist_ok=True)
     a.fn(a)

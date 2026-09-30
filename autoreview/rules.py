@@ -2,13 +2,13 @@
 
 Principle (from the owner): if the system cannot PROVE a verdict it must not act - it says MANUAL.
 Every fact is tri-state: True / False / None (= could not be determined). Any needed None => MANUAL.
-An EDIT/CANCEL is only issued when its reason has a confirmed literal NBO text; otherwise the request
+An EDIT/CANCEL is only issued when its reason maps to ONE unambiguous NBO reason code; otherwise the request
 goes to MANUAL with a note, so nothing wrong is ever typed into NBO.
 """
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .reasons import exact_text
+from .reasons import reason_code
 
 APPROVE, EDIT, CANCEL, MANUAL = "APPROVE", "EDIT", "CANCEL", "MANUAL"
 
@@ -26,6 +26,7 @@ class Facts:
     enamad_shown_on_site: Optional[bool] = None
     agreement_ok: Optional[bool] = None
     category_group: str = "normal"                 # normal | services | education | gold | special
+    category_name: Optional[str] = None            # NBO "Category (fa)"; a per-category minimum overrides the group default
     product_count: Optional[int] = None
     has_sitemap: Optional[bool] = None
     has_contact: Optional[bool] = None
@@ -36,7 +37,7 @@ class Facts:
 class Decision:
     action: str
     reason_keys: list = field(default_factory=list)
-    reason_texts: list = field(default_factory=list)
+    reason_codes: list = field(default_factory=list)
     notes: list = field(default_factory=list)
     trace: list = field(default_factory=list)      # every gate that was evaluated, in order
 
@@ -50,11 +51,11 @@ def evaluate(facts: Facts, rules: dict, reasons: dict) -> Decision:
     d = Decision(action=APPROVE)
 
     def fail(action, key):
-        text = exact_text(reasons, key)
+        code = reason_code(reasons, key)
         d.trace.append(f"FAIL {key} -> {action}")
-        if text is None:
-            return _manual(d, f"{key}: literal NBO reason text not confirmed - not acting")
-        d.action, d.reason_keys, d.reason_texts = action, [key], [text]
+        if code is None:
+            return _manual(d, f"{key}: NBO reason code not unambiguous - not acting")
+        d.action, d.reason_keys, d.reason_codes = action, [key], [code]
         return d
 
     def unknown(what):
@@ -123,7 +124,8 @@ def evaluate(facts: Facts, rules: dict, reasons: dict) -> Decision:
 
     # 6. products (threshold depends on the category group)
     limits = rules["min_products"]
-    limit = limits.get(facts.category_group, limits["default"])["value"]
+    per_cat = limits.get("by_category_fa", {}).get("values", {})
+    limit = per_cat.get(facts.category_name) if facts.category_name in per_cat else limits.get(facts.category_group, limits["default"])["value"]
     if facts.product_count is None:
         return unknown("product count")
     if facts.product_count < limit:

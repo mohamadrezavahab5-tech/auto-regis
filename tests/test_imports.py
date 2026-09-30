@@ -6,7 +6,7 @@ from autoreview import imports, store
 from autoreview.cli import main
 
 
-def write_csv(path, rows, width=33):
+def write_csv(path, rows, width=40):
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         for r in rows:
@@ -19,7 +19,8 @@ def test_read_export_uses_positions_and_skips_header(tmp_path):
     f = tmp_path / "nbo.csv"
     write_csv(f, [("SMR", "Status", "Site"), ("SMR-1", "COMPLETED", "https://a.ir"), ("", "X", "y")])
     rows = imports.read_export(f, "nbo")
-    assert rows == [{"smr": "SMR-1", "status": "COMPLETED", "site": "https://a.ir"}]
+    assert len(rows) == 1
+    assert {k: rows[0][k] for k in ("smr", "status", "site")} == {"smr": "SMR-1", "status": "COMPLETED", "site": "https://a.ir"}
 
 
 def test_too_narrow_file_fails_loudly(tmp_path):

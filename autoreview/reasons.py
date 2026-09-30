@@ -1,4 +1,4 @@
-"""Reason registry: the single place that knows the literal NBO reason texts."""
+"""Reason registry: maps our internal rule keys to NBO reason codes and dropdown labels."""
 import json
 from pathlib import Path
 
@@ -11,8 +11,15 @@ def load_reasons(path=None) -> dict:
     return {k: v for k, v in data.items() if not k.startswith("_")}
 
 
-def exact_text(reasons: dict, key: str):
-    """The literal NBO text, or None when it has not been confirmed (then nothing may be typed into NBO)."""
-    entry = reasons.get(key)
-    text = entry.get("exact_text") if entry else None
+def reason_code(reasons: dict, key: str):
+    """The NBO reason code, or None when it is not unambiguous (then nothing may be decided with it)."""
+    entry = reasons.get(key) or {}
+    code = entry.get("nbo_code")
+    return code.strip() if isinstance(code, str) and code.strip() else None
+
+
+def dropdown_text(reasons: dict, key: str):
+    """The Persian label to pick in NBO's dropdown, or None when it has not been read from NBO itself."""
+    entry = reasons.get(key) or {}
+    text = entry.get("dropdown_text")
     return text.strip() if isinstance(text, str) and text.strip() else None

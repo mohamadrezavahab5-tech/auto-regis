@@ -12,7 +12,7 @@ REASONS = load_reasons()
 def confirmed(keys):
     r = copy.deepcopy(REASONS)
     for k in keys:
-        r[k]["exact_text"] = f"<{k}>"
+        r[k]["nbo_code"] = f"CODE_{k}"
     return r
 
 
@@ -30,7 +30,7 @@ ALL = list(REASONS)
 
 def test_everything_proven_is_approved():
     d = evaluate(good(), RULES, confirmed(ALL))
-    assert d.action == APPROVE and d.reason_texts == []
+    assert d.action == APPROVE and d.reason_codes == []
 
 
 def test_unknown_anywhere_is_manual_never_a_guess():
@@ -44,19 +44,26 @@ def test_unknown_category_mapping_is_manual():
     assert evaluate(good(category_relation="unknown"), RULES, confirmed(ALL)).action == MANUAL
 
 
-def test_edit_carries_the_literal_reason_text():
+def test_edit_carries_the_nbo_reason_code():
     d = evaluate(good(has_contact=False), RULES, confirmed(ALL))
-    assert d.action == EDIT and d.reason_keys == ["NO_CONTACT"] and d.reason_texts == ["<NO_CONTACT>"]
+    assert d.action == EDIT and d.reason_keys == ["NO_CONTACT"] and d.reason_codes == ["CODE_NO_CONTACT"]
 
 
-def test_unconfirmed_reason_text_downgrades_to_manual():
-    d = evaluate(good(has_contact=False), RULES, REASONS)        # shipped registry has no confirmed text yet
-    assert d.action == MANUAL and "not confirmed" in d.notes[0]
+def test_ambiguous_reason_code_downgrades_to_manual():
+    d = evaluate(good(has_enamad=False), RULES, REASONS)         # MISSING_LICENSE vs NO_LICENSE: owner must pick in NBO
+    assert d.action == MANUAL and "not unambiguous" in d.notes[0]
+    d = evaluate(good(category_relation="mismatch"), RULES, REASONS)
+    assert d.action == MANUAL
 
 
-def test_site_inactive_cancels_only_with_confirmed_text():
-    assert evaluate(good(site_active=False), RULES, confirmed(ALL)).action == CANCEL
-    assert evaluate(good(site_active=False), RULES, REASONS).action == MANUAL
+def test_shipped_registry_decides_where_the_code_is_unique():
+    d = evaluate(good(has_contact=False), RULES, REASONS)
+    assert d.action == EDIT and d.reason_codes == ["MISSING_CONTACT_INFO"]
+
+
+def test_site_inactive_cancels_with_the_real_code():
+    d = evaluate(good(site_active=False), RULES, REASONS)
+    assert d.action == CANCEL and d.reason_codes == ["WEBSITE_IS_INACTIVE"]
 
 
 def test_unreachable_site_is_manual_by_default_not_edit():
@@ -78,6 +85,15 @@ def test_product_limit_depends_on_the_category_group():
     assert evaluate(good(category_group="normal", product_count=20), RULES, confirmed(ALL)).action == EDIT
     assert evaluate(good(category_group="services", product_count=12), RULES, confirmed(ALL)).action == APPROVE
     assert evaluate(good(category_group="education", product_count=5), RULES, confirmed(ALL)).action == EDIT
+
+
+def test_per_category_minimum_overrides_the_group_default():
+    import copy as c
+    rules = c.deepcopy(RULES)
+    rules["min_products"]["by_category_fa"]["values"] = {"مد و پوشاک": 80}
+    assert evaluate(good(category_name="مد و پوشاک", product_count=60), rules, confirmed(ALL)).action == EDIT
+    assert evaluate(good(category_name="مد و پوشاک", product_count=90), rules, confirmed(ALL)).action == APPROVE
+    assert evaluate(good(category_name="سایر", product_count=60), rules, confirmed(ALL)).action == APPROVE   # falls back to default 40
 
 
 def test_missing_sitemap_uses_its_own_reason():
