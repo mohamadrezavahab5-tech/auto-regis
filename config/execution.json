@@ -1,0 +1,7 @@
+{
+  "_note": "MASTER SWITCH. While enabled=false the app only plans and reports (dry-run): it reads exports/sites, decides, writes its own database and result files - it never changes a status in NBO and never writes into the team's Google Sheets. The owner sets enabled=true himself, only after telling the other people to stop running their old scripts (two runners on the same requests would double-act).",
+  "enabled": false,
+  "approved_by": null,
+  "approved_at": null,
+  "targets": { "nbo_status_changes": false, "team_sheets_write": false, "own_sheet_write": false }
+}
