@@ -66,8 +66,8 @@ def test_owner_mismatch_follows_the_owner_setting():
         r["owner_mismatch_action"]["value"] = mode
         return r
     f = good(owner_matches_account_holder=False)
-    assert evaluate(f, RULES, REASONS).action == MANUAL                                   # shipped default: undecided => manual
-    assert evaluate(f, rules_with("EDIT"), REASONS).reason_codes == ["OWNER_MISMATCH"]
+    assert evaluate(f, RULES, REASONS).reason_codes == ["OWNER_MISMATCH"]                 # shipped setting (owner, 2026-10-01): EDIT
+    assert evaluate(f, rules_with("MANUAL"), REASONS).action == MANUAL
     d = evaluate(f, rules_with("CANCEL"), REASONS)
     assert d.action == CANCEL and d.reason_codes == ["ENAMAD_OWNER_NAME_MISMATCH"]
 

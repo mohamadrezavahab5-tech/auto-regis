@@ -39,6 +39,11 @@ def find_reason_maps(maps: dict) -> dict:
     return out
 
 
+# The radio options of NBO's "Change Status" dialog. APPROVE and EDIT NEEDED were confirmed on the owner's screenshot
+# (2026-10-01); CANCEL is the label the old scripts click. The reason dropdown appears for EDIT NEEDED and CANCEL only.
+CHANGE_STATUS_OPTIONS = {"APPROVE": "APPROVE", "EDIT": "EDIT NEEDED", "CANCEL": "CANCEL"}
+
+
 def label_for(reason_maps: dict, action: str, code: str):
     kind = {"EDIT": "edit", "CANCEL": "cancel"}.get(action)
     return (reason_maps.get(kind) or {}).get(code)

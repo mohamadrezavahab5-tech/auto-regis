@@ -9,7 +9,7 @@
   "manual_category_groups": ["gold", "special"],
   "services_go_manual": { "value": false, "confirmed": false, "sources": ["meeting: unsure", "old code: checked with min 10"] },
   "unreachable_site_action": { "value": "MANUAL", "confirmed": true, "sources": ["owner 2026-09-30"] },
-  "owner_mismatch_action": { "value": "MANUAL", "options": ["EDIT", "CANCEL", "MANUAL"], "confirmed": false, "sources": ["owner 2026-10-01: make it configurable", "sample: EDIT 221 times, CANCEL 1099 times"] },
+  "owner_mismatch_action": { "value": "EDIT", "options": ["EDIT", "CANCEL", "MANUAL"], "confirmed": true, "sources": ["owner 2026-10-01: set to EDIT", "sample: EDIT 221 times, CANCEL 1099 times"] },
   "approved_statuses": {
     "nbo": ["COMMERCIAL_APPROVED", "COMPLETED", "ACTIVATING", "PENDING_ACTIVATION"],
     "crm": ["تایید قرارداد", "اتمام فعالسازی فنی", "درحال فعالسازی فنی"]
