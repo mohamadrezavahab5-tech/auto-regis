@@ -1,6 +1,6 @@
 {
   "_note": "nbo_code = the internal NBO reason code seen in the real export columns 'Required Editing Reason' / 'Cancel Reason' (count in the 2026-09-30 sample in 'seen'). null + candidates = two or more codes fit and the owner must pick in NBO. dropdown_text = the Persian label shown in NBO's Change-Status dropdown; needed only by the executor, must be read from NBO itself (null = not verified => the executor refuses).",
-  "MISSING_ENAMAD":     { "action": "EDIT",   "nbo_code": null, "candidates": ["MISSING_LICENSE", "NO_LICENSE"], "dropdown_text": null, "seen": {"MISSING_LICENSE": 490, "NO_LICENSE": 70} },
+  "MISSING_ENAMAD":     { "action": "EDIT",   "nbo_code": "MISSING_LICENSE", "dropdown_text": null, "seen": 490, "note": "NBO label: نداشتن مجوز های رسمی (اینماد). NO_LICENSE is the in-store business-licence reason, not this." },
   "BAD_OR_DEAD_URL":    { "action": "EDIT",   "nbo_code": "INVALID_URL", "dropdown_text": null, "seen": 657 },
   "ENAMAD_EXPIRED":     { "action": "EDIT",   "nbo_code": "ENAMAD_EXPIRED", "dropdown_text": null, "seen": 118 },
   "NAME_MISMATCH_BANK": { "action": "EDIT",   "nbo_code": "REGISTRANT_NAME_AND_BANK_ACCOUNT_OWNER_MISMATCH", "dropdown_text": null, "seen": 2 },
@@ -10,7 +10,7 @@
   "ENAMAD_NOT_ON_SITE": { "action": "EDIT",   "nbo_code": null, "candidates": [], "dropdown_text": null, "seen": 0 },
   "SITEMAP_MISSING":    { "action": "EDIT",   "nbo_code": "SITEMAP_IS_MISSING", "dropdown_text": null, "seen": 265 },
   "TOO_FEW_PRODUCTS":   { "action": "EDIT",   "nbo_code": "INSUFFICIENT_NUMBER_OF_PRODUCTS_IN_SITEMAP", "dropdown_text": null, "seen": 586 },
-  "CATEGORY_MISMATCH":  { "action": "EDIT",   "nbo_code": null, "candidates": ["ENAMAD_CATEGORY_MISMATCH", "WRONG_CATEGORY"], "dropdown_text": null, "seen": {"ENAMAD_CATEGORY_MISMATCH": 7, "WRONG_CATEGORY": 487} },
+  "CATEGORY_MISMATCH":  { "action": "EDIT",   "nbo_code": "ENAMAD_CATEGORY_MISMATCH", "dropdown_text": null, "seen": 7, "note": "NBO label: دسته‌بندی اینماد با اطلاعات اعلام‌شده مغایرت دارد. WRONG_CATEGORY is a different reason (wrong activity category chosen)." },
   "SITE_INACTIVE":      { "action": "CANCEL", "nbo_code": "WEBSITE_IS_INACTIVE", "dropdown_text": null, "seen": 169 },
   "DUPLICATE_REQUEST":  { "action": "CANCEL", "nbo_code": "DUPLICATE_REQUEST", "dropdown_text": null, "seen": 1870 },
   "ACTION_NEEDS_HUMAN": { "action": "MANUAL", "nbo_code": null, "candidates": [], "dropdown_text": null, "seen": 0 }

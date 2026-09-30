@@ -50,10 +50,13 @@ def test_edit_carries_the_nbo_reason_code():
 
 
 def test_ambiguous_reason_code_downgrades_to_manual():
-    d = evaluate(good(has_enamad=False), RULES, REASONS)         # MISSING_LICENSE vs NO_LICENSE: owner must pick in NBO
+    d = evaluate(good(enamad_shown_on_site=False), RULES, REASONS)   # NBO has no reason code for "enamad not shown on the site"
     assert d.action == MANUAL and "not unambiguous" in d.notes[0]
-    d = evaluate(good(category_relation="mismatch"), RULES, REASONS)
-    assert d.action == MANUAL
+
+
+def test_missing_enamad_and_category_mismatch_use_the_codes_read_from_nbo():
+    assert evaluate(good(has_enamad=False), RULES, REASONS).reason_codes == ["MISSING_LICENSE"]
+    assert evaluate(good(category_relation="mismatch"), RULES, REASONS).reason_codes == ["ENAMAD_CATEGORY_MISMATCH"]
 
 
 def test_shipped_registry_decides_where_the_code_is_unique():
