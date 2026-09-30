@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QDialogButtonBo
                                QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
                                QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from . import backlog, crm_sync, export, imports, store
+from . import backlog, crm_sync, export, imports, nbo_session, store
 from .export import ACTION_FA
 from .paths import app_root, config_dir, data_dir
 from .pipeline import Runner, load_json
@@ -55,6 +55,7 @@ TILES = (("APPROVE", "تایید", "#e3f4e7", "#166534"), ("EDIT", "نیاز ب�
 class Bridge(QObject):
     changed = Signal()
     crm_done = Signal(str, bool)
+    nbo_done = Signal(str, bool)
 
 
 class CrmLoginDialog(QDialog):
@@ -127,6 +128,7 @@ class MainWindow(QMainWindow):
         self.bridge = Bridge()
         self.bridge.changed.connect(self.refresh)
         self.bridge.crm_done.connect(self.on_crm_done)
+        self.bridge.nbo_done.connect(self.on_nbo_done)
         self.runner = None
         self.rows_all, self.approved_nbo, self.approved_crm = [], [], []
         self.crm_note = "CRM: بارگذاری نشده (تکراری‌های CRM بررسی نمی‌شوند)"
@@ -157,8 +159,12 @@ class MainWindow(QMainWindow):
         c1, v1 = card()
         r1 = QHBoxLayout()
         self.nbo_label = QLabel("فایل خروجی NBO: انتخاب نشده"); self.nbo_label.setObjectName("muted")
-        b_nbo = QPushButton("انتخاب فایل NBO"); b_nbo.clicked.connect(self.pick_nbo)
-        r1.addWidget(b_nbo); r1.addWidget(self.nbo_label); r1.addStretch(1)
+        b_nbo = QPushButton("دریافت خودکار از NBO"); b_nbo.clicked.connect(self.fetch_nbo)
+        b_nbo_login = QPushButton("ورود به NBO"); b_nbo_login.clicked.connect(self.nbo_login)
+        b_nbo_file = QPushButton("فایل NBO (جایگزین)"); b_nbo_file.clicked.connect(self.pick_nbo)
+        for w in (b_nbo, b_nbo_login, b_nbo_file, self.nbo_label):
+            r1.addWidget(w)
+        r1.addStretch(1)
         r2 = QHBoxLayout()
         self.crm_label = QLabel(self.crm_note); self.crm_label.setObjectName("muted")
         b_crm = QPushButton("دریافت خودکار از CRM"); b_crm.clicked.connect(self.fetch_crm)
@@ -251,6 +257,48 @@ class MainWindow(QMainWindow):
         self.approved_nbo = [{"id": r["smr"], "site": r["site"]} for r in imports.approved_rows(self.rows_all, load_json("rules.json")["approved_statuses"]["nbo"])]
         self.nbo_label.setText(f"NBO: {Path(f).name} ({len(self.rows_all)} ردیف)")
         self.plan_batches()
+
+    # ---- NBO (automatic)
+    def nbo_login(self):
+        QMessageBox.information(self, "ورود به NBO", "یک پنجره‌ی Chrome باز می‌شود. خودت نام کاربری، رمز و کد OTP را وارد کن؛ بعد از ورود خودکار بسته می‌شود.\nاپ رمز را نمی‌بیند و ذخیره نمی‌کند.")
+        self.nbo_label.setText("NBO: منتظر ورود…")
+
+        def work():
+            try:
+                nbo_session.login_interactive()
+                self.bridge.nbo_done.emit("NBO: ورود انجام شد", True)
+            except Exception as e:
+                self.bridge.nbo_done.emit(f"NBO: {e}", False)
+        threading.Thread(target=work, daemon=True).start()
+
+    def fetch_nbo(self):
+        if not nbo_session.have_session():
+            self.nbo_login(); return
+        self.nbo_label.setText("NBO: در حال دریافت خروجی…")
+        rules = load_json("rules.json")
+        pending = list(rules["backlog"]["statuses"]) + (list(rules["backlog"].get("optional_statuses", [])) if self.with_cip.isChecked() else [])
+        approved = list(rules["approved_statuses"]["nbo"])
+
+        def work():
+            try:
+                d = data_dir()
+                pend_file = nbo_session.download_export(pending, d / "nbo_pending.xlsx")
+                appr_file = nbo_session.download_export(approved, d / "nbo_approved.xlsx")
+                self.rows_all = imports.read_export(pend_file, "nbo")
+                self.approved_nbo = [{"id": r["smr"], "site": r["site"]} for r in imports.read_export(appr_file, "nbo")]
+                self.bridge.nbo_done.emit(f"NBO: {len(self.rows_all)} در انتظار، {len(self.approved_nbo)} تاییدشده", True)
+            except nbo_session.NboLoginRequired as e:
+                self.bridge.nbo_done.emit(f"NBO: {e}", False)
+            except Exception as e:
+                self.bridge.nbo_done.emit(f"NBO: {e}", False)
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_nbo_done(self, text, ok):
+        self.nbo_label.setText(text)
+        if ok:
+            self.plan_batches()
+        else:
+            QMessageBox.warning(self, "NBO", text)
 
     def plan_batches(self):
         if not self.rows_all:
