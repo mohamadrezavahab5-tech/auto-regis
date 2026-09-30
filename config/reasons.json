@@ -1,0 +1,17 @@
+{
+  "_note": "exact_text MUST be the literal NBO dropdown text. null = not confirmed yet: the engine then refuses to auto-Edit/Cancel with that reason and sends the request to MANUAL. old_variants lists the conflicting texts found in the old code (do not use them).",
+  "MISSING_ENAMAD":        { "action": "EDIT",   "exact_text": null, "old_variants": ["نداشتن مجوز های رسمی (اینماد)"] },
+  "BAD_OR_DEAD_URL":       { "action": "EDIT",   "exact_text": null, "old_variants": ["آدرس سایت (URL) اشتباه یا غیرفعال"] },
+  "ENAMAD_EXPIRED":        { "action": "EDIT",   "exact_text": null, "old_variants": ["اینماد منقضی شده است"] },
+  "NAME_MISMATCH_BANK":    { "action": "EDIT",   "exact_text": null, "old_variants": ["مغایرت نام شخص ثبت‌نام‌کننده با نام صاحب حساب بانکی", "مغایرت نام شخص ثبت نام کننده با نام صاحب حساب بانکی"] },
+  "OWNER_MISMATCH":        { "action": "EDIT",   "exact_text": null, "old_variants": ["مغایرت صاحب مجوز بارگذاری‌شده با صاحب حساب بانکی", "مغایرت صاحب مجوز با صاحب حساب بانکی"] },
+  "NO_CONTACT":            { "action": "EDIT",   "exact_text": null, "old_variants": ["نبود اطلاعات تماس یا پشتیبانی قابل اعتماد"] },
+  "CANNOT_ADD_TO_CART":    { "action": "EDIT",   "exact_text": null, "old_variants": ["امکان اضافه شدن محصول به سبد خرید نمی باشد"] },
+  "ENAMAD_NOT_ON_SITE":    { "action": "EDIT",   "exact_text": null, "old_variants": [] },
+  "SITEMAP_MISSING":       { "action": "EDIT",   "exact_text": null, "old_variants": ["سایت‌مپ وجود ندارد"] },
+  "TOO_FEW_PRODUCTS":      { "action": "EDIT",   "exact_text": null, "old_variants": ["تعداد محصولات موجود در سایت‌مپ ناکافی می باشد"] },
+  "CATEGORY_MISMATCH":     { "action": "EDIT",   "exact_text": null, "old_variants": ["دسته بندی اینماد با اطلاعات اعلام شده مغایرت دارد", "دسته‌بندی اینماد با اطلاعات اعلام‌شده مغایرت دارد"] },
+  "SITE_INACTIVE":         { "action": "CANCEL", "exact_text": null, "old_variants": ["سایت غیرفعال می باشد"] },
+  "DUPLICATE_REQUEST":     { "action": "CANCEL", "exact_text": null, "old_variants": ["تکراری بودن درخواست"] },
+  "ACTION_NEEDS_HUMAN":    { "action": "MANUAL", "exact_text": null, "old_variants": [] }
+}

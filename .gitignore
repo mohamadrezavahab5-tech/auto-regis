@@ -1,0 +1,8 @@
+input/
+data/
+*.db
+*.sqlite
+__pycache__/
+.venv/
+nbo_cookies.json
+*_state.json

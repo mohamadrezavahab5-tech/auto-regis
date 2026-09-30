@@ -1,0 +1,17 @@
+{
+  "_note": "confirmed=false values come from the old code or from the spoken meeting and MUST be confirmed by the owner before production. Unconfirmed thresholds still apply in dry-run/plan mode.",
+  "min_products": {
+    "default":   { "value": 40, "confirmed": false, "sources": ["meeting: about 40", "old code: 60"] },
+    "services":  { "value": 10, "confirmed": false, "sources": ["meeting: under 10 acceptable", "old code: 10"] },
+    "education": { "value": 10, "confirmed": false, "sources": ["meeting", "old code: 10"] }
+  },
+  "manual_category_groups": ["gold", "special"],
+  "services_go_manual": { "value": false, "confirmed": false, "sources": ["meeting: services not auto-checked?", "old code: services checked with min 10"] },
+  "unreachable_site_action": { "value": "MANUAL", "confirmed": false, "sources": ["meeting principle: not sure -> manual", "old code: EDIT bad URL"] },
+  "approved_statuses": {
+    "nbo": ["COMMERCIAL_APPROVED", "COMPLETED", "ACTIVATING", "PENDING_ACTIVATION"],
+    "crm": ["تایید قرارداد", "اتمام فعالسازی فنی", "درحال فعالسازی فنی"],
+    "_note": "PENDING_ACTIVATION is in the meeting text but not in the old Apps Script - confirm."
+  },
+  "backlog": { "channel": "Online", "entity": "Individual", "statuses": ["PENDING", "COMMERCIAL_IN_PROGRESS"], "order": "newest_first", "batch_size": 150 }
+}

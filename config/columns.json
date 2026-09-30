@@ -1,0 +1,5 @@
+{
+  "_note": "Column POSITIONS of the exports, taken from the old Apps Script (letters). Fields not listed are unknown and must be added here before the feature that needs them is used - the tool never guesses a column.",
+  "nbo": { "smr": "A", "status": "D", "site": "AG" },
+  "crm": { "smr": "A", "status": "I", "site": "R" }
+}
