@@ -85,3 +85,12 @@ def results_of(db, run_id):
 def latest_run(db):
     row = db.execute("SELECT run_id FROM runs ORDER BY started_at DESC LIMIT 1").fetchone()
     return row[0] if row else None
+
+
+def run_sources(db, run_id):
+    """-> {'nbo_approved': n, 'crm_approved': m} recorded when the run started, or None."""
+    for (detail,) in db.execute("SELECT detail FROM audit WHERE stage = 'RUN_SOURCES' ORDER BY id DESC"):
+        d = json.loads(detail)
+        if d.get("run") == run_id:
+            return d
+    return None

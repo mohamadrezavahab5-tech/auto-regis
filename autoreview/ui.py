@@ -131,7 +131,7 @@ class MainWindow(QMainWindow):
         self.bridge.nbo_done.connect(self.on_nbo_done)
         self.runner = None
         self.rows_all, self.approved_nbo, self.approved_crm = [], [], []
-        self.crm_note = "CRM: بارگذاری نشده (تکراری‌های CRM بررسی نمی‌شوند)"
+        self.crm_note = "CRM: بارگذاری نشده (لازم است)"
 
         self.setStyleSheet(STYLE)
         root = QWidget(); self.setCentralWidget(root)
@@ -194,8 +194,10 @@ class MainWindow(QMainWindow):
         self.b_pause = QPushButton("توقف موقت"); self.b_pause.clicked.connect(self.toggle_pause)
         self.b_stop = QPushButton("توقف"); self.b_stop.setObjectName("danger"); self.b_stop.clicked.connect(self.stop)
         self.b_export = QPushButton("خروجی Excel"); self.b_export.clicked.connect(self.export_xlsx)
+        self.sources_hint = QLabel(""); self.sources_hint.setObjectName("muted")
         for w in (self.b_start, self.b_pause, self.b_stop):
             ctl.addWidget(w)
+        ctl.addSpacing(12); ctl.addWidget(self.sources_hint)
         ctl.addStretch(1); ctl.addWidget(self.b_export)
         v2.addLayout(opt); v2.addLayout(ctl)
         lay.addWidget(c2)
@@ -238,10 +240,21 @@ class MainWindow(QMainWindow):
         self.sync_buttons()
 
     # ---- helpers
+    def sources_missing(self):
+        """NBO and CRM hold different requests, so a duplicate can hide in either: both must be loaded before a run."""
+        miss = []
+        if not (self.rows_all and self.approved_nbo):
+            miss.append("NBO")
+        if not self.approved_crm:
+            miss.append("CRM")
+        return miss
+
     def sync_buttons(self):
         st = self.runner.progress.state if self.runner else "idle"
         active = st in ("running", "paused", "stopping")
-        self.b_start.setEnabled(not active and bool(self.rows_all))
+        miss = self.sources_missing()
+        self.sources_hint.setText("NBO ✓ و CRM ✓ — تکراری‌ها با هر دو بررسی می‌شود" if not miss else "برای شروع هر دو منبع لازم است — کم: " + "، ".join(miss))
+        self.b_start.setEnabled(not active and not miss)
         self.b_pause.setEnabled(st in ("running", "paused"))
         self.b_pause.setText("ادامه" if st == "paused" else "توقف موقت")
         self.b_stop.setEnabled(active)
@@ -339,6 +352,7 @@ class MainWindow(QMainWindow):
 
     def on_crm_done(self, text, ok):
         self.crm_label.setText(text)
+        self.sync_buttons()
         if not ok:
             QMessageBox.warning(self, "دریافت از CRM", text)
 
@@ -353,6 +367,7 @@ class MainWindow(QMainWindow):
         ok = imports.approved_rows(rows, load_json("rules.json")["approved_statuses"]["crm"])
         self.approved_crm = [{"id": r["smr"], "site": r["site"]} for r in ok]
         self.crm_label.setText(f"CRM: {Path(f).name} ({len(ok)} تاییدشده)")
+        self.sync_buttons()
 
     def open_settings(self):
         SettingsDialog(self).exec()
@@ -361,8 +376,9 @@ class MainWindow(QMainWindow):
     def start(self):
         if not getattr(self, "batches", None):
             QMessageBox.information(self, "دسته‌ای نیست", "در فایل، درخواستی مطابق فیلتر امروز پیدا نشد."); return
-        if not self.approved_crm and QMessageBox.question(self, "CRM بارگذاری نشده",
-                "تکراری‌های CRM بررسی نمی‌شوند (فقط تکراری‌های NBO). ادامه بدهم؟") != QMessageBox.Yes:
+        miss = self.sources_missing()
+        if miss:
+            QMessageBox.warning(self, "منبع ناقص", "NBO و CRM درخواست‌های متفاوتی دارند و تکراری می‌تواند در هر کدام باشد؛ هر دو لازم است.\nهنوز بارگذاری نشده: " + "، ".join(miss))
             return
         rows = self.batches[self.batch_no.value() - 1]
         self.runner = Runner(self.db_path, on_update=lambda p: self.bridge.changed.emit())
@@ -409,12 +425,13 @@ class MainWindow(QMainWindow):
         db = store.connect(self.db_path)
         run = self.runner.progress.run_id if self.runner else store.latest_run(db)
         res = store.results_of(db, run) if run else []
+        sources = store.run_sources(db, run) if run else None
         db.close()
         if not res:
             QMessageBox.information(self, "خروجی", "هنوز نتیجه‌ای وجود ندارد."); return
         f, _ = QFileDialog.getSaveFileName(self, "ذخیره خروجی", str(app_root() / f"autoreview_{run}.xlsx"), "Excel (*.xlsx)")
         if f:
-            export.write_xlsx(f, res)
+            export.write_xlsx(f, res, sources=sources)
             self.status.setText("ذخیره شد: " + f)
 
 

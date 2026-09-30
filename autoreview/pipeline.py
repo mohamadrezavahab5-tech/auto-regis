@@ -31,11 +31,14 @@ class Progress:
     error: str = ""
 
 
-def duplicate_decision(reasons):
+def duplicate_decision(reasons, info=None):
+    where = ""
+    if info:
+        where = " (" + " / ".join(x for x in (("NBO" if info.get("in_nbo") else ""), ("CRM" if info.get("in_crm") else "")) if x) + ": " + ", ".join(info.get("related", [])[:3]) + ")"
     code = reason_code(reasons, "DUPLICATE_REQUEST")
     if code is None:
-        return rulesmod.Decision(rulesmod.MANUAL, notes=["duplicate found but the NBO cancel reason is not unambiguous"], trace=["DUPLICATE"])
-    return rulesmod.Decision(rulesmod.CANCEL, ["DUPLICATE_REQUEST"], [code], ["a request with the same website is already approved"],
+        return rulesmod.Decision(rulesmod.MANUAL, notes=["duplicate found but the NBO cancel reason is not unambiguous" + where], trace=["DUPLICATE"])
+    return rulesmod.Decision(rulesmod.CANCEL, ["DUPLICATE_REQUEST"], [code], ["the same website is already approved" + where],
                              ["FAIL DUPLICATE_REQUEST -> CANCEL"])
 
 
@@ -58,6 +61,8 @@ class Runner:
     def start(self, rows, approved_nbo=(), approved_crm=(), run_id=None):
         if self._thread and self._thread.is_alive():
             raise RuntimeError("a run is already in progress")
+        if not approved_nbo or not approved_crm:            # NBO and CRM hold different requests: a duplicate can hide in either one
+            raise ValueError("both the NBO and the CRM approved sets are required for the duplicate check")
         self._stop.clear(); self._resume.set()
         run_id = run_id or uuid.uuid4().hex[:10]
         self.progress = Progress(run_id=run_id, total=len(rows), state="running")
@@ -98,6 +103,8 @@ class Runner:
         db = store.connect(self.db_path)
         with db:
             db.execute("INSERT OR REPLACE INTO runs (run_id, started_at, total, state) VALUES (?,?,?,?)", (run_id, store.now(), len(rows), "running"))
+        with db:
+            store.log(db, None, "RUN_SOURCES", {"run": run_id, "nbo_approved": len(approved_nbo), "crm_approved": len(approved_crm)})
         already = store.done_ids(db, run_id)
         dupes = {d["id"]: d for d in duplicates.find_duplicates(
             [{"id": r["smr"], "site": r.get("site")} for r in rows], approved_nbo, approved_crm)}
@@ -126,7 +133,7 @@ class Runner:
                         return
                     try:
                         if dupes.get(row["smr"], {}).get("is_duplicate"):
-                            decision, ev = duplicate_decision(self.reasons), {"duplicate_of": dupes[row["smr"]]["related"]}
+                            decision, ev = duplicate_decision(self.reasons, dupes[row["smr"]]), {"duplicate_of": dupes[row["smr"]]["related"]}
                         else:
                             f, ev = await factsmod.collect(row, self.rules, fetch, enamad_client, enamad_gate, self.category_map,
                                                            rt.get("pause_between_enamad_seconds", 0))

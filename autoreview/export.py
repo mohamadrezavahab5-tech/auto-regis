@@ -10,7 +10,7 @@ def _line(r):
             "، ".join(r["reason_codes"]), " | ".join(r["notes"])]
 
 
-def write_xlsx(path, results: list, dry_run: bool = True):
+def write_xlsx(path, results: list, dry_run: bool = True, sources: dict = None):
     wb = xlsxwriter.Workbook(str(path))
     head = wb.add_format({"bold": True, "bg_color": "#1f3a5f", "font_color": "#ffffff", "align": "center", "valign": "vcenter"})
     fmt = {"APPROVE": wb.add_format({"bg_color": "#e3f4e7"}), "EDIT": wb.add_format({"bg_color": "#fff3d6"}),
@@ -36,5 +36,7 @@ def write_xlsx(path, results: list, dry_run: bool = True):
     ws.write_row(6, 0, ["مجموع", len(results)])
     if dry_run:
         ws.write(8, 0, "حالت آزمایشی: هیچ تغییری در NBO اعمال نشده است.")
+    if sources:
+        ws.write(9, 0, "تکراری‌ها با هر دو منبع بررسی شد — NBO: %s تاییدشده، CRM: %s تاییدشده" % (sources.get("nbo_approved"), sources.get("crm_approved")))
     ws.set_column(0, 0, 40)
     wb.close()

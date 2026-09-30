@@ -45,7 +45,7 @@ def test_batch_end_to_end_offline(tmp_path):
     rules = load_json("rules.json")
     r = Runner(tmp_path / "t.db", rules=rules, reasons=reasons, client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)))
     rows = [row("A", "shop.ir"), row("B", "dead.ir"), row("C", "shop.ir", holder="فرد دیگر"), row("D", "dup.ir")]
-    r.start(rows, approved_nbo=[{"id": "OLD", "site": "dup.ir"}], run_id="t1")
+    r.start(rows, approved_nbo=[{"id": "OLD", "site": "dup.ir"}], approved_crm=[{"id": "MRG-9", "site": "crm-only.ir"}], run_id="t1")
     r.join(60)
     assert r.progress.state == "finished" and r.progress.done == 4
     db = store.connect(tmp_path / "t.db")
@@ -58,7 +58,7 @@ def test_batch_end_to_end_offline(tmp_path):
 
 def test_stop_ends_the_run_cleanly(tmp_path):
     r = Runner(tmp_path / "t.db", client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    r.start([row(str(i), "shop.ir") for i in range(50)], run_id="t2")
+    r.start([row(str(i), "shop.ir") for i in range(50)], approved_nbo=[{"id": "X", "site": "x.ir"}], approved_crm=[{"id": "Y", "site": "y.ir"}], run_id="t2")
     r.stop(); r.join(60)
     assert r.progress.state == "stopped"
 
@@ -70,3 +70,18 @@ def test_export_has_three_tabs(tmp_path):
     write_xlsx(tmp_path / "o.xlsx", res)
     wb = load_workbook(tmp_path / "o.xlsx")
     assert wb.sheetnames == ["نتایج", "صف دستی", "خلاصه"] and wb["صف دستی"].max_row == 2
+
+
+def test_a_run_needs_both_nbo_and_crm_and_a_crm_only_duplicate_is_caught(tmp_path):
+    import pytest
+    r = Runner(tmp_path / "t.db", client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    with pytest.raises(ValueError):
+        r.start([row("A", "shop.ir")], approved_nbo=[{"id": "X", "site": "x.ir"}], approved_crm=[], run_id="t3")
+    with pytest.raises(ValueError):
+        r.start([row("A", "shop.ir")], approved_nbo=[], approved_crm=[{"id": "Y", "site": "y.ir"}], run_id="t3")
+    r.start([row("A", "shop.ir")], approved_nbo=[{"id": "X", "site": "x.ir"}], approved_crm=[{"id": "MRG-5", "site": "https://www.shop.ir/"}], run_id="t4")
+    r.join(60)
+    db = store.connect(tmp_path / "t.db")
+    got = store.results_of(db, "t4")[0]
+    assert got["action"] == "CANCEL" and "CRM" in got["notes"][0] and "MRG-5" in got["notes"][0]
+    assert store.run_sources(db, "t4") == {"run": "t4", "nbo_approved": 1, "crm_approved": 1}
