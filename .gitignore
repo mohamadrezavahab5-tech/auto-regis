@@ -6,3 +6,6 @@ __pycache__/
 .venv/
 nbo_cookies.json
 *_state.json
+dist/
+build/
+*.spec
