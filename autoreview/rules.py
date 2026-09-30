@@ -89,12 +89,20 @@ def evaluate(facts: Facts, rules: dict, reasons: dict) -> Decision:
     d.trace.append("PASS enamad exists and is valid")
 
     # 3. names
-    for value, key, label in ((facts.owner_matches_account_holder, "OWNER_MISMATCH", "enamad owner vs account holder"),
-                              (facts.registrant_matches_account_holder, "NAME_MISMATCH_BANK", "registrant vs account holder")):
-        if value is None:
-            return unknown(label)
-        if value is False:
-            return fail(EDIT, key)
+    if facts.owner_matches_account_holder is None:
+        return unknown("enamad owner vs account holder")
+    if facts.owner_matches_account_holder is False:
+        # NBO has two reasons for this (Edit: OWNER_MISMATCH, Cancel: OWNER_MISMATCH_CANCEL); the owner chooses in config.
+        mode = rules.get("owner_mismatch_action", {}).get("value", "MANUAL")
+        if mode == "EDIT":
+            return fail(EDIT, "OWNER_MISMATCH")
+        if mode == "CANCEL":
+            return fail(CANCEL, "OWNER_MISMATCH_CANCEL")
+        return _manual(d, "enamad owner differs from the account holder - owner_mismatch_action is MANUAL")
+    if facts.registrant_matches_account_holder is None:
+        return unknown("registrant vs account holder")
+    if facts.registrant_matches_account_holder is False:
+        return fail(EDIT, "NAME_MISMATCH_BANK")
     d.trace.append("PASS names")
 
     # 4. category

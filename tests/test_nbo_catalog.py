@@ -28,7 +28,7 @@ def test_shipped_registry_codes_exist_in_the_real_nbo_lists():
     edit = {"MISSING_LICENSE", "INVALID_URL", "ENAMAD_EXPIRED", "REGISTRANT_NAME_AND_BANK_ACCOUNT_OWNER_MISMATCH", "OWNER_MISMATCH",
             "MISSING_CONTACT_INFO", "PRODUCT_CANNOT_BE_ADDED_TO_CART", "SITEMAP_IS_MISSING", "INSUFFICIENT_NUMBER_OF_PRODUCTS_IN_SITEMAP",
             "ENAMAD_CATEGORY_MISMATCH"}                       # all present in NBO's Edit map (verified 2026-10-01)
-    cancel = {"WEBSITE_IS_INACTIVE", "DUPLICATE_REQUEST"}      # present in NBO's Cancel map
+    cancel = {"WEBSITE_IS_INACTIVE", "DUPLICATE_REQUEST", "ENAMAD_OWNER_NAME_MISMATCH"}      # present in NBO's Cancel map
     for key, v in reasons.items():
         if key.startswith("_") or not v.get("nbo_code"):
             continue

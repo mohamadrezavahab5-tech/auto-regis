@@ -50,8 +50,26 @@ def test_edit_carries_the_nbo_reason_code():
 
 
 def test_ambiguous_reason_code_downgrades_to_manual():
-    d = evaluate(good(enamad_shown_on_site=False), RULES, REASONS)   # NBO has no reason code for "enamad not shown on the site"
+    reasons = copy.deepcopy(REASONS)
+    reasons["NO_CONTACT"]["nbo_code"] = None                        # a reason whose NBO code is not (yet) unambiguous
+    d = evaluate(good(has_contact=False), RULES, reasons)
     assert d.action == MANUAL and "not unambiguous" in d.notes[0]
+
+
+def test_enamad_not_shown_on_site_uses_the_no_enamad_reason():
+    assert evaluate(good(enamad_shown_on_site=False), RULES, REASONS).reason_codes == ["MISSING_LICENSE"]
+
+
+def test_owner_mismatch_follows_the_owner_setting():
+    def rules_with(mode):
+        r = copy.deepcopy(RULES)
+        r["owner_mismatch_action"]["value"] = mode
+        return r
+    f = good(owner_matches_account_holder=False)
+    assert evaluate(f, RULES, REASONS).action == MANUAL                                   # shipped default: undecided => manual
+    assert evaluate(f, rules_with("EDIT"), REASONS).reason_codes == ["OWNER_MISMATCH"]
+    d = evaluate(f, rules_with("CANCEL"), REASONS)
+    assert d.action == CANCEL and d.reason_codes == ["ENAMAD_OWNER_NAME_MISMATCH"]
 
 
 def test_missing_enamad_and_category_mismatch_use_the_codes_read_from_nbo():
