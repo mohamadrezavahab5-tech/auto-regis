@@ -84,14 +84,14 @@ _LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.I)
 
 
 async def count_products(site: str, fetch: Fetch, max_files: int = 12) -> dict:
-    """-> {'has_sitemap': bool|None, 'product_count': int|None, 'basis': str}. Never guesses a number:
+    """-> {'has_sitemap': bool|None, 'product_count': int|None, 'basis': str, 'sample_url': first product URL|None}. Never guesses a number:
     a count is reported only from a sitemap that is recognisably a PRODUCT sitemap (or a WooCommerce/Shopify pattern)."""
     base = base_url(site).rstrip("/")
     robots = await fetch(base + "/robots.txt")
     listed = re.findall(r"(?im)^\s*sitemap:\s*(\S+)", robots.text) if robots.ok else []
     for path in ("/sitemap_index.xml", "/sitemap.xml", "/wp-sitemap.xml", "/product-sitemap.xml"):
         listed.append(urljoin(base + "/", path.lstrip("/")))
-    seen, product_files, has_any, inconclusive = set(), [], False, False
+    seen, product_files, has_any, inconclusive, sample = set(), [], False, False, None
     queue = list(dict.fromkeys(listed))
     while queue and len(seen) < max_files:
         url = queue.pop(0)
@@ -111,8 +111,9 @@ async def count_products(site: str, fetch: Fetch, max_files: int = 12) -> dict:
             queue.extend(l for l in locs if l not in seen)
         elif re.search(r"product|محصول|shop", url, re.I):
             product_files.append((url, len(locs)))
+            sample = sample or (locs[0] if locs else None)
     if product_files:
-        return {"has_sitemap": True, "product_count": sum(n for _, n in product_files), "basis": "product sitemap(s): " + ", ".join(u for u, _ in product_files)}
+        return {"has_sitemap": True, "product_count": sum(n for _, n in product_files), "basis": "product sitemap(s): " + ", ".join(u for u, _ in product_files), "sample_url": sample}
     if has_any:
-        return {"has_sitemap": True, "product_count": None, "basis": "sitemap exists but no product sitemap recognised - count unknown"}
-    return {"has_sitemap": None if inconclusive else False, "product_count": None, "basis": "no sitemap found" if not inconclusive else "sitemap fetch inconclusive"}
+        return {"has_sitemap": True, "product_count": None, "basis": "sitemap exists but no product sitemap recognised - count unknown", "sample_url": None}
+    return {"has_sitemap": None if inconclusive else False, "product_count": None, "basis": "no sitemap found" if not inconclusive else "sitemap fetch inconclusive", "sample_url": None}

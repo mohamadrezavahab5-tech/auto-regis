@@ -6,8 +6,10 @@ from pathlib import Path
 
 from . import backlog, duplicates, imports, store
 
-ROOT = Path(__file__).resolve().parent.parent
-RULES = json.loads((ROOT / "config" / "rules.json").read_text(encoding="utf-8"))
+from .paths import app_root, config_dir
+
+ROOT = app_root()
+RULES = json.loads((config_dir() / "rules.json").read_text(encoding="utf-8"))
 
 
 def cmd_import(a):

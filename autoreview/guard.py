@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-CONFIG = Path(__file__).resolve().parent.parent / "config" / "execution.json"
+from .paths import config_dir
 
 
 class ExecutionBlocked(RuntimeError):
@@ -10,7 +10,7 @@ class ExecutionBlocked(RuntimeError):
 
 
 def load(path=None) -> dict:
-    return json.loads(Path(path or CONFIG).read_text(encoding="utf-8"))
+    return json.loads(Path(path or config_dir() / "execution.json").read_text(encoding="utf-8"))
 
 
 def require(target: str, path=None) -> None:

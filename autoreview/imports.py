@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
+from .paths import config_dir
 
 
 def col_index(letters: str) -> int:
@@ -15,7 +15,7 @@ def col_index(letters: str) -> int:
 
 
 def load_columns(source: str, path=None) -> dict:
-    with open(path or CONFIG_DIR / "columns.json", encoding="utf-8") as f:
+    with open(path or config_dir() / "columns.json", encoding="utf-8") as f:
         return json.load(f)[source]
 
 

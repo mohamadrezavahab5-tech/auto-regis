@@ -1,26 +1,125 @@
 {
   "_note": "Owner answers 2026-09-30: (1) min products is configurable PER CATEGORY; (3) unreachable site => MANUAL (confirmed); (4) PENDING_ACTIVATION counts as approved (confirmed); (5) only the PENDING tab is worked. Values with confirmed=false still need the owner's number.",
   "min_products": {
-    "default":   { "value": 40, "confirmed": false, "sources": ["meeting: about 40", "old code: 60"] },
-    "services":  { "value": 10, "confirmed": false, "sources": ["meeting", "old code"] },
-    "education": { "value": 10, "confirmed": false, "sources": ["meeting", "old code"] },
-    "by_category_fa": { "_note": "override per NBO 'Category (fa)' name, e.g. \"مد و پوشاک\": 60. Empty until the owner sets them.", "values": {} }
+    "default": {
+      "value": 40,
+      "confirmed": false,
+      "sources": [
+        "meeting: about 40",
+        "old code: 60"
+      ]
+    },
+    "services": {
+      "value": 10,
+      "confirmed": false,
+      "sources": [
+        "meeting",
+        "old code"
+      ]
+    },
+    "education": {
+      "value": 10,
+      "confirmed": false,
+      "sources": [
+        "meeting",
+        "old code"
+      ]
+    },
+    "by_category_fa": {
+      "_note": "override per NBO 'Category (fa)' name, e.g. \"مد و پوشاک\": 60. Empty until the owner sets them.",
+      "values": {}
+    }
   },
-  "manual_category_groups": ["gold", "special"],
-  "services_go_manual": { "value": false, "confirmed": false, "sources": ["meeting: unsure", "old code: checked with min 10"] },
-  "unreachable_site_action": { "value": "MANUAL", "confirmed": true, "sources": ["owner 2026-09-30"] },
-  "owner_mismatch_action": { "value": "EDIT", "options": ["EDIT", "CANCEL", "MANUAL"], "confirmed": true, "sources": ["owner 2026-10-01: set to EDIT", "sample: EDIT 221 times, CANCEL 1099 times"] },
+  "manual_category_groups": [
+    "gold",
+    "special"
+  ],
+  "services_go_manual": {
+    "value": false,
+    "confirmed": false,
+    "sources": [
+      "meeting: unsure",
+      "old code: checked with min 10"
+    ]
+  },
+  "unreachable_site_action": {
+    "value": "MANUAL",
+    "confirmed": true,
+    "sources": [
+      "owner 2026-09-30"
+    ]
+  },
+  "owner_mismatch_action": {
+    "value": "EDIT",
+    "options": [
+      "EDIT",
+      "CANCEL",
+      "MANUAL"
+    ],
+    "confirmed": true,
+    "sources": [
+      "owner 2026-10-01: set to EDIT",
+      "sample: EDIT 221 times, CANCEL 1099 times"
+    ]
+  },
   "approved_statuses": {
-    "nbo": ["COMMERCIAL_APPROVED", "COMPLETED", "ACTIVATING", "PENDING_ACTIVATION"],
-    "crm": ["تایید قرارداد", "اتمام فعالسازی فنی", "درحال فعالسازی فنی"]
+    "nbo": [
+      "COMMERCIAL_APPROVED",
+      "COMPLETED",
+      "ACTIVATING",
+      "PENDING_ACTIVATION"
+    ],
+    "crm": [
+      "تایید قرارداد",
+      "اتمام فعالسازی فنی",
+      "درحال فعالسازی فنی"
+    ]
   },
   "backlog": {
-    "statuses": ["PENDING"],
-    "optional_statuses": ["COMMERCIAL_IN_PROGRESS"],
+    "statuses": [
+      "PENDING"
+    ],
+    "optional_statuses": [
+      "COMMERCIAL_IN_PROGRESS"
+    ],
     "ownership": "INDIVIDUAL",
     "online_only": true,
     "order": "newest_first",
     "batch_size": 150,
     "_note": "online_only = Has Online true AND Has InStore false. Requests that also have InStore belong to the separate Online-Insta flow (to be confirmed). Created At is a Jalali DATE without time, so order inside one day is the export order."
+  },
+  "category_groups": {
+    "_note": "NBO 'Category (fa)' name -> group. Groups decide the minimum product count and manual review. Names not listed are 'normal'. The owner completes this list (special: categories that need extra documents).",
+    "gold": [
+      "طلا"
+    ],
+    "special": [],
+    "services": [
+      "خدمات",
+      "خدمات گردشگری(اقامتگاه، آژانس مسافرتی و تور)",
+      "خدمات سلامت"
+    ],
+    "education": [
+      "آموزشی"
+    ],
+    "confirmed": false
+  },
+  "checks": {
+    "_note": "Checks that can be switched off. agreement: the meeting never defined what 'Agreement' means, so it is skipped (enabled=false) and reported as 'not checked' - it does NOT send everything to MANUAL. Turn on only after the rule is defined.",
+    "agreement": {
+      "enabled": false
+    },
+    "add_to_cart": {
+      "enabled": true
+    },
+    "enamad_on_site": {
+      "enabled": true
+    }
+  },
+  "runtime": {
+    "concurrency": 6,
+    "enamad_concurrency": 2,
+    "http_timeout_seconds": 20,
+    "pause_between_enamad_seconds": 0.4
   }
 }

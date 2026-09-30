@@ -1,0 +1,7 @@
+{
+  "_note": "Read-only CRM Web API mapping for the 'Merchant Registrations' list. entity_set and fields are null until discovered: log in from the app (CRM login), press 'Discover CRM structure', then fill these in. filter is optional OData.",
+  "entity_set": null,
+  "fields": { "smr": null, "status": null, "site": null },
+  "status_labels_are_formatted_values": true,
+  "filter": null
+}

@@ -1,12 +1,10 @@
 """Reason registry: maps our internal rule keys to NBO reason codes and dropdown labels."""
 import json
-from pathlib import Path
-
-CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
+from .paths import config_dir
 
 
 def load_reasons(path=None) -> dict:
-    with open(path or CONFIG_DIR / "reasons.json", encoding="utf-8") as f:
+    with open(path or config_dir() / "reasons.json", encoding="utf-8") as f:
         data = json.load(f)
     return {k: v for k, v in data.items() if not k.startswith("_")}
 
