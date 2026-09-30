@@ -61,3 +61,12 @@ def test_stop_ends_the_run_cleanly(tmp_path):
     r.start([row(str(i), "shop.ir") for i in range(50)], run_id="t2")
     r.stop(); r.join(60)
     assert r.progress.state == "stopped"
+
+
+def test_export_has_three_tabs(tmp_path):
+    from openpyxl import load_workbook
+    from autoreview.export import write_xlsx
+    res = [dict(smr="A", site="a.ir", category="c", created_at="d", action="MANUAL", reason_keys=[], reason_codes=[], notes=["n"], decided_at="")]
+    write_xlsx(tmp_path / "o.xlsx", res)
+    wb = load_workbook(tmp_path / "o.xlsx")
+    assert wb.sheetnames == ["نتایج", "صف دستی", "خلاصه"] and wb["صف دستی"].max_row == 2

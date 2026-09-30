@@ -1,0 +1,4 @@
+from autoreview.ui import main
+
+if __name__ == "__main__":
+    main()

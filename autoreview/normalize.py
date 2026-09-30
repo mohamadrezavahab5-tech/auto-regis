@@ -22,12 +22,27 @@ def normalize_site(value) -> str:
     return re.sub(r"\s+", "", s)
 
 
-def names_equal(a, b) -> "bool | None":
-    """True/False when both names are usable, None when a name is missing.
+def _name_tokens(value, zwnj_as_space: bool) -> list:
+    s = str(value or "").translate(_AR)
+    s = re.sub(r"[‎‏]", "", s)
+    s = re.sub(r"‌+", " " if zwnj_as_space else "", s)      # NBO/enamad type ZWNJ inconsistently: 'مهر‌ابی' vs 'مهرابی'
+    return " ".join(s.split()).lower().split()
 
-    Order-insensitive token equality after normalisation. There is deliberately NO similarity score:
-    two names that are merely alike are 'not equal' (the caller decides what a mismatch means)."""
-    ta, tb = normalize_text(a).split(), normalize_text(b).split()
-    if not ta or not tb:
+
+def names_equal(a, b) -> "bool | None":
+    """True  = same person's name (order-insensitive token equality; ZWNJ typed either way is tolerated).
+    False = clearly different names.
+    None  = cannot tell: a name is missing, OR one name is a strict part of the other ('علی رضایی' vs 'علی رضایی نژاد') -
+            that may be a shortened name or a different person, so it is never called a mismatch.
+    There is deliberately NO similarity score."""
+    for zw in (True, False):
+        ta, tb = _name_tokens(a, zw), _name_tokens(b, zw)
+        if not ta or not tb:
+            return None
+        if sorted(ta) == sorted(tb):
+            return True
+    ta, tb = set(_name_tokens(a, True)), set(_name_tokens(b, True))
+    ka, kb = set(_name_tokens(a, False)), set(_name_tokens(b, False))
+    if ta < tb or tb < ta or ka < kb or kb < ka:
         return None
-    return sorted(ta) == sorted(tb)
+    return False

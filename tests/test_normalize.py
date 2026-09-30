@@ -16,3 +16,10 @@ def test_names_equal_is_order_insensitive_but_never_fuzzy():
     assert names_equal("محمد رضا", "رضا محمد") is True
     assert names_equal("محمد رضا", "محمد رضایی") is False   # similar is NOT equal
     assert names_equal("", "علی") is None                    # missing name = unknown
+
+
+def test_names_tolerate_zwnj_and_treat_partial_names_as_unknown():
+    assert names_equal("فریبا ر‌ا‌عی‌", "فریبا راعی") is True             # stray ZWNJ inside a word
+    assert names_equal("نیلوفر مهر‌ابی‌ دلجو", "نیلوفر مهرابی دلجو") is True
+    assert names_equal("بهزاد گرجی", "بهزاد گرجی ازندریانی") is None                   # shortened name: not a proven mismatch
+    assert names_equal("بهزاد گرجی", "علی احمدی") is False
