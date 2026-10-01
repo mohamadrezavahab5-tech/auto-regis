@@ -47,6 +47,10 @@ class ReviewPage(ScrollPage):
         self.ref_text = label("", "caption", wrap=True)
         src.lay.addWidget(self.ref_text)
         self.body.addWidget(src)
+        self.automatic_status = label('', 'muted', wrap=True)
+        self.body.addWidget(self.automatic_status)
+        shell.automatic.changed.connect(lambda: self.automatic_status.setText(shell.automatic.status))
+        self.automatic_status.setText('دریافت NBO و CRM خودکار است؛ ورود شخصی و OTP در صورت انقضا لازم می‌شود.')
 
         # ---- queue
         q = Card()
@@ -170,8 +174,8 @@ class ReviewPage(ScrollPage):
         show(self.nbo_pill, self.nbo_text, b["nbo_meta"], "nbo" in self.session.busy, "خروجی NBO")
         show(self.crm_pill, self.crm_text, b["crm_meta"], "crm" in self.session.busy, "داده‌ی CRM")
         self.ref_text.setText(f"مرجع تکراری‌ها: تاییدشده‌های NBO {num(d['nbo_ok'])} • تاییدشده‌های CRM {num(d['crm_ok'])}")
-        self.q_online.setText(f"آنلاین — مستقیم در NBO   ({num(d['online'])} بررسی‌نشده از {num(d['online_all'])})")
-        self.q_both.setText(f"آنلاین + حضوری — شیت Online-Instore   ({num(d['both'])} بررسی‌نشده از {num(d['both_all'])})")
+        self.q_online.setText(f"فقط آنلاین — بررسی و تصمیم در شیت من   ({num(d['online'])} بررسی‌نشده از {num(d['online_all'])})")
+        self.q_both.setText(f"آنلاین + حضوری — منتظر نظر هر دو تیم در شیت من   ({num(d['both'])} بررسی‌نشده از {num(d['both_all'])})")
         self._counts = d
         self._update_plan()
 
@@ -186,17 +190,22 @@ class ReviewPage(ScrollPage):
 
     # ---- loading
     def fetch_nbo(self):
+        if 'nbo' in self.session.busy:
+            return
         client = self.shell.nbo_client
+        self.session._busy('nbo', True)
         toast(self.window(), "در حال گرفتن خروجی از NBO…", "info")
         self.nbo_pill.set("در حال دریافت…", C["info"], C["info_soft"])
 
         def exported(data, err):
             if err == "login":
+                self.session._busy('nbo', False)
                 self.on_show()
                 if self.shell.nbo_login():
                     self.fetch_nbo()
                 return
             if err:
+                self.session._busy('nbo', False)
                 msg = {"network": "به NBO وصل نشد. اتصال اینترنت را بررسی کن.", "timeout": "NBO در زمان مناسب پاسخ نداد.",
                        "not_excel": "پاسخ NBO فایل Excel نبود.", "http_403": "این حساب اجازه‌ی Export در NBO را ندارد."}.get(err, f"خطا از NBO: {err}")
                 self.on_show()
@@ -215,6 +224,8 @@ class ReviewPage(ScrollPage):
             self.on_show()
 
     def fetch_crm(self, full):
+        if 'crm' in self.session.busy:
+            return
         if full and QMessageBox.question(self, "بارگذاری کامل CRM", "همه‌ی ثبت‌نام‌های CRM از اول خوانده می‌شود (چند دقیقه). ادامه؟") \
                 != QMessageBox.StandardButton.Yes:
             return

@@ -8,9 +8,9 @@ import tempfile
 import httpx
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QMessageBox
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QMessageBox, QFileDialog
 
-from ... import crm_sync, imports, sheets
+from ... import crm_sync, imports, sheets, google_credentials, workspace
 from ...collectors import enamad as enamad_mod
 from ...collectors import site as sitec
 from ...paths import logs_dir, user_dir
@@ -28,7 +28,7 @@ def col_letter(n: int) -> str:
 
 
 SHEET_STEPS = ("۱. شیت خودت را باز کن (همان «AutoReview - Results») و از منوی «Extensions» گزینه‌ی «Apps Script» را بزن.\n"
-               "۲. هر چه در ویرایشگر هست پاک کن، دکمه‌ی «کپی کد اسکریپت» را بزن، آنجا بچسبان و «Save» را بزن.\n"
+               "۲. از اسکریپت قبلی نسخه پشتیبان بگیر؛ کد AutoReview را با «کپی کد اسکریپت» به نسخه جدید به‌روز کن و Save بزن.\n"
                "۳. دکمه‌ی «Deploy» و بعد «New deployment» را بزن و نوع را «Web app» بگذار.\n"
                "۴. در «Execute as» گزینه‌ی «Me» و در «Who has access» گزینه‌ی «Anyone» را انتخاب کن و «Deploy» را بزن.\n"
                "۵. گوگل اجازه می‌خواهد: حساب خودت را انتخاب کن و «Allow» را بزن (اسکریپت مال خودت است).\n"
@@ -70,13 +70,25 @@ class ConnectionsPage(ScrollPage):
         # ---- own Google Sheet
         sh = Card()
         sh.header("شیت گوگل خودت", "همه‌ی نتایج کامل، صف دستی و خلاصه‌ی هر اجرا در شیت خودت ثبت می‌شود")
+        keyrow = QHBoxLayout()
+        b_key = button('وارد کردن فایل Service Account', 'primary', 'upload')
+        b_key.clicked.connect(self.import_google_key)
+        b_keytest = button('تست اتصال مستقیم', None, 'check')
+        b_keytest.clicked.connect(self.test_direct)
+        keyrow.addWidget(b_key); keyrow.addWidget(b_keytest)
+        sh.lay.addLayout(keyrow)
+        self.google_email = label('', 'muted', wrap=True, selectable=True)
+        sh.lay.addWidget(self.google_email)
+        sh.lay.addWidget(label('اتصال مستقیم با JSON: فایل به‌صورت رمزگذاری‌شده در پروفایل ویندوز ذخیره می‌شود. '
+                               'ایمیل Service Account باید Editor همین شیت باشد و Sheets API فعال باشد. '
+                               'راهنمای Apps Script پایین فقط مسیر جایگزین است.', 'muted', wrap=True))
         sh.lay.addWidget(label(SHEET_STEPS, "muted", wrap=True))
         row = QHBoxLayout()
         b_copy = button("کپی کد اسکریپت", None, "copy")
         b_copy.clicked.connect(self.copy_script)
         row.addWidget(b_copy)
         b_open = button("باز کردن شیت من", None, "external")
-        b_open.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://docs.google.com/spreadsheets/u/0/")))
+        b_open.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://docs.google.com/spreadsheets/d/" + sheets.load()["own_sheet_id"] + "/edit")))
         row.addWidget(b_open)
         row.addStretch(1)
         sh.lay.addLayout(row)
@@ -99,32 +111,34 @@ class ConnectionsPage(ScrollPage):
         self.sheet_steps = StepList()
         sh.lay.addWidget(self.sheet_steps)
         self.body.addWidget(sh)
+        access_card=Card()
+        access_card.header('اتصال همکار به فضای مشترک','کد شخصی را از مدیر بگیر؛ فایل Service Account لازم نیست')
+        self.workspace_url=QLineEdit()
+        self.workspace_url.setPlaceholderText('URL سرویس منتشرشده توسط مدیر')
+        self.workspace_url.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.workspace_token=QLineEdit()
+        self.workspace_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.workspace_token.setPlaceholderText('کد دسترسی شخصی')
+        access_card.lay.addWidget(self.workspace_url)
+        access_card.lay.addWidget(self.workspace_token)
+        b_access=button('فعال‌سازی دسترسی من','primary','user')
+        b_access.clicked.connect(self.connect_workspace)
+        access_card.lay.addWidget(b_access)
+        self.body.addWidget(access_card)
 
-        # ---- Online-Instore
-        oi = Card()
-        b_desc = button("بررسی ساختار شیت", "primary", "list-check")
-        b_desc.clicked.connect(self.describe_oi)
-        oi.header("شیت Online-Instore (مشترک با تیم)", "فقط ۴ ستون گروه Online در تب Pending، فقط ردیف‌های خالی — با مقدارهای کشویی خود شیت", b_desc)
+        # ---- own workflow connection
+        wf = Card()
+        wf.header("گردش کار در شیت اختصاصی", "نظر Online و Instore و تصمیم دستی؛ اتصال هر ۳۰ ثانیه تا وقتی اپ باز است")
         r = QHBoxLayout()
-        self.oi_switch = Switch()
-        self.oi_switch.setEnabled(False)
-        self.oi_switch.toggled.connect(self._oi_toggled)
-        r.addWidget(self.oi_switch)
-        self.oi_switch_text = label("ثبت در Online-Instore — اول «بررسی ساختار شیت» را بزن", "muted")
-        r.addWidget(self.oi_switch_text)
+        self.workflow_switch = Switch()
+        self.workflow_switch.toggled.connect(self._workflow_toggled)
+        r.addWidget(self.workflow_switch)
+        r.addWidget(label("همگام‌سازی خودکار و دریافت تصمیم‌های شیت", "muted"))
         r.addStretch(1)
-        oi.lay.addLayout(r)
-        r2 = QHBoxLayout()
-        r2.addWidget(label("کلمه‌ی «نشانگر» اتوماسیون (وقتی کد نتوانست تصمیم بگیرد):", "muted"))
-        self.marker = QComboBox()
-        self.marker.setMinimumWidth(220)
-        self.marker.currentIndexChanged.connect(self._marker_changed)
-        r2.addWidget(self.marker)
-        r2.addStretch(1)
-        oi.lay.addLayout(r2)
-        self.oi_steps = StepList()
-        oi.lay.addWidget(self.oi_steps)
-        self.body.addWidget(oi)
+        wf.lay.addLayout(r)
+        wf.lay.addWidget(label("در شیت، تب Workflow وضعیت پرونده را نشان می‌دهد. در Decisions، کد درخواست، تیم، تصمیم، توضیح، "
+                               "بررسی‌کننده و نسخه پرونده را وارد کن و تیک ارسال را بزن. تا ثبت رسید accepted، تصمیم نهایی نشده است.", "muted", wrap=True))
+        self.body.addWidget(wf)
 
         # ---- enamad + websites
         web = Card()
@@ -156,9 +170,10 @@ class ConnectionsPage(ScrollPage):
         cfg = sheets.load()
         self.url.setText(cfg.get("webapp_url", ""))
         self.auto.setChecked(bool(cfg.get("auto_send")))
-        self.auto.setEnabled(bool(cfg.get("webapp_url")))
-        self.oi_switch.setChecked(bool(cfg["oi"].get("enabled")))
-        self._fill_marker(cfg["oi"].get("marker", ""), [])
+        self.auto.setEnabled(bool(cfg.get("webapp_url")) or cfg.get('auth_mode') == 'service_account')
+        self.google_email.setText(cfg.get('service_account_email', 'هنوز کلید اتصال مستقیم وارد نشده'))
+        self.workflow_switch.setChecked(bool(cfg.get("workflow_sync")))
+        self.workspace_url.setText(cfg.get('workspace_url',''))
         self._loading = False
 
     # ---- CRM
@@ -215,6 +230,50 @@ class ConnectionsPage(ScrollPage):
         client.export(["PENDING"], done)
 
     # ---- own sheet
+    def connect_workspace(self):
+        url=self.workspace_url.text().strip()
+        if not sheets.valid_webapp_url(url):
+            QMessageBox.warning(self,'اتصال همکار','URL سرویس معتبر نیست'); return
+        cfg=sheets.load(); cfg['workspace_url']=url
+        try:
+            if self.workspace_token.text().strip():
+                workspace.save_access(self.session.profile['username'],self.workspace_token.text().strip())
+            auth=workspace.access()
+            if not auth or auth['username'] != workspace.username(self.session.profile['username']):
+                raise ValueError('کد دسترسی باید متعلق به همین حساب CRM باشد')
+        except Exception:
+            QMessageBox.warning(self,'اتصال همکار','کد دسترسی ذخیره نشد یا متعلق به این حساب نیست'); return
+        def done(result):
+            if result.get('version')!=4:
+                QMessageBox.warning(self,'اتصال همکار','نسخه سرویس باید ۴ باشد'); return
+            cfg.update(auth_mode='workspace',workflow_sync=True)
+            sheets.save(cfg); self.workspace_token.clear()
+            self.sheet_steps.set_steps([('فضای مشترک',True,workspace.ROLES.get(result['user']['role'],''))])
+            self.session.sync_workflow(force=True)
+        run_bg(lambda _p:workspace.call('whoami',cfg),done,lambda e:QMessageBox.warning(self,'اتصال همکار',str(e)))
+
+    def import_google_key(self):
+        path, _ = QFileDialog.getOpenFileName(self, 'فایل Service Account', '', 'JSON (*.json)')
+        if not path: return
+        try:
+            email = google_credentials.import_file(path)
+            cfg = sheets.load()
+            cfg.update(auth_mode='service_account', service_account_email=email)
+            sheets.save(cfg)
+        except Exception:
+            QMessageBox.warning(self, 'کلید گوگل', 'فایل معتبر نبود یا ذخیره امن ویندوز انجام نشد؛ جزئیات کلید نمایش داده نمی‌شود.')
+            return
+        self.on_show(); self.test_direct()
+
+    def test_direct(self):
+        cfg = sheets.load()
+        if cfg.get('auth_mode') != 'service_account':
+            QMessageBox.information(self, 'اتصال مستقیم', 'اول فایل Service Account را وارد کن.'); return
+        self.sheet_steps.set_steps([('در حال بررسی اتصال مستقیم…', None, '')])
+        run_bg(lambda _p: sheets.ping(cfg),
+               lambda data: self.sheet_steps.set_steps([('اتصال مستقیم', True, data.get('sheet', ''))]),
+               lambda e: self.sheet_steps.set_steps([('اتصال مستقیم', False, str(e))]))
+
     def copy_script(self):
         QGuiApplication.clipboard().setText(sheets.script_code())
         toast(self.window(), "کد اسکریپت کپی شد — در Apps Script شیت خودت بچسبان")
@@ -227,8 +286,8 @@ class ConnectionsPage(ScrollPage):
 
         def ok(data):
             self.sheet_steps.set_steps([("اتصال به شیت", True, f"وصل شد: «{data.get('sheet', '')}»"),
-                                        ("دسترسی Online-Instore در اسکریپت", bool(data.get("online_instore")),
-                                         "فعال" if data.get("online_instore") else "اسکریپت قدیمی است؛ دوباره کپی و Deploy کن")])
+                                        ("گردش کار شیت اختصاصی", data.get("version", 0) >= 3 and data.get("sheet_id") == cfg["own_sheet_id"],
+                                         "نسخه ۳" if data.get("version", 0) >= 3 else "اسکریپت قدیمی است؛ دوباره کپی و Deploy کن")])
             self.auto.setEnabled(True)
             self.shell._update_status()
 
@@ -244,69 +303,21 @@ class ConnectionsPage(ScrollPage):
         sheets.save(cfg)
         self.shell._update_status()
 
-    # ---- Online-Instore
-    def describe_oi(self):
-        cfg = sheets.load()
-        if not cfg.get("webapp_url"):
-            QMessageBox.information(self, "Online-Instore", "اول شیت خودت را وصل کن؛ اسکریپت شیت تو با حساب خودت Online-Instore را می‌خواند.")
-            return
-        self.oi_steps.set_steps([("در حال خواندن ساختار Online-Instore…", None, "")])
-
-        def ok(d):
-            L = d["layout"]
-            names = L.get("names", [])
-            cols = "، ".join(f"{col_letter(L[k])} «{n}»" for k, n in zip(("date", "result", "edit", "cancel"), names))
-            problems = sheets.oi_problems(d, cfg)
-            steps = [("ستون‌های گروه Online پیدا شد", True, cols),
-                     ("ستون Case ID", True, col_letter(L["caseCol"])),
-                     ("ردیف‌ها", True, f"{num(d['rows'])} ردیف، {num(d['empty_count'])} ردیفِ منتظر بررسی ما"),
-                     ("مقدارهای کشویی «بررسی قرارداد»", bool((d.get("allowed") or {}).get("result")),
-                      "، ".join((d.get("allowed") or {}).get("result") or []) or "فهرست ندارد")]
-            if problems:
-                steps += [("ناسازگاری", False, p) for p in problems]
-            else:
-                steps.append(("همه‌ی مقدارهایی که اپ می‌نویسد در فهرست‌های خود شیت هست", True, ""))
-            self.oi_steps.set_steps(steps)
-            self._fill_marker(cfg["oi"].get("marker", ""), d.get("seen", {}).get("result", []))
-            self.oi_switch.setEnabled(not problems)
-            self.oi_switch_text.setText("ثبت در Online-Instore" if not problems else "ثبت در Online-Instore — اول ناسازگاری‌ها رفع شود")
-
-        def bad(e):
-            self.oi_steps.set_steps([("خواندن Online-Instore", False, str(e))])
-        run_bg(lambda _p: sheets.oi_describe(cfg), ok, bad)
-
-    def _fill_marker(self, current, seen):
-        self._loading = True
-        self.marker.clear()
-        self.marker.addItem("— هیچ (دستی‌ها خالی بمانند) —", "")
-        options = [v for v in seen if v not in sheets.load()["oi"]["result_values"].values()]
-        if current and current not in options:
-            options.insert(0, current)
-        for v in options:
-            self.marker.addItem(v, v)
-        i = self.marker.findData(current)
-        self.marker.setCurrentIndex(max(0, i))
-        self._loading = False
-
-    def _marker_changed(self, _i):
+    def _workflow_toggled(self, on):
         if self._loading:
             return
         cfg = sheets.load()
-        cfg["oi"]["marker"] = self.marker.currentData() or ""
-        sheets.save(cfg)
-
-    def _oi_toggled(self, on):
-        if self._loading:
+        if on and not (sheets.valid_webapp_url(cfg.get("webapp_url", "")) or
+                       (cfg.get('auth_mode') == 'service_account' and google_credentials.available())):
+            QMessageBox.information(self, "اتصال شیت", "اول کد جدید اسکریپت را در شیت اختصاصی Deploy کن و لینک وب‌اپ را تست کن.")
+            self.workflow_switch.blockSignals(True)
+            self.workflow_switch.setChecked(False)
+            self.workflow_switch.blockSignals(False)
             return
-        cfg = sheets.load()
-        if on and QMessageBox.question(self, "Online-Instore", "از این به بعد، بعد از هر بررسیِ صف «آنلاین + حضوری»، نتیجه‌ها (با تأیید تو) "
-                                       "فقط در ۴ ستون خالیِ گروه Online نوشته می‌شود. روشن شود؟") != QMessageBox.StandardButton.Yes:
-            self._loading = True
-            self.oi_switch.setChecked(False)
-            self._loading = False
-            return
-        cfg["oi"]["enabled"] = bool(on)
+        cfg["workflow_sync"] = bool(on)
+        cfg["oi"]["enabled"] = False
         sheets.save(cfg)
+        self.session.sync_workflow(force=True)
 
     # ---- enamad + websites
     def test_web(self):

@@ -1,0 +1,67 @@
+"""Refresh sources without file picking, using each person's existing sessions."""
+import time
+
+from PySide6.QtCore import QObject, QTimer, Signal
+
+from .. import crm_sync, reference, sheets
+from .web import ALL_NBO_STATUSES
+
+
+class AutomaticSources(QObject):
+    changed = Signal()
+
+    def __init__(self, session, nbo_client, parent=None):
+        super().__init__(parent)
+        self.session, self.client = session, nbo_client
+        self.status = 'دریافت خودکار آماده است'
+        self.next_crm = self.next_nbo = 0.0
+        self.crm_active = self.nbo_active = False
+        self.enabled = True
+        self.timer = QTimer(self)
+        self.timer.setInterval(30_000)
+        self.timer.timeout.connect(self.tick)
+        self.timer.start()
+        QTimer.singleShot(2000, self.tick)
+
+    def update(self, text):
+        self.status = text
+        self.changed.emit()
+
+    def tick(self):
+        if not self.enabled: return
+        s = self.session
+        if sheets.load().get('auth_mode') == 'workspace' and s.profile.get('workspace_role') not in ('admin', 'online'):
+            return
+        # Do not replace source snapshots halfway through a review.
+        if s.runner and s.runner.is_active(): return
+        now = time.monotonic()
+        if now >= self.next_crm and not self.crm_active and 'crm' not in s.busy:
+            if not crm_sync.have_credentials():
+                self.update('برای دریافت خودکار CRM، یک بار وارد حساب خودت شو')
+                self.next_crm = now + 60
+            else:
+                self.crm_active = True
+                def done(_result):
+                    self.crm_active = False; self.next_crm = time.monotonic()+300
+                    self.update('CRM خودکار به‌روز شد')
+                def failed(_error):
+                    self.crm_active = False; self.next_crm = time.monotonic()+120
+                    self.update('CRM به‌روز نشد؛ اتصال یا ورود را بررسی کن')
+                s.refresh_crm(on_done=done, on_fail=failed)
+        if now < self.next_nbo or self.nbo_active or 'nbo' in s.busy: return
+        self.nbo_active = True
+        s._busy('nbo', True)
+        self.update('در حال دریافت خودکار NBO…')
+        def finish(error=None):
+            self.nbo_active = False; self.next_nbo = time.monotonic()+(120 if error else 300)
+            s._busy('nbo',False)
+            self.update('NBO: ورود/OTP یا اتصال نیاز به بررسی دارد' if error else 'NBO خودکار به‌روز شد')
+            if not error: s.sync_workflow()
+        def exported(data, error):
+            if error: finish(error); return
+            s.import_nbo_bytes(data, lambda _n: finish(), lambda _e: finish('import'))
+        self.client.export(ALL_NBO_STATUSES, exported)
+
+    def stop(self):
+        self.enabled = False
+        self.timer.stop()

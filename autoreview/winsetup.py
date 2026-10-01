@@ -124,7 +124,13 @@ def looks_like_our_install(path: Path) -> bool:
 
 def extract(payload_zip, target: Path, progress=None):
     """Replace the program files with the payload (old files first removed, so nothing stale survives an update)."""
-    target = Path(target)
+    target = Path(target).resolve()
+    # Validate every member BEFORE replacing a working installation.
+    with zipfile.ZipFile(payload_zip) as archive:
+        for member in archive.infolist():
+            dest = (target / member.filename).resolve()
+            if not dest.is_relative_to(target) or dest == target:
+                raise RuntimeError(f"unsafe path in payload: {member.filename}")
     if target.exists():
         if not looks_like_our_install(target):
             raise RuntimeError(f"پوشه‌ی «{target}» خالی نیست و برنامه‌ی AutoReview هم در آن نیست؛ پوشه‌ی دیگری انتخاب کن.")
@@ -136,7 +142,7 @@ def extract(payload_zip, target: Path, progress=None):
         done = 0
         for m in members:
             dest = (target / m.filename).resolve()
-            if not str(dest).startswith(str(target.resolve())):              # never write outside the install folder
+            if not dest.is_relative_to(target):
                 raise RuntimeError(f"unsafe path in payload: {m.filename}")
             z.extract(m, target)
             done += m.file_size

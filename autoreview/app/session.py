@@ -7,9 +7,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QTimer
 
-from .. import crm_sync, imports, logs, reference, settings, sheets, store, workboard
+from .. import crm_sync, imports, logs, reference, settings, sheets, store, workboard, workflow, workflow_sync
 from ..paths import data_dir, exports_dir
 from ..pipeline import Runner
 
@@ -55,6 +55,7 @@ class Session(QObject):
     run_changed = Signal()               # progress of the current run
     run_finished = Signal(str)           # run_id
     busy_changed = Signal(str, bool)     # ("crm" | "nbo" | "sheet" | "oi", active)
+    workflow_sync_changed = Signal()
 
     def __init__(self, profile, crm_password=None):
         super().__init__()
@@ -67,8 +68,17 @@ class Session(QObject):
         self.busy = set()
         db = self.db()
         reference.ensure(db)
+        workflow.ensure(db)
         store.mark_interrupted_runs(db)
         db.close()
+        self.workflow_sync_status = 'همگام‌سازی هنوز انجام نشده'
+        self._sync_failures = 0
+        self._sync_next = 0.0
+        self.refresh_workflow()
+        self._workflow_timer = QTimer(self)
+        self._workflow_timer.setInterval(30_000)
+        self._workflow_timer.timeout.connect(self.sync_workflow)
+        self._workflow_timer.start()
 
     # ---- basics
     def db(self):
@@ -164,6 +174,8 @@ class Session(QObject):
 
     def _after(self, key, cb, res):
         self._busy(key, False)
+        if key == 'nbo':
+            self.refresh_workflow()
         self.data_changed.emit()
         if cb:
             cb(res)
@@ -211,11 +223,62 @@ class Session(QObject):
         run_bg(wait, self._finished)
 
     def _finished(self, run_id):
+        self.refresh_workflow(run_id)
         self.data_changed.emit()
         self.run_finished.emit(run_id)
         cfg = sheets.load()
-        if cfg.get("auto_send") and cfg.get("webapp_url"):
+        if cfg.get("auto_send") and (cfg.get("webapp_url") or cfg.get('auth_mode') == 'service_account'):
             self.send_run_to_sheet(run_id)
+        self.sync_workflow()
+
+    def refresh_workflow(self, run_id=None):
+        if sheets.load().get('auth_mode') == 'workspace' and self.profile.get('workspace_role') not in ('admin', 'online'):
+            return
+        db = self.db()
+        try:
+            all_rows = reference.all_nbo_rows(db)
+            eligible = reference.backlog_rows(db, self.rules())[0] + reference.both_channel_rows(db, self.rules())
+            meta = reference.meta(db,'nbo')
+            if meta:
+                workflow.refresh(db, all_rows, {r['smr'] for r in eligible}, meta['loaded_at'])
+            if run_id:
+                for result in store.results_of(db, run_id): workflow.suggest(db, result['smr'], result)
+        finally:
+            db.close()
+
+    def sync_workflow(self, force=False):
+        cfg = sheets.load()
+        if 'workflow' in self.busy:
+            return
+        if not cfg.get('workflow_sync') or not (cfg.get('webapp_url') or cfg.get('workspace_url') or cfg.get('auth_mode') == 'service_account'):
+            self.workflow_sync_status = 'اتصال گردش کار خاموش است؛ از «اتصال‌ها» فعال کن'
+            self.workflow_sync_changed.emit()
+            return
+        if not force and time.monotonic() < self._sync_next:
+            return
+        self._busy('workflow', True)
+        self.workflow_sync_status = 'در حال همگام‌سازی با شیت اختصاصی…'
+        self.workflow_sync_changed.emit()
+        def work(_p):
+            db = self.db()
+            try: return workflow_sync.sync(db, cfg)
+            finally: db.close()
+        def done(result):
+            self._busy('workflow', False)
+            self._sync_failures = 0
+            self._sync_next = time.monotonic() + 30
+            self.workflow_sync_status = ('آخرین اتصال موفق: ' + datetime.now().strftime('%H:%M:%S') +
+                (f" — {result['rejected']} تصمیم رد شد؛ تب Decisions را بررسی کن" if result['rejected'] else ''))
+            self.workflow_sync_changed.emit()
+            self.data_changed.emit()
+        def failed(_error):
+            self._busy('workflow', False)
+            self._sync_failures += 1
+            wait = min(300, 30 * 2 ** min(self._sync_failures - 1, 4))
+            self._sync_next = time.monotonic() + wait
+            self.workflow_sync_status = f'همگام‌سازی ناموفق: {_error} — داده محفوظ است؛ تلاش بعدی تا {wait} ثانیه دیگر'
+            self.workflow_sync_changed.emit()
+        return run_bg(work, done, failed)
 
     def send_run_to_sheet(self, run_id, on_done=None, on_fail=None):
         def work(_p):

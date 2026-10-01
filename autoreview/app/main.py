@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from .. import crm_sync, logs, profile
+from .. import crm_sync, logs, profile, sheets, workspace
 from ..paths import APP_ID
 from . import icons, theme
 
@@ -66,6 +66,54 @@ class App:
         self.open_shell(saved, password)
 
     def open_shell(self, prof, password):
+        try:
+            is_owner = workspace.username(prof['username']) == workspace.ADMIN
+        except ValueError:
+            is_owner = False
+        cfg = sheets.load()
+        if not is_owner or cfg.get('auth_mode') == 'workspace':
+            self._workspace_login(prof, password)
+            return
+        self._show_shell(prof, password)
+
+    def _workspace_login(self, prof, password):
+        from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QDialogButtonBox
+        from .session import run_bg
+        cfg = sheets.load()
+        dialog = QDialog(); dialog.setWindowTitle('دسترسی شخصی AutoReview')
+        form = QFormLayout(dialog)
+        url = QLineEdit(cfg.get('workspace_url', ''))
+        token = QLineEdit(); token.setEchoMode(QLineEdit.EchoMode.Password)
+        form.addRow('نشانی سرویس مدیر', url); form.addRow('کد دسترسی (در صورت ذخیره‌شدن خالی بماند)', token)
+        controls = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        form.addRow(controls)
+        def connect():
+            if not sheets.valid_webapp_url(url.text().strip()):
+                QMessageBox.warning(dialog, 'دسترسی', 'نشانی سرویس مدیر معتبر نیست'); return
+            cfg['workspace_url'] = url.text().strip()
+            try:
+                if token.text().strip(): workspace.save_access(prof['username'], token.text().strip())
+                auth = workspace.access()
+                if not auth or auth['username'] != workspace.username(prof['username']): raise ValueError()
+            except Exception:
+                QMessageBox.warning(dialog, 'دسترسی', 'کد دسترسی مخصوص همین حساب را از مدیر بگیر'); return
+            controls.setEnabled(False)
+            def done(result):
+                if result.get('version') != 4:
+                    failed('نسخه سرویس با اپ سازگار نیست'); return
+                cfg.update(auth_mode='workspace', workflow_sync=True)
+                sheets.save(cfg)
+                prof['workspace_role'] = result['user']['role']
+                dialog.accept()
+                self._show_shell(prof, password)
+            def failed(error):
+                controls.setEnabled(True); QMessageBox.warning(dialog, 'دسترسی', str(error))
+            run_bg(lambda _p: workspace.call('whoami', cfg), done, failed)
+        controls.accepted.connect(connect); controls.rejected.connect(dialog.reject)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self.show_login('ورود به فضای مشترک کامل نشد')
+
+    def _show_shell(self, prof, password):
         from .session import Session
         from .shell import Shell
         self.shell = Shell(Session(prof, crm_password=password))

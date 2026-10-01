@@ -63,12 +63,14 @@ def test_a_wrong_secret_is_reported():
         sheets.ping(cfg, client(lambda r: httpx.Response(200, json={"ok": False, "error": "forbidden"})))
 
 
-def test_script_carries_only_the_configured_online_instore_sheet():
+def test_script_carries_only_the_owners_sheet():
     cfg = sheets.load()
     code = sheets.script_code(cfg)
-    assert "const ONLINE_INSTORE_ID = '1FCt7WfmuQ5zy_jwafsLe2a7xkbKouS28wep1d94lF3s';" in code and "const OI_TAB = 'Pending';" in code
-    cfg["oi"]["sheet_id"] = "x'); DriveApp.getRootFolder(); ('"            # anything odd is stripped, never injected
-    assert "DriveApp" not in sheets.script_code(cfg).split("const ONLINE_INSTORE_ID")[1].splitlines()[0]
+    assert cfg['own_sheet_id'] in code
+    assert 'ONLINE_INSTORE_ID' not in code
+    cfg['own_sheet_id'] = "x'); DriveApp.getRootFolder(); ('"
+    with pytest.raises((ValueError, sheets.SheetError)):
+        sheets.script_code(cfg)
 
 
 def test_online_instore_rows_use_the_sheet_values_and_nbo_labels_and_skip_manual():

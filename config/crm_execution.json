@@ -1,0 +1,11 @@
+{
+  "enabled": false,
+  "entity_set": "new_merchantregistrations",
+  "request_code_field": "new_caseid",
+  "status_field": "new_merchantstatus",
+  "approve_value": 100000005,
+  "approve_label": "درخواست تایید شده است",
+  "transport_verified": false,
+  "permission_verified": false,
+  "_note": "Known read-only metadata only. This is not permission to PATCH the status field. The CRM approval action/workflow and required record identity/concurrency checks must be verified before enabling execution. The owner currently does not have CRM approval rights."
+}

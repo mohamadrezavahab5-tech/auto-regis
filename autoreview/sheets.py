@@ -215,6 +215,9 @@ def load() -> dict:
         changed = True
     cfg.setdefault("webapp_url", "")
     cfg.setdefault("auto_send", False)
+    cfg.setdefault("own_sheet_id", "1UHlktMbe6bhDMKQd51Z-H1pvrrgD3ppTl9QmI1cEFrQ")
+    cfg.setdefault("workflow_sync", False)
+    cfg.setdefault("auth_mode", "apps_script")
     cfg.setdefault("sheet_name", "")
     cfg.setdefault("sent_runs", [])
     oi = cfg.setdefault("oi", {})
@@ -231,12 +234,13 @@ def save(cfg: dict) -> None:
 
 def script_code(cfg: dict = None) -> str:
     cfg = cfg or load()
-    oi = cfg.get("oi", {})
-    sheet_id = str(oi.get("sheet_id", "")).strip()
-    if not re.fullmatch(r"[A-Za-z0-9_-]{25,80}", sheet_id):          # not a Google file id => the script may write nowhere else
-        sheet_id = ""
-    tab = re.sub(r"['\"\\\r\n]", "", str(oi.get("tab", "")))
-    return APPS_SCRIPT.replace("__SECRET__", cfg["secret"]).replace("__OI_ID__", sheet_id).replace("__OI_TAB__", tab)
+    from .paths import scripts_dir
+    sheet_id = str(cfg.get("own_sheet_id", "")).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{25,80}", sheet_id):
+        raise SheetError("شناسه شیت اختصاصی معتبر نیست")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{30,128}", cfg.get("secret", "")):
+        raise SheetError("کلید اتصال معتبر نیست")
+    return (scripts_dir() / "own-sheet.gs").read_text(encoding="utf-8").replace("__SECRET__", cfg["secret"]).replace("__OWN_ID__", sheet_id)
 
 
 def valid_webapp_url(url: str) -> bool:
@@ -271,6 +275,10 @@ def _post(url: str, payload: dict, client=None, timeout=90.0) -> dict:
 
 def ping(cfg: dict = None, client=None) -> dict:
     cfg = cfg or load()
+    if cfg.get('auth_mode') == 'service_account':
+        from .google_sheet import Client
+        with Client(cfg['own_sheet_id']) as google:
+            return google.ping()
     data = _post(cfg.get("webapp_url", ""), {"secret": cfg["secret"], "action": "ping"}, client)
     cfg["sheet_name"] = data.get("sheet", "")
     save(cfg)
@@ -281,12 +289,17 @@ def _row(r: dict) -> dict:
     secs = round(r["duration_ms"] / 1000, 1) if r.get("duration_ms") is not None else ""
     return {"smr": r["smr"], "site": r.get("site") or "", "category": r.get("category") or "", "created_at": r.get("created_at") or "",
             "action": r["action"], "action_fa": ACTION_FA.get(r["action"], r["action"]), "codes": "، ".join(r.get("reason_codes") or []),
-            "reasons_fa": reasons_fa(r.get("reason_codes")), "notes_fa": notes_fa(r.get("notes")), "seconds": secs}
+            "reasons_fa": reasons_fa(r.get("reason_codes")), "notes_fa": notes_fa(r.get("notes")), "seconds": secs,
+            "decided_at": r.get("decided_at", "")}
 
 
 def send_run(run_id: str, results: list, user_name: str = "", cfg: dict = None, client=None) -> dict:
     """Adds one run's results to the person's sheet. Sending the same run twice adds nothing (the script checks)."""
     cfg = cfg or load()
+    if cfg.get('auth_mode') == 'service_account':
+        from .google_sheet import Client
+        with Client(cfg['own_sheet_id']) as google:
+            return google.append_run(run_id, [_row(r) for r in results])
     t0 = time.monotonic()
     data = _post(cfg.get("webapp_url", ""), {"secret": cfg["secret"], "action": "append", "run_id": run_id, "user": user_name or "",
                                             "rows": [_row(r) for r in results]}, client)
@@ -363,6 +376,8 @@ def oi_problems(describe: dict, cfg: dict = None, labels: dict = None) -> list:
 
 
 def oi_write(run_id: str, rows: list, user_name: str = "", cfg: dict = None, client=None) -> dict:
+    raise SheetError("ثبت در شیت مشترک خاموش است؛ گردش کار فقط در شیت اختصاصی ثبت می‌شود")
+    # Retained below for reading legacy configurations; unreachable by design.
     cfg = cfg or load()
     if not cfg["oi"].get("enabled"):
         raise SheetError("ثبت در شیت Online-Instore خاموش است (تنظیمات > اتصال‌ها).")

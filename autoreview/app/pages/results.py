@@ -100,7 +100,7 @@ class ResultsPage(QWidget):
         b_xlsx.clicked.connect(self.export_xlsx)
         b_sheet = button("ارسال به شیت من", None, "send")
         b_sheet.clicked.connect(self.send_sheet)
-        self.b_oi = button("ثبت در Online-Instore", None, "sheet")
+        self.b_oi = button("تصمیم دستی / گردش کار", None, "sheet")
         self.b_oi.clicked.connect(lambda: self.shell.offer_online_instore(self.run_id))
         for b in (b_xlsx, b_sheet, self.b_oi):
             top.addWidget(b)
@@ -199,7 +199,7 @@ class ResultsPage(QWidget):
         c = {k: sum(1 for r in rows if r["action"] == k) for k in ("APPROVE", "EDIT", "CANCEL", "MANUAL")}
         self.summary.setText(f"{num(len(rows))} درخواست — تایید {num(c['APPROVE'])} • اصلاح {num(c['EDIT'])} • لغو {num(c['CANCEL'])} • "
                              f"دستی {num(c['MANUAL'])}")
-        self.b_oi.setVisible("Online-Instore" in run_label)
+        self.b_oi.setVisible(True)
 
     def _chip(self, key):
         for k, b in self.chips.items():
@@ -358,7 +358,7 @@ class ResultsPage(QWidget):
     def send_sheet(self):
         if not self.run_id:
             return
-        if not sheets.load().get("webapp_url"):
+        if not (sheets.load().get("webapp_url") or sheets.load().get('auth_mode') == 'service_account'):
             QMessageBox.information(self, "شیت", "اول شیت خودت را در «اتصال‌ها» وصل کن.")
             self.shell.go("connections")
             return

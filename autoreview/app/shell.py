@@ -17,9 +17,10 @@ from .widgets import Pill, label, num, toast
 
 NAV = [
     ("کار", [("dashboard", "داشبورد", "dashboard"), ("review", "بررسی", "review"), ("results", "نتایج", "results"),
+             ("workflow", "گردش کار", "list-check"), ("execution", "کنترل اجرا", "shield"),
              ("search", "جستجو در مرجع", "search")]),
     ("سامانه‌ها", [("nbo", "NBO", "nbo"), ("crm", "CRM", "crm")]),
-    ("مدیریت", [("connections", "اتصال‌ها", "plug"), ("logs", "لاگ‌ها", "logs"), ("settings", "تنظیمات", "settings")]),
+    ("مدیریت", [("connections", "اتصال‌ها", "plug"), ("users", "کاربران", "user"), ("logs", "لاگ‌ها", "logs"), ("settings", "تنظیمات", "settings")]),
 ]
 
 
@@ -29,6 +30,8 @@ class Shell(QMainWindow):
     def __init__(self, session):
         super().__init__()
         self.session = session
+        from .execution_control import ExecutionControl
+        self.execution = ExecutionControl(session, self)
         self.setWindowTitle("AutoReview")
         self.setWindowIcon(icons.app_icon())
         self.resize(1360, 860)
@@ -52,6 +55,8 @@ class Shell(QMainWindow):
         self._status()
 
         self.nbo_client = NboClient(self)                      # hidden page in the person's NBO session (export, checks)
+        from .automatic import AutomaticSources
+        self.automatic = AutomaticSources(session, self.nbo_client, self)
         session.renderer = PageRenderer(self)                  # hidden browser for the 'second look' at JavaScript pages
         from .pages import build_pages
         self.pages = build_pages(session, self)
@@ -152,8 +157,12 @@ class Shell(QMainWindow):
         ic = QLabel()
         ic.setPixmap(icons.pixmap("shield", "#8A5A00", 18))
         h.addWidget(ic)
-        h.addWidget(label("حالت آزمایشی: اپ بررسی می‌کند و پیشنهاد می‌دهد؛ هیچ وضعیتی در NBO تغییر نمی‌کند. "
-                          "ثبت در شیت‌ها فقط وقتی است که خودت در «اتصال‌ها» روشنش کنی.", "bannerText", wrap=True), 1)
+        self.mode_banner = label(self.execution.summary, "bannerText", wrap=True)
+        self.execution.changed.connect(lambda: self.mode_banner.setText(self.execution.summary))
+        h.addWidget(self.mode_banner, 1)
+        control_button = QPushButton('آزمایشی / واقعی')
+        control_button.clicked.connect(lambda: self.go('execution'))
+        h.addWidget(control_button)
         return b
 
     def _status(self):
@@ -186,8 +195,8 @@ class Shell(QMainWindow):
         cfg = sheets.load()
         if "sheet" in b.busy:
             self.pill_sheet.set("شیت: در حال ارسال…", C["info"], C["info_soft"])
-        elif cfg.get("webapp_url"):
-            self.pill_sheet.set("شیت: وصل" + (" — ارسال خودکار" if cfg.get("auto_send") else ""), C["approve"], C["approve_soft"])
+        elif cfg.get("webapp_url") or cfg.get('auth_mode') == 'service_account':
+            self.pill_sheet.set("شیت: تنظیم شده؛ وضعیت در گردش کار", C["info"], C["info_soft"])
         else:
             self.pill_sheet.set("شیت: وصل نشده", C["text2"], C["surface2"])
 
@@ -243,45 +252,8 @@ class Shell(QMainWindow):
 
     def offer_online_instore(self, run_id):
         """Online-Instore: only after the switch is on, a fresh structure check passes and the person confirms."""
-        cfg = sheets.load()
-        if not run_id:
-            return
-        if not cfg["oi"].get("enabled"):
-            if QMessageBox.question(self, "Online-Instore", "ثبت در شیت Online-Instore خاموش است. به «اتصال‌ها» بروم تا روشنش کنی؟") \
-                    == QMessageBox.StandardButton.Yes:
-                self.go("connections")
-            return
-        db = self.session.db()
-        try:
-            results = store.results_of(db, run_id)
-        finally:
-            db.close()
-        rows, skipped = sheets.oi_rows(results, cfg)
-        if not rows:
-            QMessageBox.information(self, "Online-Instore", "در این اجرا نتیجه‌ای برای نوشتن نیست (همه دستی بودند).")
-            return
-
-        def described(d):
-            problems = sheets.oi_problems(d, cfg)
-            if problems:
-                QMessageBox.warning(self, "Online-Instore", "چیزی نوشته نشد؛ ساختار یا فهرست‌های شیت عوض شده:\n\n" + "\n".join(problems))
-                return
-            waiting = set(d.get("empty_ids") or [])
-            ready = [r for r in rows if r["case_id"] in waiting]
-            if not ready:
-                QMessageBox.information(self, "Online-Instore", "ردیف خالیِ منتظری برای این درخواست‌ها در شیت نیست (شاید همکاری پر کرده).")
-                return
-            c = {v: sum(1 for r in ready if r["result"] == v) for v in set(r["result"] for r in ready)}
-            text = "، ".join(f"{k}: {num(n)}" for k, n in c.items())
-            if QMessageBox.question(self, "ثبت در Online-Instore",
-                                    f"{num(len(ready))} ردیف در ۴ ستون Online تب «{cfg['oi']['tab']}» نوشته می‌شود ({text}).\n"
-                                    f"{num(len(skipped))} مورد دستی خالی می‌ماند. هیچ ستون دیگری دست نمی‌خورد.\n\nادامه؟") \
-                    != QMessageBox.StandardButton.Yes:
-                return
-            run_bg(lambda _p: sheets.oi_write(run_id, ready, self.session.user_label(), cfg),
-                   lambda r: toast(self, f"Online-Instore: {num(r.get('written', 0))} ردیف نوشته شد، {num(r.get('skipped', 0))} دست نخورد"),
-                   lambda e: QMessageBox.warning(self, "Online-Instore", str(e)))
-        run_bg(lambda _p: sheets.oi_describe(cfg), described, lambda e: QMessageBox.warning(self, "Online-Instore", str(e)))
+        self.go('workflow')
+        return
 
     def closeEvent(self, e):
         r = self.session.runner
@@ -291,4 +263,6 @@ class Shell(QMainWindow):
                 return
             r.stop()
             r.join(20)
+        self.automatic.stop()
+        self.execution.stop()
         super().closeEvent(e)

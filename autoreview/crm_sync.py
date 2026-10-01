@@ -6,6 +6,7 @@ without "remember me" it is deleted when the app closes. A refused password is d
 automatically (repeated failures can lock the domain account).
 Transport: PowerShell Invoke-WebRequest with NTLM. Nothing is ever written to CRM: the only verb used is GET."""
 import json
+import os
 import re
 import subprocess
 import time
@@ -74,9 +75,18 @@ def have_credentials() -> bool:
     return True
 
 
+def powershell_environment():
+    """Windows PowerShell must not inherit incompatible PowerShell 7 module paths."""
+    env = os.environ.copy()
+    base = Path(env.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0'
+    env['PSModulePath'] = str(base / 'Modules')
+    return env
+
+
 def _ps(args, stdin=None, timeout=300):
     cmd = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", *args]
     return subprocess.run(cmd, input=stdin, capture_output=True, timeout=timeout,
+                          env=powershell_environment(),
                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 

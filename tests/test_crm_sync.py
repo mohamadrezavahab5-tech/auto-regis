@@ -89,6 +89,7 @@ def test_save_credentials_round_trip_through_powershell():
     c.save_credentials("test.user", pw)
     script = f"$c = Import-Clixml -Path '{c.cred_file()}'; $p = $c.GetNetworkCredential().Password; " \
              "[Console]::OpenStandardOutput().Write([Text.Encoding]::UTF8.GetBytes($c.UserName + '|' + $p), 0, [Text.Encoding]::UTF8.GetByteCount($c.UserName + '|' + $p))"
-    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True)
+    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
+                       env=c.powershell_environment())
     assert r.stdout.decode("utf-8") == f"SNAPP\\test.user|{pw}"
     assert c.stored_username() == "SNAPP\\test.user"
