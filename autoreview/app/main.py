@@ -105,6 +105,9 @@ def _excepthook(exc_type, exc, tb):
 
 
 def main():
+    if "--uninstall" in sys.argv:
+        from .uninstall import run as uninstall
+        return uninstall()
     logs.setup()
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)     # own taskbar icon/grouping

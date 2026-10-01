@@ -73,10 +73,8 @@ def icon(name: str, color: str = "#52625C", size: int = 18) -> QIcon:
     return QIcon(pixmap(name, color, size))
 
 
-def logo_pixmap(size: int = 64) -> QPixmap:
-    """The app mark: a deep petrol rounded square carrying a mint shield-check (review that protects)."""
-    dpr = 2.0
-    px = int(size * dpr)
+def logo_image(px: int) -> QImage:
+    """The app mark at exactly px x px: a deep petrol rounded square carrying a mint shield-check (review that protects)."""
     img = QImage(px, px, QImage.Format.Format_ARGB32_Premultiplied)
     img.fill(Qt.GlobalColor.transparent)
     p = QPainter(img)
@@ -87,7 +85,12 @@ def logo_pixmap(size: int = 64) -> QPixmap:
     inner = QRectF(px * 0.18, px * 0.18, px * 0.64, px * 0.64)
     QSvgRenderer(QByteArray(svg("shield", "#3FD9B5"))).render(p, inner)
     p.end()
-    pm = QPixmap.fromImage(img)
+    return img
+
+
+def logo_pixmap(size: int = 64) -> QPixmap:
+    dpr = 2.0
+    pm = QPixmap.fromImage(logo_image(int(size * dpr)))
     pm.setDevicePixelRatio(dpr)
     return pm
 
