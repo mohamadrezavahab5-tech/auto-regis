@@ -25,6 +25,13 @@ STATE = {
     "NOT_REVIEWED": (C["pending"], C["pending_soft"]), "APPROVE": ACTION["APPROVE"], "EDIT": ACTION["EDIT"],
     "CANCEL": ACTION["CANCEL"], "MANUAL_OPEN": ACTION["MANUAL"], "MANUAL_DONE": (C["done"], C["manual_soft"]),
 }
+# The two-team workflow (workflow.STATES): open states first, then what NBO finally did. Same colours in chips, table, dashboard.
+WORKFLOW = {
+    "WAIT_ONLINE": (C["text2"], C["pending_soft"]), "MANUAL": ACTION["MANUAL"], "WAIT_INSTORE": (C["info"], C["info_soft"]),
+    "CONFLICT": (C["danger"], C["danger_soft"]), "EDIT": ACTION["EDIT"], "CANCEL": ACTION["CANCEL"],
+    "READY": (C["accent_text"], C["accent_soft"]), "DONE_APPROVED": ACTION["APPROVE"], "DONE_CLOSED": (C["text3"], C["surface2"]),
+    "OUT_OF_SCOPE": (C["text3"], C["surface2"]),
+}
 FAMILY = "Segoe UI"
 
 

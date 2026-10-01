@@ -21,6 +21,29 @@ RESULT_HEAD = ['SMR','Site','Category','Decision','Reason code (NBO)','Reason la
 MANUAL_HEAD = ['SMR','Site','Why manual','What to check by hand','Assigned to','Checked at','Resolved?','Resolution']
 LABELS = {'APPROVE':'تأیید','EDIT':'نیاز به اصلاح','CANCEL':'لغو','MANUAL':'بررسی دستی','REOPEN':'بازگشایی'}
 
+# Online + Instore requests, inside the OWNER'S sheet (owner 2026-10-01: the flow moves into his sheet; the teams' own shared
+# sheets are never touched). Columns 0-6 and 12-13 belong to the app; 7-11 are the Instore team's and the app never writes
+# them - it only reads them (workflow.sheet_verdict). Same result words as the team's old Online-Instore dropdown.
+OI_TAB = 'Online + Instore'
+OI_HEAD = ['کد درخواست','وب‌سایت','دسته‌بندی','تاریخ بررسی Online','نتیجه Online','دلایل Online','بررسی‌کننده Online',
+           'تاریخ بررسی Instore','نتیجه Instore','دلیل Instore (برچسب NBO)','توضیح Instore','بررسی‌کننده Instore',
+           'وضعیت','نسخه پرونده']
+OI_TEAM_COLS = range(7, 12)
+OI_RESULTS = ['تایید قرارداد', 'نیاز به ادیت', 'لغو قرارداد', 'بررسی دستی']
+EXEC_TAB = 'Execution'
+EXEC_HEAD = ['کد درخواست','نسخه پرونده','نتیجه اجرا','زمان','توضیح']
+TABS = {'Workflow': WORKFLOW_HEAD, OI_TAB: OI_HEAD, 'Decisions': COMMAND_HEAD, EXEC_TAB: EXEC_HEAD, 'Audit': EVENT_HEAD,
+        'Results': RESULT_HEAD, 'Manual queue': MANUAL_HEAD}
+
+
+def col_letter(n):
+    """1 -> A, 27 -> AA."""
+    letter = ''
+    while n:
+        n, r = divmod(n - 1, 26)
+        letter = chr(65 + r) + letter
+    return letter
+
 
 class GoogleSheetError(RuntimeError):
     pass
@@ -194,6 +217,113 @@ class Client:
         self.batch(req)
         return dict(ok=True)
 
+    # ---- structure ----------------------------------------------------------------------------------------------------------
+    def header_row(self, name, width):
+        rg = "'" + name.replace("'", "''") + f"'!A1:{col_letter(width)}1"
+        row = (self.request('GET', '/values/' + quote(rg, safe=''), params={'valueRenderOption': 'UNFORMATTED_VALUE'}).get('values') or [[]])[0]
+        row = [str(v) for v in row][:width]
+        return row + [''] * (width - len(row))
+
+    def ensure_tabs(self, reason_labels=()):
+        """Adds every tab the app needs to the owner's sheet, with its header row. Never changes a tab that already has a
+        header: a different header stops everything (somebody reshaped it) instead of writing into the wrong columns.
+        -> names of the tabs created now."""
+        titles = {s['properties']['title'] for s in self.metadata()['sheets']}
+        missing = [t for t in TABS if t not in titles]
+        if missing:
+            self.request('POST', ':batchUpdate', json={'requests': [
+                {'addSheet': {'properties': {'title': t, 'rightToLeft': True,
+                                             'gridProperties': {'frozenRowCount': 1, 'columnCount': max(26, len(TABS[t]))}}}}
+                for t in missing]})
+            self.meta = None
+        fresh = []
+        for name, head in TABS.items():
+            current = self.header_row(name, len(head))
+            if current == head:
+                continue
+            if any(current):
+                raise GoogleSheetError('ستون‌های تب تغییر کرده: ' + name)
+            fresh.append(name)
+        if not fresh:
+            return missing
+        req = []
+        for name in fresh:
+            sid = self.sheet(name)['sheetId']
+            req.append(self.update(name, 0, TABS[name]))
+            req.append({'repeatCell': {'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 1},
+                        'cell': {'userEnteredFormat': {'textFormat': {'bold': True},
+                                                       'backgroundColor': {'red': 0.93, 'green': 0.95, 'blue': 0.94}}},
+                        'fields': 'userEnteredFormat(textFormat,backgroundColor)'}})
+            if name == 'Decisions':
+                req += [_list_rule(sid, 2, ['Online', 'Instore']),
+                        _list_rule(sid, 3, ['تایید', 'نیاز به اصلاح', 'لغو', 'بررسی دستی', 'بازگشایی']),
+                        {'setDataValidation': {'range': _col(sid, 8), 'rule': {'condition': {'type': 'BOOLEAN'}}}}]
+            if name == OI_TAB:
+                req.append(_list_rule(sid, 8, OI_RESULTS))
+                if reason_labels:
+                    req.append(_list_rule(sid, 9, list(dict.fromkeys(reason_labels)), strict=False))
+                for a, b in ((0, 7), (12, 14)):                 # the app's columns: a warning before a person types over them
+                    req.append({'addProtectedRange': {'protectedRange': {
+                        'range': {'sheetId': sid, 'startColumnIndex': a, 'endColumnIndex': b}, 'warningOnly': True,
+                        'description': 'AutoReview این ستون‌ها را پر می‌کند'}}})
+        self.batch(req)
+        return missing
+
+    # ---- Online + Instore tab -------------------------------------------------------------------------------------------
+    def instore_entries(self):
+        """-> [(smr, {result, reason, note, actor, date})] as the Instore team left them."""
+        out = []
+        for r in self.read(OI_TAB, OI_HEAD):
+            smr = str(r[0]).strip()
+            if smr:
+                out.append((smr, dict(date=r[7], result=r[8], reason=r[9], note=r[10], actor=r[11])))
+        return out
+
+    def write_online_instore(self, rows, statuses=None):
+        """rows: workflow.sheet_row(case) for every Online + Instore case. Writes only the app's own cells, only when they
+        changed; new cases are added at the bottom; no row is ever removed."""
+        statuses = statuses or {}
+        current = self.read(OI_TAB, OI_HEAD)
+        where = {str(r[0]).strip(): i for i, r in enumerate(current) if str(r[0]).strip()}
+        req, end = [], len(current)
+        for row in rows:
+            status = statuses.get(row['smr'])
+            state = row['state'] + (f' — {status}' if status else '')
+            left = [row['smr'], row['site'], row['category'], row['online_date'], row['online_result'], row['online_reasons'],
+                    row['online_by']]
+            right = [state, row['revision']]
+            i = where.get(row['smr'])
+            if i is None:
+                i, end = end, end + 1
+                where[row['smr']] = i
+            else:
+                have = current[i]
+                if [str(v) for v in have[:7]] == [str(v) for v in left] and [str(v) for v in have[12:14]] == [str(v) for v in right]:
+                    continue
+            req.append(self.update(OI_TAB, i + 1, left))
+            req.append(self.update(OI_TAB, i + 1, right, 12))
+        self.batch(req)
+        return len(req) // 2
+
+    # ---- NBO execution receipts -----------------------------------------------------------------------------------------
+    def upsert_execution(self, records):
+        """records: execution.records() -> one row per (request, revision), updated in place when its state changes."""
+        current = self.read(EXEC_TAB, EXEC_HEAD)
+        where = {(str(r[0]), str(r[1])): i for i, r in enumerate(current) if r[0]}
+        req, end = [], len(current)
+        for rec in records:
+            values = [rec['smr'], rec['revision'], rec['label'], rec['updated_at'], rec['detail']]
+            key = (str(rec['smr']), str(rec['revision']))
+            i = where.get(key)
+            if i is None:
+                i, end = end, end + 1
+                where[key] = i
+            elif [str(v) for v in current[i]] == [str(v) for v in values]:
+                continue
+            req.append(self.update(EXEC_TAB, i + 1, values))
+        self.batch(req)
+        return len(req)
+
     def append_run(self, run_id, source_rows):
         results=self.read('Results',RESULT_HEAD); manual=self.read('Manual queue',MANUAL_HEAD)
         known={(r[8],r[0]) for r in results}; known_manual={(r[0],r[5]) for r in manual}
@@ -209,3 +339,13 @@ class Client:
                 req.append(self.update('Manual queue',len(manual)+1,result)); manual.append(result); known_manual.add((row['smr'],at))
         self.batch(req)
         return dict(ok=True,appended=added,duplicate=not added)
+
+
+def _col(sheet_id, col):
+    return {'sheetId': sheet_id, 'startRowIndex': 1, 'startColumnIndex': col, 'endColumnIndex': col + 1}
+
+
+def _list_rule(sheet_id, col, values, strict=True):
+    return {'setDataValidation': {'range': _col(sheet_id, col), 'rule': {
+        'condition': {'type': 'ONE_OF_LIST', 'values': [{'userEnteredValue': v} for v in values]},
+        'strict': strict, 'showCustomUi': True}}}

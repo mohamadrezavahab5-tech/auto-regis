@@ -2,6 +2,7 @@
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from .. import execution, workflow, workspace
+from ..jalali import fa_digits
 
 
 class ExecutionControl(QObject):
@@ -11,8 +12,10 @@ class ExecutionControl(QObject):
         super().__init__(parent)
         self.session = session
         self.mode = execution.Mode()
-        # A discovered URL is not a verified production adapter. Fail closed.
-        self.readiness = 'اتصال اجرای NBO هنوز با خواندن وضعیت قبل و بعد و کنترل نسخه اعتبارسنجی نشده است'
+        # No official NBO approval API is connected: live mode stays locked (fail closed) until one is.
+        self.readiness = ('تأیید خودکار در NBO هنوز وصل نیست: برای وصل شدنش مستند رسمی API تأیید/تغییر وضعیت NBO لازم است. '
+                          'تا آن موقع موارد «آماده» را خودت در NBO (داخل همین اپ) تأیید کن؛ اپ تأیید را از دریافت بعدی NBO '
+                          'تشخیص می‌دهد و در شیتت ثبت می‌کند.')
         self.summary = 'آزمایشی — هیچ درخواست تغییری به NBO ارسال نمی‌شود'
         db = session.db()
         try:
@@ -49,7 +52,8 @@ class ExecutionControl(QObject):
                 if (case['smr'], case['revision']) not in prior:
                     execution.record(db, case, 'PREVIEW', execution.eligibility(case) or 'تأیید تیم‌های لازم تکمیل است')
             waiting = sum(workflow.state(c) == 'WAIT_INSTORE' for c in cases)
-            self.summary = f'آزمایشی — {len(ready)} آمادهٔ تأیید، {waiting} منتظر Instore؛ هیچ تغییری در NBO اعمال نشده'
+            self.summary = (f"{'واقعی' if self.mode.live else 'آزمایشی'} — {fa_digits(len(ready))} آماده‌ی تأیید در NBO، "
+                            f"{fa_digits(waiting)} منتظر نظر Instore؛ اپ خودش چیزی در NBO تغییر نمی‌دهد")
         finally:
             db.close()
         self.changed.emit()

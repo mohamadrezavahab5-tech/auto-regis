@@ -143,5 +143,14 @@
     "آنلاین - شبکه اجتماعی",
     "آنلاین - آفلاین -شبکه اجتماعی"
   ],
-  "_crm_store_types_note": "CRM duplicate reference = approved statuses AND one of these store types (the team's CRM export used 'Store Type = Online'). A row without a store type is kept. Empty list = any store type."
+  "_crm_store_types_note": "CRM duplicate reference = approved statuses AND one of these store types (the team's CRM export used 'Store Type = Online'). A row without a store type is kept. Empty list = any store type.",
+  "workflow": {
+    "engine_verdict_counts": true,
+    "_note": "Owner 2026-10-01: an engine APPROVE/EDIT/CANCEL counts as the Online team's verdict (Online only: approve; Online + Instore: wait for Instore). MANUAL always waits for a person; a person can replace any verdict. false = a person confirms every case."
+  },
+  "automation": {
+    "nbo_minutes": 15,
+    "crm_minutes": 5,
+    "_note": "How often the open app refreshes NBO (full export) and CRM (changes only) by itself, with the person's own sessions."
+  }
 }

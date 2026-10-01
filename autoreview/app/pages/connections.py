@@ -8,7 +8,7 @@ import tempfile
 import httpx
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QMessageBox, QFileDialog
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLineEdit, QMessageBox, QVBoxLayout, QWidget
 
 from ... import crm_sync, imports, sheets, google_credentials, workspace
 from ...collectors import enamad as enamad_mod
@@ -67,78 +67,82 @@ class ConnectionsPage(ScrollPage):
         nbo.lay.addWidget(self.nbo_steps)
         self.body.addWidget(nbo)
 
-        # ---- own Google Sheet
+        # ---- own Google Sheet: the only sheet the app touches
         sh = Card()
-        sh.header("شیت گوگل خودت", "همه‌ی نتایج کامل، صف دستی و خلاصه‌ی هر اجرا در شیت خودت ثبت می‌شود")
+        b_open = button("باز کردن شیت من", None, "external")
+        b_open.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://docs.google.com/spreadsheets/d/" + sheets.load()["own_sheet_id"] + "/edit")))
+        sh.header("شیت خودت — AutoReview - Results", "تنها شیتی که اپ به آن دست می‌زند؛ شیت‌های تیم‌ها نه خوانده می‌شوند نه نوشته", b_open)
+        self.owner_box = QWidget()
+        ob = QVBoxLayout(self.owner_box)
+        ob.setContentsMargins(0, 0, 0, 0)
+        ob.setSpacing(10)
         keyrow = QHBoxLayout()
-        b_key = button('وارد کردن فایل Service Account', 'primary', 'upload')
+        b_key = button("۱. وارد کردن فایل کلید (Service Account)", "primary", "upload")
         b_key.clicked.connect(self.import_google_key)
-        b_keytest = button('تست اتصال مستقیم', None, 'check')
+        b_keytest = button("۲. وصل شدن و آماده‌سازی تب‌ها", None, "check")
         b_keytest.clicked.connect(self.test_direct)
-        keyrow.addWidget(b_key); keyrow.addWidget(b_keytest)
-        sh.lay.addLayout(keyrow)
-        self.google_email = label('', 'muted', wrap=True, selectable=True)
-        sh.lay.addWidget(self.google_email)
-        sh.lay.addWidget(label('اتصال مستقیم با JSON: فایل به‌صورت رمزگذاری‌شده در پروفایل ویندوز ذخیره می‌شود. '
-                               'ایمیل Service Account باید Editor همین شیت باشد و Sheets API فعال باشد. '
-                               'راهنمای Apps Script پایین فقط مسیر جایگزین است.', 'muted', wrap=True))
-        sh.lay.addWidget(label(SHEET_STEPS, "muted", wrap=True))
+        keyrow.addWidget(b_key)
+        keyrow.addWidget(b_keytest)
+        keyrow.addStretch(1)
+        ob.addLayout(keyrow)
+        self.google_email = label("", "caption", wrap=True, selectable=True)
+        ob.addWidget(self.google_email)
+        ob.addWidget(label("فایل کلید رمزگذاری‌شده با حساب ویندوز خودت ذخیره می‌شود و هیچ‌جا فرستاده نمی‌شود. اپ تب‌های لازم "
+                           "(Workflow، Online + Instore، Decisions، Execution، Audit) را اگر نباشند خودش اضافه می‌کند و به تب‌های "
+                           "دیگر شیت دست نمی‌زند.", "muted", wrap=True))
+        sh.lay.addWidget(self.owner_box)
+        for attr, text, slot in (("workflow_switch", "اتصال دائمی: هر ۳۰ ثانیه گردش کار با شیت همگام شود (تا وقتی اپ باز است)", self._workflow_toggled),
+                                 ("auto", "بعد از هر بررسی، نتایج کامل هم به تب Results شیتم اضافه شود", self._auto_toggled)):
+            r = QHBoxLayout()
+            sw = Switch()
+            sw.toggled.connect(slot)
+            setattr(self, attr, sw)
+            r.addWidget(sw)
+            r.addWidget(label(text, "muted"))
+            r.addStretch(1)
+            sh.lay.addLayout(r)
+        self.sheet_steps = StepList()
+        sh.lay.addWidget(self.sheet_steps)
+        b_alt = button("روش جایگزین: اسکریپت داخل شیت (بدون فایل کلید)", "link")
+        b_alt.setCheckable(True)
+        sh.lay.addWidget(b_alt, 0, Qt.AlignmentFlag.AlignRight)
+        self.alt_box = QWidget()
+        al = QVBoxLayout(self.alt_box)
+        al.setContentsMargins(0, 0, 0, 0)
+        al.addWidget(label(SHEET_STEPS, "muted", wrap=True))
         row = QHBoxLayout()
         b_copy = button("کپی کد اسکریپت", None, "copy")
         b_copy.clicked.connect(self.copy_script)
         row.addWidget(b_copy)
-        b_open = button("باز کردن شیت من", None, "external")
-        b_open.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://docs.google.com/spreadsheets/d/" + sheets.load()["own_sheet_id"] + "/edit")))
-        row.addWidget(b_open)
-        row.addStretch(1)
-        sh.lay.addLayout(row)
-        row2 = QHBoxLayout()
         self.url = QLineEdit()
         self.url.setPlaceholderText("https://script.google.com/macros/s/…/exec")
         self.url.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        row2.addWidget(self.url, 1)
-        b_test = button("تست", "primary", "check")
+        row.addWidget(self.url, 1)
+        b_test = button("تست", None, "check")
         b_test.clicked.connect(self.test_sheet)
-        row2.addWidget(b_test)
-        sh.lay.addLayout(row2)
-        row3 = QHBoxLayout()
-        self.auto = Switch()
-        self.auto.toggled.connect(self._auto_toggled)
-        row3.addWidget(self.auto)
-        row3.addWidget(label("بعد از هر بررسی، نتایج خودکار به شیتم ارسال شود", "muted"))
-        row3.addStretch(1)
-        sh.lay.addLayout(row3)
-        self.sheet_steps = StepList()
-        sh.lay.addWidget(self.sheet_steps)
+        row.addWidget(b_test)
+        al.addLayout(row)
+        al.addWidget(label("در این روش، تب «Online + Instore» پر نمی‌شود؛ برای گردش کار کامل از فایل کلید استفاده کن.", "caption", wrap=True))
+        self.alt_box.setVisible(False)
+        b_alt.toggled.connect(self.alt_box.setVisible)
+        sh.lay.addWidget(self.alt_box)
         self.body.addWidget(sh)
-        access_card=Card()
-        access_card.header('اتصال همکار به فضای مشترک','کد شخصی را از مدیر بگیر؛ فایل Service Account لازم نیست')
-        self.workspace_url=QLineEdit()
-        self.workspace_url.setPlaceholderText('URL سرویس منتشرشده توسط مدیر')
-        self.workspace_url.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        self.workspace_token=QLineEdit()
-        self.workspace_token.setEchoMode(QLineEdit.EchoMode.Password)
-        self.workspace_token.setPlaceholderText('کد دسترسی شخصی')
-        access_card.lay.addWidget(self.workspace_url)
-        access_card.lay.addWidget(self.workspace_token)
-        b_access=button('فعال‌سازی دسترسی من','primary','user')
-        b_access.clicked.connect(self.connect_workspace)
-        access_card.lay.addWidget(b_access)
-        self.body.addWidget(access_card)
 
-        # ---- own workflow connection
-        wf = Card()
-        wf.header("گردش کار در شیت اختصاصی", "نظر Online و Instore و تصمیم دستی؛ اتصال هر ۳۰ ثانیه تا وقتی اپ باز است")
-        r = QHBoxLayout()
-        self.workflow_switch = Switch()
-        self.workflow_switch.toggled.connect(self._workflow_toggled)
-        r.addWidget(self.workflow_switch)
-        r.addWidget(label("همگام‌سازی خودکار و دریافت تصمیم‌های شیت", "muted"))
-        r.addStretch(1)
-        wf.lay.addLayout(r)
-        wf.lay.addWidget(label("در شیت، تب Workflow وضعیت پرونده را نشان می‌دهد. در Decisions، کد درخواست، تیم، تصمیم، توضیح، "
-                               "بررسی‌کننده و نسخه پرونده را وارد کن و تیک ارسال را بزن. تا ثبت رسید accepted، تصمیم نهایی نشده است.", "muted", wrap=True))
-        self.body.addWidget(wf)
+        # ---- colleague: personal access code from the owner
+        self.access_card = Card()
+        self.access_card.header("دسترسی همکار", "کد شخصی را از مدیر (mohammadreza.vahab) بگیر؛ فایل کلید لازم نیست")
+        self.workspace_url = QLineEdit()
+        self.workspace_url.setPlaceholderText("نشانی سرویس که مدیر داده")
+        self.workspace_url.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.workspace_token = QLineEdit()
+        self.workspace_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.workspace_token.setPlaceholderText("کد دسترسی شخصی")
+        self.access_card.lay.addWidget(self.workspace_url)
+        self.access_card.lay.addWidget(self.workspace_token)
+        b_access = button("فعال‌سازی دسترسی من", "primary", "user")
+        b_access.clicked.connect(self.connect_workspace)
+        self.access_card.lay.addWidget(b_access, 0, Qt.AlignmentFlag.AlignRight)
+        self.body.addWidget(self.access_card)
 
         # ---- enamad + websites
         web = Card()
@@ -171,7 +175,12 @@ class ConnectionsPage(ScrollPage):
         self.url.setText(cfg.get("webapp_url", ""))
         self.auto.setChecked(bool(cfg.get("auto_send")))
         self.auto.setEnabled(bool(cfg.get("webapp_url")) or cfg.get('auth_mode') == 'service_account')
-        self.google_email.setText(cfg.get('service_account_email', 'هنوز کلید اتصال مستقیم وارد نشده'))
+        email = cfg.get('service_account_email')
+        self.google_email.setText(f"کلید وارد شده: {email}" if email and google_credentials.available()
+                                  else "هنوز فایل کلید وارد نشده — همان فایل JSON که از Google Cloud گرفتی")
+        owner = self._owner()
+        self.owner_box.setVisible(owner)
+        self.access_card.setVisible(not owner)
         self.workflow_switch.setChecked(bool(cfg.get("workflow_sync")))
         self.workspace_url.setText(cfg.get('workspace_url',''))
         self._loading = False
@@ -263,16 +272,45 @@ class ConnectionsPage(ScrollPage):
         except Exception:
             QMessageBox.warning(self, 'کلید گوگل', 'فایل معتبر نبود یا ذخیره امن ویندوز انجام نشد؛ جزئیات کلید نمایش داده نمی‌شود.')
             return
-        self.on_show(); self.test_direct()
+        self.on_show()
+        self.test_direct()
+
+    def _owner(self):
+        try:
+            return workspace.username(self.session.profile.get("username")) == workspace.ADMIN
+        except ValueError:
+            return False
 
     def test_direct(self):
         cfg = sheets.load()
-        if cfg.get('auth_mode') != 'service_account':
-            QMessageBox.information(self, 'اتصال مستقیم', 'اول فایل Service Account را وارد کن.'); return
-        self.sheet_steps.set_steps([('در حال بررسی اتصال مستقیم…', None, '')])
-        run_bg(lambda _p: sheets.ping(cfg),
-               lambda data: self.sheet_steps.set_steps([('اتصال مستقیم', True, data.get('sheet', ''))]),
-               lambda e: self.sheet_steps.set_steps([('اتصال مستقیم', False, str(e))]))
+        if cfg.get('auth_mode') != 'service_account' or not google_credentials.available():
+            QMessageBox.information(self, 'شیت من', 'اول «وارد کردن فایل کلید» را بزن.')
+            return
+        self.sheet_steps.set_steps([('در حال وصل شدن به شیت…', None, '')])
+
+        def work(_p):
+            from ...google_sheet import Client
+            labels = sheets.nbo_labels()
+            with Client(cfg['own_sheet_id']) as google:
+                info = google.ping()
+                created = google.ensure_tabs(list(labels['edit'].values()) + list(labels['cancel'].values()))
+            return info, created
+
+        def ok(res):
+            info, created = res
+            cfg2 = sheets.load()
+            cfg2.update(workflow_sync=True, auto_send=True, sheet_name=info.get('sheet', ''))   # connected = stays connected
+            sheets.save(cfg2)
+            self.sheet_steps.set_steps([("اتصال به شیت", True, f"«{info.get('sheet', '')}»"),
+                                        ("تب‌های گردش کار", True, ("اضافه شد: " + "، ".join(created)) if created else "همه آماده بودند"),
+                                        ("اتصال دائمی", True, "هر ۳۰ ثانیه، تا وقتی اپ باز است")])
+            self.on_show()
+            self.session.sync_workflow(force=True)
+            self.shell._update_status()
+
+        def bad(e):
+            self.sheet_steps.set_steps([("اتصال به شیت", False, str(e))])
+        run_bg(work, ok, bad)
 
     def copy_script(self):
         QGuiApplication.clipboard().setText(sheets.script_code())
@@ -309,13 +347,12 @@ class ConnectionsPage(ScrollPage):
         cfg = sheets.load()
         if on and not (sheets.valid_webapp_url(cfg.get("webapp_url", "")) or
                        (cfg.get('auth_mode') == 'service_account' and google_credentials.available())):
-            QMessageBox.information(self, "اتصال شیت", "اول کد جدید اسکریپت را در شیت اختصاصی Deploy کن و لینک وب‌اپ را تست کن.")
+            QMessageBox.information(self, "اتصال شیت", "اول فایل کلید را وارد کن و «وصل شدن» را بزن.")
             self.workflow_switch.blockSignals(True)
             self.workflow_switch.setChecked(False)
             self.workflow_switch.blockSignals(False)
             return
         cfg["workflow_sync"] = bool(on)
-        cfg["oi"]["enabled"] = False
         sheets.save(cfg)
         self.session.sync_workflow(force=True)
 

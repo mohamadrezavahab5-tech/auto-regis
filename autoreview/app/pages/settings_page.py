@@ -179,6 +179,29 @@ class SettingsPage(ScrollPage):
         s.lay.addLayout(r2)
         self.body.addWidget(s)
 
+        # ---- workflow + automation
+        wf = Card()
+        wf.header("گردش کار و به‌روزرسانی خودکار", "فقط آنلاین: نظر Online کافی است • آنلاین + حضوری: تأیید هر دو تیم لازم است")
+        r5 = QHBoxLayout()
+        self.s_engine = Switch()
+        self.s_engine.setChecked(bool(self._cur("workflow.engine_verdict_counts")))
+        r5.addWidget(self.s_engine)
+        r5.addWidget(label("نتیجه‌ی موتور (تأیید / اصلاح / لغو) خودکار نظر تیم Online حساب شود؛ «دستی» همیشه منتظر یک نفر می‌ماند", "muted"))
+        r5.addStretch(1)
+        wf.lay.addLayout(r5)
+        wf.lay.addWidget(label("خاموش = هر درخواست را یک نفر تأیید کند. در هر دو حالت، هر کس می‌تواند از صفحه‌ی «گردش کار» نظر را عوض کند.",
+                               "caption", wrap=True))
+        r6 = QHBoxLayout()
+        self.nbo_every = _spin(5, 240, self._cur("automation.nbo_minutes") or 15)
+        self.crm_every = _spin(2, 120, self._cur("automation.crm_minutes") or 5)
+        for text, w in (("گرفتن خروجی NBO هر (دقیقه)", self.nbo_every), ("به‌روزرسانی CRM هر (دقیقه)", self.crm_every)):
+            r6.addWidget(label(text, "muted"))
+            r6.addWidget(w)
+            r6.addSpacing(16)
+        r6.addStretch(1)
+        wf.lay.addLayout(r6)
+        self.body.addWidget(wf)
+
         # ---- speed
         sp = Card()
         sp.header("سرعت", "بیشتر = سریع‌تر، ولی فشار بیشتر روی اینترنت و سایت‌ها")
@@ -244,6 +267,8 @@ class SettingsPage(ScrollPage):
             "backlog.include_optional": self.s_cip.isChecked(), "backlog.batch_size": self.batch.value(),
             "runtime.concurrency": self.conc.value(), "runtime.enamad_concurrency": self.econc.value(),
             "runtime.http_timeout_seconds": self.timeout.value(), "runtime.request_deadline_seconds": self.deadline.value(),
+            "workflow.engine_verdict_counts": self.s_engine.isChecked(),
+            "automation.nbo_minutes": self.nbo_every.value(), "automation.crm_minutes": self.crm_every.value(),
         }
         return {"rules": rules, "category_map": {"mismatch_allowed": self.s_mismatch.isChecked()}}
 
@@ -261,6 +286,7 @@ class SettingsPage(ScrollPage):
                 != QMessageBox.StandardButton.Yes:
             return
         rejected = settings.save_user(over)
+        self.session.refresh_workflow()                    # the engine-verdict switch applies to open cases right away
         self.session.data_changed.emit()
         toast(self.window(), "تنظیمات ذخیره شد" + (f" ({num(len(rejected))} مورد نامعتبر نادیده گرفته شد)" if rejected else ""))
 

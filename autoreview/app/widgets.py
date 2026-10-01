@@ -191,7 +191,8 @@ class StatTile(QFrame):
             self._anim.stop()
             self.value.setText("—")
             return
-        if n == self._shown and self.value.text() != "—":
+        if n == self._shown:
+            self.value.setText(num(int(n)))                 # a real 0 must read ۰, never the 'no data' dash
             return
         self._anim.stop()
         self._anim.setStartValue(self._shown)

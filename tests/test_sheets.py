@@ -73,42 +73,15 @@ def test_script_carries_only_the_owners_sheet():
         sheets.script_code(cfg)
 
 
-def test_online_instore_rows_use_the_sheet_values_and_nbo_labels_and_skip_manual():
-    cfg = sheets.load()
-    labels = {"edit": {"ENAMAD_EXPIRED": "اینماد منقضی شده است"}, "cancel": {"DUPLICATE_REQUEST": "تکراری بودن درخواست"}}
-    res = [{"smr": "A", "action": "APPROVE", "reason_codes": []},
-           {"smr": "B", "action": "EDIT", "reason_codes": ["ENAMAD_EXPIRED"]},
-           {"smr": "C", "action": "CANCEL", "reason_codes": ["DUPLICATE_REQUEST"]},
-           {"smr": "D", "action": "MANUAL", "reason_codes": []},
-           {"smr": "E", "action": "EDIT", "reason_codes": ["UNKNOWN_CODE"]}]
-    rows, skipped = sheets.oi_rows(res, cfg, labels, today="1405/07/09")
-    assert rows == [
-        {"case_id": "A", "date": "1405/07/09", "result": "تایید قرارداد", "edit_reason": "", "cancel_reason": ""},
-        {"case_id": "B", "date": "1405/07/09", "result": "نیاز به ادیت", "edit_reason": "اینماد منقضی شده است", "cancel_reason": ""},
-        {"case_id": "C", "date": "1405/07/09", "result": "لغو قرارداد", "edit_reason": "", "cancel_reason": "تکراری بودن درخواست"}]
-    assert [s[0] for s in skipped] == ["D", "E"]
-
-
-def test_values_missing_from_the_sheet_dropdowns_are_reported():
-    cfg = sheets.load()
-    labels = {"edit": {"X": "الف"}, "cancel": {"Y": "ب"}}
-    ok = {"allowed": {"result": ["تایید قرارداد", "نیاز به ادیت", "لغو قرارداد"], "edit": ["الف"], "cancel": ["ب"]}}
-    assert sheets.oi_problems(ok, cfg, labels) == []
-    bad = {"allowed": {"result": ["تایید", "ادیت"], "edit": [], "cancel": ["ج"]}}
-    probs = sheets.oi_problems(bad, cfg, labels)
-    assert any("تایید قرارداد" in p for p in probs) and any("لغو" in p for p in probs)
-
-
-def test_writing_to_online_instore_is_off_until_switched_on():
-    cfg = sheets.load()
-    with pytest.raises(sheets.SheetError, match="خاموش"):
-        sheets.oi_write("r", [], cfg=cfg)
-
-
-def test_the_marker_word_marks_manual_rows_when_configured():
-    cfg = sheets.load()
-    res = [{"smr": "D", "action": "MANUAL", "reason_codes": []}]
-    assert sheets.oi_rows(res, cfg, {"edit": {}, "cancel": {}}, today="1405/07/09")[0] == []
-    cfg["oi"]["marker"] = "بررسی کد"
-    rows, skipped = sheets.oi_rows(res, cfg, {"edit": {}, "cancel": {}}, today="1405/07/09")
-    assert rows == [{"case_id": "D", "date": "1405/07/09", "result": "بررسی کد", "edit_reason": "", "cancel_reason": ""}] and skipped == []
+def test_the_teams_shared_sheets_are_unreachable_from_the_app():
+    """Owner rule 2026-10-01: only the sheet he made. No code path opens another spreadsheet."""
+    import pathlib
+    root = pathlib.Path(sheets.__file__).resolve().parent.parent
+    sources = [p.read_text(encoding="utf-8") for p in (root / "autoreview").rglob("*.py")]
+    sources += [p.read_text(encoding="utf-8") for p in (root / "scripts").glob("*.gs")]
+    for text in sources:
+        assert "1FCt7WfmuQ5zy_jwafsLe2a7xkbKouS28wep1d94lF3s" not in text          # shared Online-Instore
+        assert "1i5c0fSKf1bTzM4hikIS9ZN1buTUDnjtrnMNvNi43S2Y" not in text          # Main-Data
+        assert "openById" not in text
+    assert not any(hasattr(sheets, n) for n in ("oi_write", "oi_describe", "oi_rows"))
+    assert "oi" not in sheets.load()

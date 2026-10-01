@@ -7,7 +7,7 @@ import uuid
 
 from . import google_credentials, sheets
 from .paths import user_dir, scripts_dir
-from .google_sheet import Client
+
 
 ADMIN = 'mohammadreza.vahab'
 ROLES = {'admin':'مدیر', 'online':'تیم Online', 'instore':'تیم Instore', 'viewer':'فقط مشاهده'}

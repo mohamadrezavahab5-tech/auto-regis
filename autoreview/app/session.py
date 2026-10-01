@@ -9,7 +9,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, QTimer
 
-from .. import crm_sync, imports, logs, reference, settings, sheets, store, workboard, workflow, workflow_sync
+from .. import crm_sync, execution, imports, logs, reference, settings, sheets, store, workboard, workflow, workflow_sync
 from ..paths import data_dir, exports_dir
 from ..pipeline import Runner
 
@@ -54,7 +54,7 @@ class Session(QObject):
     data_changed = Signal()              # reference data or results changed
     run_changed = Signal()               # progress of the current run
     run_finished = Signal(str)           # run_id
-    busy_changed = Signal(str, bool)     # ("crm" | "nbo" | "sheet" | "oi", active)
+    busy_changed = Signal(str, bool)     # ("crm" | "nbo" | "sheet" | "workflow", active)
     workflow_sync_changed = Signal()
 
     def __init__(self, profile, crm_password=None):
@@ -234,15 +234,21 @@ class Session(QObject):
     def refresh_workflow(self, run_id=None):
         if sheets.load().get('auth_mode') == 'workspace' and self.profile.get('workspace_role') not in ('admin', 'online'):
             return
+        rules = self.rules()
+        engine_counts = bool(rules.get('workflow', {}).get('engine_verdict_counts'))
         db = self.db()
         try:
-            all_rows = reference.all_nbo_rows(db)
-            eligible = reference.backlog_rows(db, self.rules())[0] + reference.both_channel_rows(db, self.rules())
-            meta = reference.meta(db,'nbo')
+            execution.ensure(db)
+            meta = reference.meta(db, 'nbo')
             if meta:
-                workflow.refresh(db, all_rows, {r['smr'] for r in eligible}, meta['loaded_at'])
+                eligible = reference.backlog_rows(db, rules)[0] + reference.both_channel_rows(db, rules)
+                workflow.refresh(db, reference.all_nbo_rows(db), {r['smr'] for r in eligible}, meta['loaded_at'],
+                                 rules['approved_statuses']['nbo'])
             if run_id:
-                for result in store.results_of(db, run_id): workflow.suggest(db, result['smr'], result)
+                for result in store.results_of(db, run_id):
+                    workflow.suggest(db, result['smr'], result, engine_counts)
+            workflow.adopt_engine_verdicts(db, engine_counts)        # follows the switch in Settings both ways
+            execution.note_nbo_outcomes(db)
         finally:
             db.close()
 

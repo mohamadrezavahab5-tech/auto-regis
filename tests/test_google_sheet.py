@@ -12,6 +12,7 @@ class Book:
                      'Audit':[gs.EVENT_HEAD], 'Results':[gs.RESULT_HEAD], 'Manual queue':[gs.MANUAL_HEAD]}
         self.ids={n:i+1 for i,n in enumerate(self.tabs)}
         self.writes=0
+        self.requests=[]
         self.fail=False
 
     def handle(self, req):
@@ -25,7 +26,11 @@ class Book:
         self.writes+=1
         if self.fail: return httpx.Response(503,json={})
         data=json.loads(req.content)
+        self.requests += data['requests']
         for request in data['requests']:
+            add=request.get('addSheet')
+            if add:
+                name=add['properties']['title']; self.tabs[name]=[['']*26]; self.ids[name]=max(self.ids.values())+1
             u=request.get('updateCells')
             if not u: continue
             start=u['start']; name=next(n for n,i in self.ids.items() if i==start['sheetId'])
@@ -103,3 +108,55 @@ def test_schema_change_blocks_writes(book):
     with gs.Client('x'*30,transport=httpx.MockTransport(book.handle)) as c:
         with pytest.raises(gs.GoogleSheetError): c.sync(payload())
     assert book.writes==0
+
+
+def full_book():
+    b=Book()
+    for name,head in gs.TABS.items():
+        b.tabs.setdefault(name,[list(head)]); b.ids.setdefault(name,max(b.ids.values())+1)
+    return b
+
+
+def test_missing_tabs_are_created_with_dropdowns_and_existing_ones_left_alone():
+    b=Book()
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        assert set(c.ensure_tabs(['دلیل الف']))=={gs.OI_TAB,gs.EXEC_TAB}
+        assert c.ensure_tabs([])==[]
+    assert b.tabs[gs.OI_TAB][0][:len(gs.OI_HEAD)]==gs.OI_HEAD
+    rules=[r['setDataValidation'] for r in b.requests if 'setDataValidation' in r]
+    assert any(v['userEnteredValue']=='تایید قرارداد' for r in rules for v in r['rule']['condition'].get('values',[]))
+    assert not any(r['range']['sheetId']==b.ids['Workflow'] for r in rules)      # untouched: it already had its header
+
+
+def test_a_reshaped_tab_stops_setup():
+    b=full_book(); b.tabs[gs.OI_TAB][0]=['something else']
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        with pytest.raises(gs.GoogleSheetError): c.ensure_tabs([])
+
+
+def test_online_instore_tab_writes_only_app_columns_and_reads_the_instore_ones():
+    b=full_book()
+    db=store.connect(); workflow.ensure(db)
+    workflow.refresh(db,[dict(smr='SMR-1',site='a.ir',has_instore='true')],{'SMR-1'})
+    workflow.suggest(db,'SMR-1',dict(action='APPROVE',reason_codes=[],notes=[],decided_at='2026-10-01T08:00:00+00:00'),engine_counts=True)
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        assert c.write_online_instore([workflow.sheet_row(workflow.get(db,'SMR-1'))])==1
+        row=b.tabs[gs.OI_TAB][1]
+        assert row[0]=='SMR-1' and row[4]=='تایید قرارداد' and row[12]=='منتظر نظر Instore'
+        row[8]='تایید قرارداد'; row[11]='سارا'                       # the Instore team fills its own cells
+        (smr,cells),=c.instore_entries()
+        assert workflow.sheet_verdict(db,smr,'instore',cells,{'edit':{},'cancel':{}})=='ثبت شد'
+        c.write_online_instore([workflow.sheet_row(workflow.get(db,'SMR-1'))])
+        assert row[8]=='تایید قرارداد' and row[11]=='سارا' and row[12].startswith('آماده تأیید')
+        writes=b.writes
+        c.write_online_instore([workflow.sheet_row(workflow.get(db,'SMR-1'))])
+        assert b.writes==writes                                       # nothing changed: nothing written
+    db.close()
+
+
+def test_execution_receipts_are_upserted_per_revision():
+    b=full_book()
+    rec=dict(smr='SMR-1',revision=3,label='آماده',updated_at='t1',detail='')
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        c.upsert_execution([rec]); c.upsert_execution([dict(rec,label='در NBO تأیید شد',updated_at='t2')])
+    assert len(b.tabs[gs.EXEC_TAB])==2 and b.tabs[gs.EXEC_TAB][1][2]=='در NBO تأیید شد'

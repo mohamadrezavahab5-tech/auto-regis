@@ -64,6 +64,9 @@ EDITABLE = {
     ("rules", "approved_statuses.nbo"): _str_list,
     ("rules", "approved_statuses.crm"): _str_list,
     ("rules", "crm_store_types"): _str_list,
+    ("rules", "workflow.engine_verdict_counts"): _is_bool,
+    ("rules", "automation.nbo_minutes"): _int_range(5, 240),
+    ("rules", "automation.crm_minutes"): _int_range(2, 120),
     ("category_map", "mismatch_allowed"): _is_bool,
 }
 

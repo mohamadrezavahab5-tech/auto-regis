@@ -172,5 +172,109 @@ def test_script_is_own_sheet_only_and_shared_writer_disabled():
     code=sheets.script_code()
     assert 'openById' not in code and 'ONLINE_INSTORE_ID' not in code
     assert '__OWN_ID__' not in code and '__SECRET__' not in code
-    cfg=sheets.load(); cfg['oi']['enabled']=True
-    with pytest.raises(sheets.SheetError): sheets.oi_write('r',[],cfg=cfg)
+
+
+# ---- owner rules 2026-10-01 ------------------------------------------------------------------------------------------------
+def test_engine_verdict_counts_as_online_when_switched_on(db):
+    imported(db)
+    workflow.suggest(db, 'SMR-12345', dict(action='APPROVE', reason_codes=[], notes=[]), engine_counts=True)
+    case = workflow.get(db, 'SMR-12345')
+    assert case['state'] == 'READY' and case['online']['source'] == 'engine'
+
+
+def test_engine_approval_on_a_two_team_request_waits_for_instore(db):
+    imported(db, both=True)
+    workflow.suggest(db, 'SMR-12345', dict(action='APPROVE', reason_codes=[], notes=[]), engine_counts=True)
+    assert workflow.get(db, 'SMR-12345')['state'] == 'WAIT_INSTORE'
+    assert decide(db, 'instore')['state'] == 'READY'
+
+
+def test_manual_engine_result_always_waits_for_a_person(db):
+    imported(db)
+    workflow.suggest(db, 'SMR-12345', dict(action='MANUAL', reason_codes=[], notes=[]), engine_counts=True)
+    assert workflow.get(db, 'SMR-12345')['state'] == 'MANUAL' and workflow.get(db, 'SMR-12345')['online'] is None
+    assert decide(db)['state'] == 'READY'                       # a person settles it
+
+
+def test_a_person_overrides_the_engine_and_reopen_is_not_refilled(db):
+    imported(db)
+    workflow.suggest(db, 'SMR-12345', dict(action='APPROVE', reason_codes=[], notes=[]), engine_counts=True)
+    assert decide(db, action='CANCEL', reason='DUP')['state'] == 'CANCEL'
+    decide(db, action='REOPEN')
+    workflow.adopt_engine_verdicts(db, True)
+    workflow.suggest(db, 'SMR-12345', dict(action='APPROVE', reason_codes=[], notes=[]), engine_counts=True)
+    assert workflow.get(db, 'SMR-12345')['state'] == 'WAIT_ONLINE'
+
+
+def test_switching_the_engine_policy_fills_and_withdraws_only_engine_verdicts(db):
+    imported(db)
+    workflow.suggest(db, 'SMR-12345', dict(action='APPROVE', reason_codes=[], notes=[]))
+    assert workflow.adopt_engine_verdicts(db, True) == 1 and workflow.get(db, 'SMR-12345')['state'] == 'READY'
+    assert workflow.adopt_engine_verdicts(db, False) == 1 and workflow.get(db, 'SMR-12345')['state'] == 'WAIT_ONLINE'
+    decide(db)
+    assert workflow.adopt_engine_verdicts(db, False) == 0 and workflow.get(db, 'SMR-12345')['online']['source'] == 'human'
+
+
+def test_approved_in_nbo_is_kept_as_done_with_its_verdicts(db):
+    row = imported(db)
+    decide(db)
+    row['status'] = 'COMMERCIAL_APPROVED'
+    workflow.refresh(db, [row], set(), approved_statuses=['COMMERCIAL_APPROVED'])
+    case = workflow.get(db, 'SMR-12345')
+    assert case['state'] == 'DONE_APPROVED' and case['online']['action'] == 'APPROVE'
+    row['status'] = 'CANCELLED'
+    workflow.refresh(db, [row], set(), approved_statuses=['COMMERCIAL_APPROVED'])
+    assert workflow.get(db, 'SMR-12345')['state'] == 'DONE_CLOSED'
+
+
+def test_coming_back_into_the_queue_starts_over(db):
+    row = imported(db)
+    decide(db)
+    row['status'] = 'REQUIRED_EDITING'
+    workflow.refresh(db, [row], set())
+    row['status'] = 'PENDING'
+    workflow.refresh(db, [row], {row['smr']})
+    case = workflow.get(db, 'SMR-12345')
+    assert case['state'] == 'WAIT_ONLINE' and case['online'] is None
+
+
+def test_assignment_in_nbo_keeps_verdicts(db):
+    row = imported(db)
+    decide(db)
+    row['status'] = 'COMMERCIAL_IN_PROGRESS'
+    workflow.refresh(db, [row], {row['smr']})
+    assert workflow.get(db, 'SMR-12345')['state'] == 'READY'
+
+
+def test_sheet_commands_accept_persian_words_and_no_revision(db):
+    imported(db, both=True)
+    cmd = dict(command_id='c1', smr='SMR-12345', team='حضوری', action='لغو', reason='تکراری', note='x', actor='y', revision='')
+    assert workflow.apply_command(db, cmd, LABELS)['status'] == 'accepted'
+    case = workflow.get(db, 'SMR-12345')
+    assert case['instore']['action'] == 'CANCEL' and case['instore']['reason'] == 'DUP'
+
+
+def test_instore_cells_in_the_owner_sheet_apply_once_edit_and_withdraw(db):
+    imported(db, both=True)
+    decide(db)
+    cells = dict(result='تایید قرارداد', reason='', note='', actor='سارا', date='1405/07/09')
+    assert workflow.sheet_verdict(db, 'SMR-12345', 'instore', cells, LABELS) == 'ثبت شد'
+    revision = workflow.get(db, 'SMR-12345')['revision']
+    assert workflow.get(db, 'SMR-12345')['state'] == 'READY'
+    assert workflow.sheet_verdict(db, 'SMR-12345', 'instore', cells, LABELS) == 'ثبت شد'
+    assert workflow.get(db, 'SMR-12345')['revision'] == revision          # same cells: nothing applied again
+    bad = dict(cells, result='نیاز به ادیت', reason='چیز ناشناخته')
+    assert workflow.sheet_verdict(db, 'SMR-12345', 'instore', bad, LABELS).startswith('رد شد')
+    assert workflow.get(db, 'SMR-12345')['state'] == 'READY'
+    assert workflow.sheet_verdict(db, 'SMR-12345', 'instore', dict(cells, result=''), LABELS) == 'نظر برداشته شد'
+    assert workflow.get(db, 'SMR-12345')['state'] == 'WAIT_INSTORE'
+
+
+def test_old_instore_cells_are_not_reused_after_the_request_changed(db):
+    row = imported(db, both=True)
+    cells = dict(result='تایید قرارداد', reason='', note='', actor='', date='')
+    workflow.sheet_verdict(db, 'SMR-12345', 'instore', cells, LABELS)
+    row['site'] = 'changed.test'
+    workflow.refresh(db, [row], {row['smr']})
+    assert 'دوباره' in workflow.sheet_verdict(db, 'SMR-12345', 'instore', cells, LABELS)
+    assert workflow.get(db, 'SMR-12345')['instore'] is None

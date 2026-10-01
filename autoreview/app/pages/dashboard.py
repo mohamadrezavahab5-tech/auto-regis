@@ -5,9 +5,10 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
 
-from ... import jalali, store
+from ... import jalali, store, workflow
 from ...texts import REASON_FA, cause_fa
 from ..session import run_bg
+from .. import theme
 from ..theme import C
 from ..widgets import BarList, Card, DailyBars, Donut, Legend, Ring, SegmentBar, StatTile, button, label, num
 from .common import ACTION_COLORS, ScrollPage, nbo_status_fa, state_items
@@ -48,6 +49,21 @@ class DashboardPage(ScrollPage):
         row.addLayout(col, 1)
         work.lay.addLayout(row)
         self.body.addWidget(work)
+
+        # the two-team workflow: every state, open and finished
+        flow = Card()
+        b_flow = button("گردش کار", None, "list-check")
+        b_flow.clicked.connect(lambda: shell.go("workflow"))
+        b_exec = button("آماده‌ی تأیید در NBO", "primary", "check")
+        b_exec.clicked.connect(lambda: shell.go("execution"))
+        flow.header("گردش کار دو تیم", "از نظر تیم Online تا تأیید در NBO — هم‌زمان در شیت خودت", right=[b_flow, b_exec])
+        self.flow_text = label("", "h2")
+        flow.lay.addWidget(self.flow_text)
+        self.flow_bar = SegmentBar(14)
+        flow.lay.addWidget(self.flow_bar)
+        self.flow_legend = Legend()
+        flow.lay.addWidget(self.flow_legend)
+        self.body.addWidget(flow)
 
         # decision tiles (last 7 days)
         tiles = QHBoxLayout()
@@ -129,7 +145,7 @@ class DashboardPage(ScrollPage):
             board = s.board()
             db = s.db()
             try:
-                return {"board": board, "week": store.totals(db, days=7), "days": store.daily_counts(db, 14),
+                return {"board": board, "flow": workflow.counts(db), "week": store.totals(db, days=7), "days": store.daily_counts(db, 14),
                         "reasons": store.reason_counts(db, days=30, limit=8), "manual": store.manual_causes(db, days=30, limit=8)}
             finally:
                 db.close()
@@ -149,8 +165,15 @@ class DashboardPage(ScrollPage):
         self.bar.set_parts([(n, c) for _, n, c in items])
         self.legend.set_items(items)
         both = d["board"]["both"]
-        self.both_text.setText(f"صف شیت Online-Instore (آنلاین + حضوری): {num(both['reviewed'])} از {num(both['total'])} بررسی شده، "
-                               f"{num(both['left'])} مانده.")
+        self.both_text.setText(f"صف آنلاین + حضوری: {num(both['reviewed'])} از {num(both['total'])} بررسی شده، {num(both['left'])} مانده.")
+        f = d["flow"]
+        order = ("WAIT_ONLINE", "MANUAL", "WAIT_INSTORE", "CONFLICT", "EDIT", "CANCEL", "READY", "DONE_APPROVED", "DONE_CLOSED")
+        items = [(workflow.STATES[k].split("؛")[0], f.get(k, 0), theme.WORKFLOW[k][0]) for k in order]
+        self.flow_bar.set_parts([(n, c) for _, n, c in items])
+        self.flow_legend.set_items([it for it in items if it[1]] or items[:1])
+        open_n = sum(f.get(k, 0) for k in workflow.OPEN_STATES)
+        self.flow_text.setText(f"{num(f.get('READY', 0))} آماده‌ی تأیید در NBO • {num(f.get('WAIT_INSTORE', 0))} منتظر Instore • "
+                               f"{num(open_n)} باز • {num(f.get('DONE_APPROVED', 0))} تأییدشده")
         w = d["week"]
         self.t_approve.set_value(w["counts"]["APPROVE"])
         self.t_edit.set_value(w["counts"]["EDIT"])

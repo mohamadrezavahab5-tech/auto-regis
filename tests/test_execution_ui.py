@@ -24,25 +24,28 @@ class Session(QObject):
         return store.connect(user_dir() / 'ui-test.db')
 
 
-def test_mode_page_starts_dry_and_displays_readiness():
-    app = QApplication.instance() or QApplication([])
+def test_mode_page_starts_dry_and_displays_readiness(monkeypatch):
+    QApplication.instance() or QApplication([])
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, 'information', lambda *a, **k: None)
     session = Session()
     control = ExecutionControl(session)
-    shell = type('Shell', (), {'execution': control})()
-    page = ExecutionPage(session, shell)
+    page = ExecutionPage(session, type('Shell', (), {'execution': control})())
     page.on_show()
-    assert page.mode.currentData() is False
-    assert page.mode.isEnabled()
+    assert not page.switch.isChecked() and page.switch.isEnabled()
     assert control.readiness in page.readiness.text()
+    page.switch.setChecked(True)                     # owner tries live: refused while no NBO approval API is connected
+    assert not control.mode.live and not page.switch.isChecked()
     control.stop()
     page.close()
 
 
 def test_colleague_cannot_change_execution_mode():
-    app = QApplication.instance() or QApplication([])
+    QApplication.instance() or QApplication([])
     session = Session(False)
     control = ExecutionControl(session)
     page = ExecutionPage(session, type('Shell', (), {'execution': control})())
-    assert not page.mode.isEnabled()
+    page.on_show()
+    assert not page.switch.isEnabled()
     control.stop()
     page.close()

@@ -22,3 +22,19 @@
     (Date Online Check, بررسی قرارداد, دلیل نیاز به ادیت, دلیل لغو قرارداد), only where they are empty, with the sheet's own
     dropdown values - never another team's columns, never a new column or tab. All full results and logs go to the owner's
     own sheet. The app must always show how much of the day's work is done and left, and every status.
+12. 2026-10-01 owner (confirmed, replaces the Online-Instore part of #11): the whole flow lives in the owner's OWN sheet
+    ("AutoReview - Results"); the teams' shared sheets (Main-Data, Online-Instore) are never read or written - the old
+    shared-sheet writer was removed from the code, and a test fails if any code path names another spreadsheet.
+    - Online only: the Online verdict decides. Online + Instore: ready for NBO only when BOTH teams approved (the team used
+      to write "approved" in the shared sheet, wait for Instore, then approve all in NBO).
+    - The engine's APPROVE/EDIT/CANCEL counts as the Online verdict (Settings switch); MANUAL always waits for a person and
+      any person can replace any verdict ("manual approval whenever needed").
+    - Instore verdicts: in the app, or in the Instore columns of the "Online + Instore" tab of the owner's sheet (same words
+      as the old dropdown); the app only writes its own columns there.
+    - NBO's later status is kept: approved in NBO -> DONE_APPROVED, edit/cancel -> DONE_CLOSED, so done and left are always
+      visible. Approval in NBO is still done by a person until an official NBO approval API is connected (live switch
+      stays locked, owner only). CRM approve field recorded (new_merchantstatus = 100000005), execution disabled until the
+      owner has CRM approval rights.
+    - The app connects to the owner's sheet with his service-account key (DPAPI, his PC only) and syncs every 30 s while
+      open. Colleagues: personal revocable codes via the Google-hosted service in his sheet (owner = mohammadreza.vahab).
+    - Codex built most of this in a separate copy (2026-10-01 15:57-22:52); taken over with the owner's approval and completed.

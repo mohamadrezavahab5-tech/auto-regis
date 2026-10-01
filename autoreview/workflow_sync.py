@@ -36,15 +36,29 @@ def sync(db, cfg=None, client=None):
 
 
 def sync_direct(db, google):
+    """The owner's PC (service-account key) is the single writer of the owner's sheet. Each step is idempotent, so a failure
+    half-way is simply finished by the next round 30 seconds later."""
+    from . import execution
+    labels = sheets.nbo_labels()
+    google.ensure_tabs(list(labels['edit'].values()) + list(labels['cancel'].values()))
     sent = workflow.pending(db)
     result = google.sync(sent)
     if result.get('cases') != len(sent['cases']) or result.get('events') != len(sent['events']):
         raise sheets.SheetError('رسید ارسال کامل نیست؛ صف محفوظ می‌ماند')
     workflow.acknowledge(db, sent)
+    # Instore verdicts typed into the Online + Instore tab, then the tab's app columns brought up to date
+    statuses = {}
+    for smr, values in google.instore_entries():
+        status = workflow.sheet_verdict(db, smr, 'instore', values, labels)
+        if status:
+            statuses[smr] = status
+    both = [c for c in workflow.cases(db) if c['channel'] == 'both']
+    google.write_online_instore([workflow.sheet_row(c) for c in both], statuses)
     incoming = google.commands()['commands']
-    receipts = [workflow.apply_command(db, c, sheets.nbo_labels()) for c in incoming]
+    receipts = [workflow.apply_command(db, c, labels) for c in incoming]
     if receipts:
         google.ack(receipts)
+    google.upsert_execution(execution.records(db, limit=500))
     return {'remaining': workflow.pending_count(db), 'commands': len(receipts),
             'rejected': sum(r['status'] == 'rejected' for r in receipts)}
 

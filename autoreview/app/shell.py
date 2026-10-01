@@ -7,13 +7,13 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QStackedWidget,
                                QStatusBar, QVBoxLayout, QWidget)
 
-from .. import crm_sync, jalali, reference, sheets, store
+from .. import crm_sync, jalali, reference, sheets
 from ..version import __version__
 from . import icons
 from .session import run_bg
 from .theme import C
 from .web import NboClient, PageRenderer
-from .widgets import Pill, label, num, toast
+from .widgets import Pill, label, toast
 
 NAV = [
     ("کار", [("dashboard", "داشبورد", "dashboard"), ("review", "بررسی", "review"), ("results", "نتایج", "results"),
@@ -68,6 +68,7 @@ class Shell(QMainWindow):
         QShortcut(QKeySequence("F5"), self, activated=self._refresh_current)
         session.busy_changed.connect(lambda *_: self._update_status())
         session.data_changed.connect(self._update_status)
+        session.workflow_sync_changed.connect(self._update_status)
         self._clock = QTimer(self)
         self._clock.timeout.connect(self._tick)
         self._clock.start(30_000)
@@ -160,8 +161,8 @@ class Shell(QMainWindow):
         self.mode_banner = label(self.execution.summary, "bannerText", wrap=True)
         self.execution.changed.connect(lambda: self.mode_banner.setText(self.execution.summary))
         h.addWidget(self.mode_banner, 1)
-        control_button = QPushButton('آزمایشی / واقعی')
-        control_button.clicked.connect(lambda: self.go('execution'))
+        control_button = QPushButton("کنترل اجرا")
+        control_button.clicked.connect(lambda: self.go("execution"))
         h.addWidget(control_button)
         return b
 
@@ -193,12 +194,18 @@ class Shell(QMainWindow):
         show(self.pill_nbo, "NBO", m_nbo, "nbo" in b.busy)
         show(self.pill_crm, "CRM", m_crm, "crm" in b.busy)
         cfg = sheets.load()
-        if "sheet" in b.busy:
-            self.pill_sheet.set("شیت: در حال ارسال…", C["info"], C["info_soft"])
-        elif cfg.get("webapp_url") or cfg.get('auth_mode') == 'service_account':
-            self.pill_sheet.set("شیت: تنظیم شده؛ وضعیت در گردش کار", C["info"], C["info_soft"])
-        else:
+        connected = cfg.get("webapp_url") or cfg.get("auth_mode") in ("service_account", "workspace")
+        if "sheet" in b.busy or "workflow" in b.busy:
+            self.pill_sheet.set("شیت: در حال همگام‌سازی…", C["info"], C["info_soft"])
+        elif not connected:
             self.pill_sheet.set("شیت: وصل نشده", C["text2"], C["surface2"])
+        elif not cfg.get("workflow_sync"):
+            self.pill_sheet.set("شیت: وصل — همگام‌سازی خاموش", C["warn"], C["warn_soft"])
+        elif b.workflow_sync_status.startswith("همگام‌سازی ناموفق"):
+            self.pill_sheet.set("شیت: قطع — تلاش دوباره", C["danger"], C["danger_soft"])
+        else:
+            self.pill_sheet.set("شیت: همگام", C["approve"], C["approve_soft"])
+        self.pill_sheet.setToolTip(b.workflow_sync_status)
 
     def _tick(self):
         now = datetime.now()
@@ -249,11 +256,6 @@ class Shell(QMainWindow):
     def open_in_nbo(self, smr):
         self.go("nbo")
         self.pages["nbo"].open_smr(smr)
-
-    def offer_online_instore(self, run_id):
-        """Online-Instore: only after the switch is on, a fresh structure check passes and the person confirms."""
-        self.go('workflow')
-        return
 
     def closeEvent(self, e):
         r = self.session.runner

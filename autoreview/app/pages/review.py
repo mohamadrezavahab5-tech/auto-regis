@@ -336,4 +336,4 @@ class ReviewPage(ScrollPage):
                              f"دستی {num(c.get('MANUAL', 0))}")
         self.on_show()
         if self.session.run_kind == "both":
-            self.shell.offer_online_instore(run_id)
+            self.shell.go("workflow")                           # the Online verdicts now wait for Instore there

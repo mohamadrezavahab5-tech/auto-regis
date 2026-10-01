@@ -1,166 +1,422 @@
-"""Human Online/Instore decisions, shared with the owner's sheet."""
+"""The two-team workflow: for every request in the queue, the Online verdict (the engine's or a person's), the Instore verdict
+for Online + Instore requests, and what NBO finally did. Everything here is mirrored into the owner's sheet every 30 seconds;
+nothing here changes NBO."""
 import html
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox,
-    QFormLayout, QHBoxLayout, QLineEdit, QMessageBox, QTableWidget, QTableWidgetItem,
-    QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
+from PySide6.QtGui import QColor, QGuiApplication
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame, QHBoxLayout,
+                               QHeaderView, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter,
+                               QTableView, QVBoxLayout, QWidget)
 
-from ... import sheets, workflow, workspace
+from ... import jalali, sheets, workflow, workspace
+from ...texts import ACTION_FA, reasons_fa
+from .. import theme
 from ..session import run_bg
-from ...texts import ACTION_FA
-from ..widgets import button, label, num
+from ..theme import C
+from ..widgets import Card, EmptyState, Pill, SearchBox, button, label, ltr, num, toast
+
+COLS = ("کد درخواست", "مسیر", "وب‌سایت", "نظر Online", "نظر Instore", "وضعیت", "آخرین تغییر")
+# two rows: what is still open, then what is finished (next to the search box)
+CHIPS_OPEN = (("OPEN", "همه‌ی باز"), ("WAIT_ONLINE", "منتظر Online"), ("MANUAL", "دستی"), ("WAIT_INSTORE", "منتظر Instore"),
+              ("CONFLICT", "اختلاف"), ("READY", "آماده‌ی تأیید"), ("EDIT", "اصلاح"), ("CANCEL", "لغو"))
+CHIPS_DONE = (("DONE_APPROVED", "تأییدشده در NBO"), ("DONE_CLOSED", "بسته‌شده"), ("ALL", "همه"))
+CHIPS = CHIPS_OPEN + CHIPS_DONE
+
+
+def short(state):
+    return workflow.STATES[state].split("؛")[0]
+SOURCE_FA = {"engine": "موتور", "human": "در اپ", "sheet": "از شیت", "workspace": "همکار"}
+
+
+def verdict_text(v, needed=True):
+    if not v:
+        return "منتظر" if needed else "لازم نیست"
+    who = "موتور" if v.get("source") == "engine" else (v.get("actor") or "")
+    return f"{ACTION_FA.get(v['action'], v['action'])} — {who}"
+
+
+class FlowModel(QAbstractTableModel):
+    def __init__(self):
+        super().__init__()
+        self.rows = []
+
+    def set_rows(self, rows):
+        self.beginResetModel()
+        self.rows = rows
+        self.endResetModel()
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.rows)
+
+    def columnCount(self, parent=QModelIndex()):
+        return len(COLS)
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+            return COLS[section]
+        return None
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        r = self.rows[index.row()]
+        c = index.column()
+        st = r.get("state") or workflow.state(r)
+        if role == Qt.ItemDataRole.DisplayRole:
+            return (ltr(r["smr"]), "آنلاین + حضوری" if r["channel"] == "both" else "فقط آنلاین", ltr(r.get("site") or ""),
+                    verdict_text(r.get("online")), verdict_text(r.get("instore"), r["channel"] == "both"),
+                    short(st), jalali.ago(r.get("updated_at")))[c]
+        if role == Qt.ItemDataRole.EditRole:                       # sort key
+            return r.get("updated_at") or "" if c == 6 else self.data(index, Qt.ItemDataRole.DisplayRole)
+        if c == 5 and role in (Qt.ItemDataRole.ForegroundRole, Qt.ItemDataRole.BackgroundRole):
+            fg, bg = theme.WORKFLOW.get(st, (C["text2"], C["surface2"]))
+            return QColor(fg if role == Qt.ItemDataRole.ForegroundRole else bg)
+        if c in (3, 4) and role == Qt.ItemDataRole.ForegroundRole:
+            v = r.get("online" if c == 3 else "instore")
+            if v:
+                return QColor(theme.ACTION.get(v["action"], (C["text2"], ""))[0])
+            return QColor(C["text3"])
+        if role == Qt.ItemDataRole.ToolTipRole and c == 6:
+            return jalali.jdatetime(r["updated_at"]) if r.get("updated_at") else ""
+        if role == Qt.ItemDataRole.UserRole:
+            return r
+        return None
+
+
+class FlowFilter(QSortFilterProxyModel):
+    def __init__(self):
+        super().__init__()
+        self.states, self.text = set(workflow.OPEN_STATES), ""
+        self.setSortRole(Qt.ItemDataRole.EditRole)
+
+    def set(self, states=None, text=None):
+        if states is not None:
+            self.states = states
+        if text is not None:
+            self.text = text.strip().lower()
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, row, parent):
+        r = self.sourceModel().rows[row]
+        if self.states and (r.get("state") or workflow.state(r)) not in self.states:
+            return False
+        if self.text:
+            return self.text in " ".join([r["smr"], r.get("site") or "", r.get("category") or ""]).lower()
+        return True
 
 
 class WorkflowPage(QWidget):
-    title = 'گردش کار'
-    subtitle = 'نظر دو تیم، تصمیم دستی و وضعیت همگام‌سازی با شیت اختصاصی'
+    title = "گردش کار"
+    subtitle = "نظر تیم Online و Instore برای هر درخواست، و اینکه NBO در نهایت چه کرد — هم‌زمان در شیت خودت"
 
     def __init__(self, session, shell):
         super().__init__()
+        self.setObjectName("page")
         self.session, self.shell = session, shell
-        self.setObjectName('page')
-        layout = QVBoxLayout(self)
-        layout.addWidget(label('پیشنهاد موتور با تأیید انسانی جداست. برای درخواست مشترک، نظر تأیید هر دو تیم لازم است. '
-                               'هیچ‌یک از این دکمه‌ها وضعیت NBO را تغییر نمی‌دهد.', 'muted', wrap=True))
-        bar = QHBoxLayout()
-        self.search = QLineEdit()
-        self.search.setPlaceholderText('جستجو در کد درخواست یا وب‌سایت')
-        self.search.textChanged.connect(self.render)
-        bar.addWidget(self.search, 1)
-        self.filter = QComboBox()
-        self.filter.addItem('همه', '')
-        for k, v in workflow.STATES.items(): self.filter.addItem(v, k)
-        self.filter.currentIndexChanged.connect(self.render)
-        bar.addWidget(self.filter)
-        b = button('همگام‌سازی اکنون', None, 'refresh')
-        b.clicked.connect(lambda: session.sync_workflow(force=True))
-        bar.addWidget(b)
-        layout.addLayout(bar)
-        self.status = label('', 'muted', wrap=True)
-        layout.addWidget(self.status)
-        self.table = QTableWidget(0, 8)
-        self.table.setHorizontalHeaderLabels(['کد درخواست','مسیر','پیشنهاد موتور','نظر Online','نظر Instore','وضعیت','نسخه','وب‌سایت'])
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        main = QVBoxLayout(self)
+        main.setContentsMargins(0, 0, 0, 0)
+        main.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.sync_pill = Pill("شیت")
+        top.addWidget(self.sync_pill)
+        self.sync_text = label("", "caption", wrap=True)
+        top.addWidget(self.sync_text, 1)
+        b_sync = button("همگام‌سازی الان", None, "refresh")
+        b_sync.clicked.connect(lambda: session.sync_workflow(force=True))
+        b_sheet = button("باز کردن شیت من", None, "sheet")
+        b_sheet.clicked.connect(self._open_sheet)
+        top.addWidget(b_sync)
+        top.addWidget(b_sheet)
+        main.addLayout(top)
+
+        self.chips = {}
+
+        def chip_row(items):
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            for key, text in items:
+                b = QPushButton(text)
+                b.setProperty("kind", "chip")
+                b.setCheckable(True)
+                b.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)     # never squeezed into a cut-off label
+                b.clicked.connect(lambda _=False, k=key: self._chip(k))
+                row.addWidget(b)
+                self.chips[key] = b
+            return row
+        bar = chip_row(CHIPS_OPEN)
+        bar.addStretch(1)
+        main.addLayout(bar)
+        row2 = chip_row(CHIPS_DONE)
+        row2.addSpacing(10)
+        self.search = SearchBox("جستجو در کد، سایت، دسته…")
+        self.search.textChanged.connect(lambda t: self.proxy.set(text=t))
+        row2.addWidget(self.search, 1)
+        main.addLayout(row2)
+        self.chips["OPEN"].setChecked(True)
+        self.summary = label("", "muted")
+        main.addWidget(self.summary)
+
+        split = QSplitter(Qt.Orientation.Horizontal)
+        self.model, self.proxy = FlowModel(), FlowFilter()
+        self.proxy.setSourceModel(self.model)
+        self.table = QTableView()
+        self.table.setModel(self.proxy)
+        self.table.setSortingEnabled(True)
+        self.table.sortByColumn(6, Qt.SortOrder.DescendingOrder)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        for i,w in enumerate((125,115,130,100,100,235,65)): self.table.setColumnWidth(i,w)
-        self.table.itemSelectionChanged.connect(self.selection)
-        layout.addWidget(self.table, 1)
-        self.details = label('', 'muted', wrap=True, selectable=True)
-        layout.addWidget(self.details)
-        controls = QHBoxLayout()
-        for team, text in [('online','ثبت نظر Online'), ('instore','ثبت نظر Instore')]:
-            b = button(text, 'primary' if team=='online' else None, 'check')
-            b.clicked.connect(lambda _=False, t=team: self.decide(t))
-            controls.addWidget(b)
-        b = button('باز کردن در NBO', None, 'nbo')
-        b.clicked.connect(self.open_nbo)
-        controls.addWidget(b)
-        controls.addStretch(1)
-        layout.addLayout(controls)
-        self.rows = []
-        session.data_changed.connect(self.on_show)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(36)
+        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        hh = self.table.horizontalHeader()
+        hh.setStretchLastSection(True)
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        for i, w in enumerate((118, 106, 140, 130, 122, 150)):
+            self.table.setColumnWidth(i, w)
+        self.table.selectionModel().selectionChanged.connect(self._selected)
+        split.addWidget(self.table)
+        self.detail = QScrollArea()
+        self.detail.setWidgetResizable(True)
+        self.detail.setMinimumWidth(360)
+        self.detail.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.detail.setFrameShape(QFrame.Shape.NoFrame)
+        self._empty_detail()
+        split.addWidget(self.detail)
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
+        split.setSizes([860, 400])
+        main.addWidget(split, 1)
+        self.current = None
+        session.data_changed.connect(self._reload_if_visible)
         session.workflow_sync_changed.connect(self.show_status)
+
+    # ---- data
+    def _reload_if_visible(self):
+        if self.isVisible():
+            self.on_show()
 
     def on_show(self):
         db = self.session.db()
-        try: self.rows = workflow.cases(db)
-        finally: db.close()
-        self.render()
+        try:
+            rows = workflow.cases(db)
+            pending = workflow.pending_count(db)
+        finally:
+            db.close()
+        keep = self.current["smr"] if self.current else None
+        self.model.set_rows(rows)
+        counts = {k: 0 for k in workflow.STATES}
+        for r in rows:
+            counts[r.get("state") or workflow.state(r)] += 1
+        open_n = sum(counts[k] for k in workflow.OPEN_STATES)
+        for key, text in CHIPS:
+            n = open_n if key == "OPEN" else (len(rows) if key == "ALL" else counts.get(key, 0))
+            self.chips[key].setText(f"{text}  {num(n)}")
+        self.summary.setText(f"{num(open_n)} درخواست باز — {num(counts['READY'])} آماده‌ی تأیید، "
+                             f"{num(counts['WAIT_INSTORE'])} منتظر تیم حضوری، {num(counts['DONE_APPROVED'])} تأییدشده، "
+                             f"{num(counts['DONE_CLOSED'])} بسته‌شده")
+        self._pending = pending
         self.show_status()
+        if keep:
+            for i in range(self.proxy.rowCount()):
+                if self.proxy.data(self.proxy.index(i, 0), Qt.ItemDataRole.UserRole)["smr"] == keep:
+                    self.table.selectionModel().select(self.proxy.index(i, 0), self.table.selectionModel().SelectionFlag.ClearAndSelect
+                                                       | self.table.selectionModel().SelectionFlag.Rows)
+                    break
+        if not rows:
+            self.detail.setWidget(EmptyState("list-check", "هنوز درخواستی در گردش کار نیست",
+                                             "بعد از دریافت خروجی NBO، درخواست‌های صف اینجا می‌آیند و با هر بررسی نظر موتور ثبت می‌شود."))
 
     def show_status(self):
-        db = self.session.db()
-        try: pending = workflow.pending_count(db)
-        finally: db.close()
-        self.status.setText(f"{self.session.workflow_sync_status} — {num(pending)} پرونده منتظر ارسال")
+        s = self.session
+        cfg = sheets.load()
+        pending = getattr(self, "_pending", 0)
+        if "workflow" in s.busy:
+            self.sync_pill.set("شیت: در حال همگام‌سازی…", C["info"], C["info_soft"])
+        elif not cfg.get("workflow_sync"):
+            self.sync_pill.set("شیت: خاموش", C["text2"], C["surface2"])
+        elif s.workflow_sync_status.startswith("همگام‌سازی ناموفق"):
+            self.sync_pill.set("شیت: قطع", C["danger"], C["danger_soft"])
+        else:
+            self.sync_pill.set("شیت: همگام", C["approve"], C["approve_soft"])
+        self.sync_text.setText(s.workflow_sync_status + (f" — {num(pending)} پرونده منتظر ارسال" if pending else ""))
 
-    def render(self, *_):
-        previous = self.selected()
-        q, state = self.search.text().strip().lower(), self.filter.currentData()
-        self.visible_rows = [r for r in self.rows if (not state or r['state']==state) and
-                             (not q or q in (r['smr']+' '+r.get('site','')).lower())]
-        self.table.setRowCount(0)
-        for i,r in enumerate(self.visible_rows):
-            self.table.insertRow(i)
-            values = [r['smr'], 'Online + Instore' if r['channel']=='both' else 'Online',
-                      ACTION_FA.get((r.get('suggestion') or {}).get('action'), 'بررسی‌نشده'),
-                      ACTION_FA.get((r.get('online') or {}).get('action'), 'منتظر'),
-                      ACTION_FA.get((r.get('instore') or {}).get('action'), 'منتظر' if r['channel']=='both' else 'لازم نیست'),
-                      r['state_fa'], str(r['revision']), r.get('site','')]
-            for j,value in enumerate(values): self.table.setItem(i,j,QTableWidgetItem(value))
-        if previous:
-            for i,r in enumerate(self.visible_rows):
-                if r['smr']==previous['smr']: self.table.selectRow(i); break
+    def _chip(self, key):
+        for k, b in self.chips.items():
+            b.setChecked(k == key)
+        self.proxy.set(states=set(workflow.OPEN_STATES) if key == "OPEN" else (set() if key == "ALL" else {key}))
 
-    def selected(self):
-        i = self.table.currentRow()
-        visible = getattr(self, 'visible_rows', [])
-        return visible[i] if 0 <= i < len(visible) else None
+    def _open_sheet(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl(f"https://docs.google.com/spreadsheets/d/{sheets.load()['own_sheet_id']}/edit"))
 
-    def selection(self):
-        r = self.selected()
-        if not r: self.details.setText('یک درخواست را انتخاب کن'); return
-        parts = []
-        for team in ('online','instore'):
-            decision = r.get(team)
-            if decision: parts.append(f"{team}: {decision['actor']} — {decision['note']} — {decision['at']}")
-        self.details.setText(html.escape(' | '.join(parts) or 'هنوز نظر انسانی ثبت نشده است'))
+    # ---- detail
+    def _empty_detail(self):
+        self.detail.setWidget(EmptyState("list-check", "یک درخواست را انتخاب کن",
+                                         "نظر هر دو تیم، پیشنهاد موتور و کار بعدی اینجا نمایش داده می‌شود."))
 
-    def open_nbo(self):
-        r = self.selected()
-        if r: self.shell.open_in_nbo(r['smr'])
+    def _selected(self, *_):
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
+        self.current = self.proxy.data(rows[0], Qt.ItemDataRole.UserRole)
+        self.detail.setWidget(self._detail(self.current))
 
+    def _detail(self, r):
+        st = r.get("state") or workflow.state(r)
+        w = QWidget()
+        w.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        v = QVBoxLayout(w)
+        v.setContentsMargins(6, 0, 6, 12)
+        v.setSpacing(12)
+        head = Card()
+        t = QHBoxLayout()
+        t.addWidget(label(r["smr"], "h2"))
+        t.addStretch(1)
+        fg, bg = theme.WORKFLOW.get(st, (C["text2"], C["surface2"]))
+        t.addWidget(Pill(short(st), fg, bg))
+        head.lay.addLayout(t)
+        head.lay.addWidget(label(ltr(html.escape(r.get("site") or "")), "muted", selectable=True))
+        head.lay.addWidget(label(("آنلاین + حضوری — تأیید هر دو تیم لازم است" if r["channel"] == "both"
+                                  else "فقط آنلاین — نظر تیم Online کافی است") +
+                                 (f" • {html.escape(r.get('category') or '')}" if r.get("category") else ""), "caption", wrap=True))
+        head.lay.addWidget(label(self._next_step(r, st), "h3", wrap=True))
+        v.addWidget(head)
+
+        for team, title in (("online", "تیم Online"), ("instore", "تیم Instore")):
+            if team == "instore" and r["channel"] != "both":
+                continue
+            card = Card()
+            row = QHBoxLayout()
+            row.addWidget(label(title, "h3"))
+            row.addStretch(1)
+            verdict = r.get(team)
+            if verdict:
+                row.addWidget(Pill(ACTION_FA.get(verdict["action"], verdict["action"]),
+                                   *theme.ACTION.get(verdict["action"], (C["text2"], C["surface2"]))))
+            card.lay.addLayout(row)
+            if verdict:
+                src = SOURCE_FA.get(verdict.get("source"), "")
+                card.lay.addWidget(label(f"{html.escape(verdict.get('actor') or '')} • {src} • "
+                                         f"{jalali.jdatetime(verdict['at']) if verdict.get('at') else ''}", "caption", wrap=True))
+                codes = verdict.get("reasons") or ([verdict["reason"]] if verdict.get("reason") else [])
+                if codes:
+                    card.lay.addWidget(label("<b>دلیل NBO:</b> " + html.escape(reasons_fa(codes)), wrap=True))
+                card.lay.addWidget(label(html.escape(verdict.get("note") or ""), "muted", wrap=True))
+            else:
+                card.lay.addWidget(label("هنوز نظری ثبت نشده" + (f" — در تب {ltr('Online + Instore')} شیت خودت هم می‌شود ثبت کرد"
+                                                                  if team == "instore" else ""), "muted", wrap=True))
+            if r.get("active"):
+                b = button("ثبت / تغییر نظر " + title, "primary" if not verdict else None, "check")
+                b.clicked.connect(lambda _=False, tm=team: self.decide(tm))
+                card.lay.addWidget(b, 0, Qt.AlignmentFlag.AlignRight)
+            v.addWidget(card)
+
+        sug = r.get("suggestion")
+        if sug:
+            card = Card(soft=True)
+            card.lay.addWidget(label("پیشنهاد موتور: " + ACTION_FA.get(sug.get("action"), sug.get("action") or "—"), "h3"))
+            if sug.get("reason_codes"):
+                card.lay.addWidget(label(html.escape(reasons_fa(sug["reason_codes"])), "muted", wrap=True))
+            v.addWidget(card)
+        btns = QHBoxLayout()
+        b_nbo = button("باز کردن در NBO", "primary" if st == "READY" else None, "nbo")
+        b_nbo.clicked.connect(lambda: self.shell.open_in_nbo(r["smr"]))
+        b_copy = button("کپی کد", None, "copy")
+        b_copy.clicked.connect(lambda: (QGuiApplication.clipboard().setText(r["smr"]), toast(self.window(), "کد کپی شد")))
+        btns.addWidget(b_nbo)
+        btns.addWidget(b_copy)
+        btns.addStretch(1)
+        v.addLayout(btns)
+        v.addWidget(label(f"وضعیت در NBO: {html.escape(r.get('source_status') or '—')} • نسخه‌ی پرونده {num(r.get('revision', 0))}",
+                          "caption", wrap=True))
+        v.addStretch(1)
+        return w
+
+    @staticmethod
+    def _next_step(r, st):
+        return {
+            "WAIT_ONLINE": "کار بعدی: نظر تیم Online (یا اجرای بررسی خودکار)",
+            "MANUAL": "کار بعدی: یک نفر از تیم Online بررسی و نظر ثبت کند",
+            "WAIT_INSTORE": f"کار بعدی: نظر تیم Instore — در اپ، یا در تب {ltr('Online + Instore')} شیت خودت",
+            "CONFLICT": "دو تیم نظر متفاوت دارند؛ یکی باید نظرش را عوض کند",
+            "READY": "کار بعدی: تأیید در NBO — داخل همین اپ، دکمه‌ی «باز کردن در NBO»",
+            "EDIT": "کار بعدی: درخواست اصلاح در NBO با همین دلیل",
+            "CANCEL": "کار بعدی: لغو در NBO با همین دلیل",
+            "DONE_APPROVED": "تمام شد — در NBO تأیید شده",
+            "DONE_CLOSED": "تمام شد — در NBO بسته شده (اصلاح/لغو/…)",
+        }.get(st, "خارج از صف فعال")
+
+    # ---- verdicts
     def decide(self, team):
-        r = self.selected()
-        if not r: return
-        if not r['active'] or (team=='instore' and r['channel']!='both'):
-            QMessageBox.information(self,'گردش کار','این درخواست برای این تصمیم در صف فعال نیست.'); return
+        r = self.current
+        if not r:
+            return
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"{r['smr']} — نظر {team}")
+        dlg.setWindowTitle(f"نظر {'تیم Online' if team == 'online' else 'تیم Instore'} — {r['smr']}")
+        dlg.setMinimumWidth(460)
         form = QFormLayout(dlg)
+        form.setSpacing(10)
         action = QComboBox()
-        action.addItem('انتخاب تصمیم…','')
-        for key in ('APPROVE','EDIT','CANCEL','MANUAL','REOPEN'):
-            action.addItem(ACTION_FA.get(key,'بازگشایی و حذف تأیید قبلی'),key)
+        for key in ("APPROVE", "EDIT", "CANCEL", "MANUAL", "REOPEN"):
+            action.addItem(ACTION_FA.get(key, "") if key != "REOPEN" else "پاک کردن نظر (بازگشایی)", key)
         reason = QComboBox()
         labels = sheets.nbo_labels()
-        def fill_reasons(*_):
-            reason.clear(); reason.addItem('انتخاب دلیل…','')
-            values = labels.get(str(action.currentData()).lower(),{})
-            for code,text in values.items(): reason.addItem(text,code)
-            reason.setEnabled(bool(values))
-        action.currentIndexChanged.connect(fill_reasons)
-        fill_reasons()
-        note = QTextEdit(); note.setPlaceholderText('توضیح بررسی یا مرجع نظر تیم؛ الزامی')
-        note.setMaximumHeight(100)
-        form.addRow('تصمیم',action); form.addRow('دلیل NBO',reason); form.addRow('توضیح',note)
-        form.addRow(label('ثبت‌کننده: '+self.session.user_label()+' — این ثبت، تغییر وضعیت در NBO نیست.',wrap=True))
-        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
+
+        def fill(*_):
+            reason.clear()
+            options = labels.get(str(action.currentData()).lower(), {})
+            reason.addItem("— دلیل NBO —" if options else "دلیل لازم نیست", "")
+            for code, text in options.items():
+                reason.addItem(text, code)
+            reason.setEnabled(bool(options))
+        action.currentIndexChanged.connect(fill)
+        fill()
+        note = QPlainTextEdit()
+        note.setPlaceholderText("توضیح یا مرجع بررسی (لازم)")
+        note.setFixedHeight(90)
+        form.addRow("نظر", action)
+        form.addRow("دلیل", reason)
+        form.addRow("توضیح", note)
+        form.addRow(label(f"ثبت به نام {self.session.user_label()} — در NBO چیزی تغییر نمی‌کند.", "caption", wrap=True))
+        box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        box.button(QDialogButtonBox.StandardButton.Save).setText("ثبت نظر")
+        box.button(QDialogButtonBox.StandardButton.Cancel).setText("انصراف")
+        form.addRow(box)
+        box.rejected.connect(dlg.reject)
+
         def save():
-            if sheets.load().get('auth_mode') == 'workspace':
-                buttons.setEnabled(False)
-                choice, explanation, code = action.currentData(), note.toPlainText(), reason.currentData() or ''
-                def complete(result):
-                    db=self.session.db()
-                    try: workspace.cache_cases(db,[result['case']])
-                    finally: db.close()
-                    dlg.accept(); self.session.data_changed.emit()
-                def failed(error):
-                    buttons.setEnabled(True)
-                    QMessageBox.warning(dlg,'ثبت تصمیم',str(error))
-                run_bg(lambda _p: workspace.decide(r['smr'],team,choice,explanation,
-                       r['revision'],code), complete, failed)
+            choice, code, text = action.currentData(), reason.currentData() or "", note.toPlainText()
+            if sheets.load().get("auth_mode") == "workspace":
+                box.setEnabled(False)
+
+                def ok(result):
+                    db = self.session.db()
+                    try:
+                        workspace.cache_cases(db, [result["case"]])
+                    finally:
+                        db.close()
+                    dlg.accept()
+                    self.session.data_changed.emit()
+
+                def bad(e):
+                    box.setEnabled(True)
+                    QMessageBox.warning(dlg, "ثبت نظر", str(e))
+                run_bg(lambda _p: workspace.decide(r["smr"], team, choice, text, r["revision"], code), ok, bad)
                 return
             db = self.session.db()
             try:
-                workflow.decide(db,r['smr'],team,action.currentData(),self.session.user_label(),
-                                note.toPlainText(),r['revision'],reason.currentData() or '',labels)
+                workflow.decide(db, r["smr"], team, choice, self.session.user_label(), text, r["revision"], code, labels)
             except ValueError as e:
-                QMessageBox.warning(dlg,'ثبت تصمیم',str(e)); return
-            finally: db.close()
-            dlg.accept(); self.session.data_changed.emit(); self.session.sync_workflow()
-        buttons.accepted.connect(save); buttons.rejected.connect(dlg.reject)
-        form.addRow(buttons); dlg.exec()
+                QMessageBox.warning(dlg, "ثبت نظر", str(e))
+                return
+            finally:
+                db.close()
+            dlg.accept()
+            toast(self.window(), "نظر ثبت شد")
+            self.session.data_changed.emit()
+            self.session.sync_workflow(force=True)
+        box.accepted.connect(save)
+        dlg.exec()

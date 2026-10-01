@@ -100,9 +100,9 @@ class ResultsPage(QWidget):
         b_xlsx.clicked.connect(self.export_xlsx)
         b_sheet = button("ارسال به شیت من", None, "send")
         b_sheet.clicked.connect(self.send_sheet)
-        self.b_oi = button("تصمیم دستی / گردش کار", None, "sheet")
-        self.b_oi.clicked.connect(lambda: self.shell.offer_online_instore(self.run_id))
-        for b in (b_xlsx, b_sheet, self.b_oi):
+        b_flow = button("گردش کار دو تیم", None, "list-check")
+        b_flow.clicked.connect(lambda: self.shell.go("workflow"))
+        for b in (b_xlsx, b_sheet, b_flow):
             top.addWidget(b)
         main.addLayout(top)
         bar = QHBoxLayout()
@@ -199,7 +199,6 @@ class ResultsPage(QWidget):
         c = {k: sum(1 for r in rows if r["action"] == k) for k in ("APPROVE", "EDIT", "CANCEL", "MANUAL")}
         self.summary.setText(f"{num(len(rows))} درخواست — تایید {num(c['APPROVE'])} • اصلاح {num(c['EDIT'])} • لغو {num(c['CANCEL'])} • "
                              f"دستی {num(c['MANUAL'])}")
-        self.b_oi.setVisible(True)
 
     def _chip(self, key):
         for k, b in self.chips.items():

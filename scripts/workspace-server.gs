@@ -16,7 +16,11 @@ function authenticate(body,ss) {
 }
 function permission(user,roles) { if (!roles.includes(user.role)) throw new Error('این عملیات برای نقش شما مجاز نیست'); }
 function flowState(c) {
-  if (!c.active) return ['OUT_OF_SCOPE','خارج از صف فعال'];
+  if (!c.active) {
+    if (c.outcome==='approved') return ['DONE_APPROVED','تأییدشده در NBO'];
+    if (c.outcome==='closed') return ['DONE_CLOSED','بسته‌شده در NBO'];
+    return ['OUT_OF_SCOPE','خارج از صف فعال'];
+  }
   const o=(c.online || {}).action, t=c.channel==='both'?(c.instore || {}).action:null;
   const votes=[o,t].filter(Boolean);
   if (votes.includes('APPROVE') && votes.some(v=>['EDIT','CANCEL'].includes(v))) return ['CONFLICT','اختلاف نظر دو تیم'];
@@ -100,10 +104,15 @@ function sourceCase(src,old) {
   if(old && old.source_loaded_at && Date.parse(src.source_loaded_at)<Date.parse(old.source_loaded_at))throw new Error('مرجع NBO قدیمی‌تر است');
   const changed=!old || old.fingerprint!==src.fingerprint || old.active!==src.active;
   const c={smr:src.smr,channel:src.channel,site:String(src.site||''),category:String(src.category||''),
-    source_status:String(src.source_status||''),active:src.active,fingerprint:src.fingerprint,source_loaded_at:src.source_loaded_at,
-    suggestion:src.suggestion||null,online:changed?null:old.online,instore:changed?null:old.instore};
+    source_status:String(src.source_status||''),active:src.active,outcome:src.outcome||null,fingerprint:src.fingerprint,
+    source_loaded_at:src.source_loaded_at,suggestion:src.suggestion||null,online_hold:!!src.online_hold,
+    online:changed?null:old.online,instore:changed?null:old.instore};
   if(old && JSON.stringify((old.suggestion||{}).reason_codes)!==JSON.stringify((c.suggestion||{}).reason_codes))c.online=null;
   if(old && (old.suggestion||{}).action!==(c.suggestion||{}).action)c.online=null;
+  // The engine's verdict (owner rule: it counts as the Online verdict) may fill an empty Online slot; a person's never moves.
+  const engine=src.online||null;
+  if(engine && engine.source==='engine' && !(c.online && c.online.source!=='engine'))c.online=engine;
+  if(!engine && c.online && c.online.source==='engine')c.online=null;
   return c;
 }
 function humanDecision(body,user,c,ss) {

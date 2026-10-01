@@ -1,10 +1,15 @@
-"""Approval execution ledger. An uncertain write is never automatically repeated."""
+"""Approval execution ledger. An uncertain write is never automatically repeated.
+
+Until an official NBO approval API is connected (nbo_execution has the safety logic, no live transport), approval in NBO is
+done by a person in the embedded NBO page; the ledger records what NBO then shows (APPROVED_IN_NBO), so 'ready' and
+'really approved' are never confused."""
 from datetime import datetime, timezone
 
 from . import store, workflow
 from .workspace import ADMIN, username
 
-LABELS = {'PREVIEW': 'آزمایشی؛ ارسال نشده', 'SENDING': 'در حال ارسال',
+LABELS = {'PREVIEW': 'آماده؛ منتظر تأیید در NBO', 'SENDING': 'در حال ارسال',
+          'APPROVED_IN_NBO': 'در NBO تأیید شد',
           'VERIFIED': 'تأیید در NBO بررسی شد', 'BLOCKED': 'متوقف؛ نیازمند بررسی',
           'UNCERTAIN': 'نتیجه نامشخص؛ تکرار خودکار ممنوع'}
 
@@ -40,9 +45,26 @@ def eligibility(case, now=None):
     return ''
 
 
-def records(db):
-    return [dict(zip(('smr', 'revision', 'state', 'updated_at', 'detail'), row))
-            for row in db.execute('SELECT smr,revision,state,updated_at,detail FROM nbo_execution ORDER BY updated_at DESC')]
+def records(db, limit=None):
+    sql = 'SELECT smr,revision,state,updated_at,detail FROM nbo_execution ORDER BY updated_at DESC'
+    rows = db.execute(sql + (' LIMIT ?' if limit else ''), (limit,) if limit else ()).fetchall()
+    return [dict(zip(('smr', 'revision', 'state', 'updated_at', 'detail'), row), label=LABELS.get(row[2], row[2])) for row in rows]
+
+
+def note_nbo_outcomes(db):
+    """NBO now shows approved (whoever pressed the button): record it once per request, and say plainly when it happened
+    without the team verdicts the process needs. -> number recorded."""
+    done = {r[0] for r in db.execute("SELECT smr FROM nbo_execution WHERE state IN ('VERIFIED','APPROVED_IN_NBO')")}
+    n = 0
+    for case in workflow.cases(db):
+        if case.get('state') != 'DONE_APPROVED' or case['smr'] in done:
+            continue
+        online = (case.get('online') or {}).get('action') == 'APPROVE'
+        instore = case['channel'] != 'both' or (case.get('instore') or {}).get('action') == 'APPROVE'
+        record(db, case, 'APPROVED_IN_NBO', 'پس از تأیید تیم‌های لازم' if online and instore
+               else 'بدون تأیید کامل گردش کار؛ بررسی شود')
+        n += 1
+    return n
 
 
 def record(db, case, state, detail=''):

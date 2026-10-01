@@ -3,7 +3,7 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from .. import crm_sync, reference, sheets
+from .. import crm_sync, settings, sheets
 from .web import ALL_NBO_STATUSES
 
 
@@ -35,6 +35,8 @@ class AutomaticSources(QObject):
         # Do not replace source snapshots halfway through a review.
         if s.runner and s.runner.is_active(): return
         now = time.monotonic()
+        every = settings.load_rules().get('automation', {})
+        crm_wait, nbo_wait = 60 * int(every.get('crm_minutes', 5)), 60 * int(every.get('nbo_minutes', 15))
         if now >= self.next_crm and not self.crm_active and 'crm' not in s.busy:
             if not crm_sync.have_credentials():
                 self.update('برای دریافت خودکار CRM، یک بار وارد حساب خودت شو')
@@ -42,7 +44,7 @@ class AutomaticSources(QObject):
             else:
                 self.crm_active = True
                 def done(_result):
-                    self.crm_active = False; self.next_crm = time.monotonic()+300
+                    self.crm_active = False; self.next_crm = time.monotonic() + crm_wait
                     self.update('CRM خودکار به‌روز شد')
                 def failed(_error):
                     self.crm_active = False; self.next_crm = time.monotonic()+120
@@ -53,7 +55,7 @@ class AutomaticSources(QObject):
         s._busy('nbo', True)
         self.update('در حال دریافت خودکار NBO…')
         def finish(error=None):
-            self.nbo_active = False; self.next_nbo = time.monotonic()+(120 if error else 300)
+            self.nbo_active = False; self.next_nbo = time.monotonic() + (120 if error else nbo_wait)
             s._busy('nbo',False)
             self.update('NBO: ورود/OTP یا اتصال نیاز به بررسی دارد' if error else 'NBO خودکار به‌روز شد')
             if not error: s.sync_workflow()
