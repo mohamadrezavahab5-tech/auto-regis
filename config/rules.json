@@ -1,33 +1,37 @@
 {
-  "_note": "Owner answers 2026-09-30: (1) min products is configurable PER CATEGORY; (3) unreachable site => MANUAL (confirmed); (4) PENDING_ACTIVATION counts as approved (confirmed); (5) only the PENDING tab is worked. Values with confirmed=false still need the owner's number.",
+  "_note": "Owner answers 2026-09-30: (1) min products is configurable PER CATEGORY; (3) unreachable site => MANUAL (confirmed); (4) PENDING_ACTIVATION counts as approved (confirmed); (5) only the PENDING tab is worked. Values with confirmed=false still need the owner's number. 2026-10-01: rules aligned with Action Test 4 on the owner's request.",
   "min_products": {
     "default": {
-      "value": 40,
-      "confirmed": false,
+      "value": 60,
+      "confirmed": true,
       "sources": [
-        "meeting: about 40",
-        "old code: 60"
+        "Action Test 4 (team's last engine): owner 2026-10-01 'all the old code's rules'"
       ]
     },
     "services": {
       "value": 10,
-      "confirmed": false,
+      "confirmed": true,
       "sources": [
-        "meeting",
-        "old code"
+        "Action Test 4 (team's last engine): owner 2026-10-01 'all the old code's rules'"
       ]
     },
     "education": {
       "value": 10,
-      "confirmed": false,
+      "confirmed": true,
       "sources": [
-        "meeting",
-        "old code"
+        "Action Test 4 (team's last engine): owner 2026-10-01 'all the old code's rules'"
       ]
     },
     "by_category_fa": {
       "_note": "override per NBO 'Category (fa)' name, e.g. \"مد و پوشاک\": 60. Empty until the owner sets them.",
       "values": {}
+    },
+    "no_category": {
+      "value": 25,
+      "confirmed": true,
+      "sources": [
+        "Action Test 4 (team's last engine): owner 2026-10-01 'all the old code's rules' - no NBO category"
+      ]
     }
   },
   "manual_category_groups": [
@@ -43,10 +47,10 @@
     ]
   },
   "unreachable_site_action": {
-    "value": "MANUAL",
+    "value": "EDIT",
     "confirmed": true,
     "sources": [
-      "owner 2026-09-30"
+      "Action Test 4 (team's last engine): owner 2026-10-01 'all the old code's rules' - a site that does not open => EDIT 'URL wrong or inactive'"
     ]
   },
   "owner_mismatch_action": {
@@ -91,15 +95,13 @@
     "include_optional": false
   },
   "category_groups": {
-    "_note": "NBO 'Category (fa)' name -> group. Groups decide the minimum product count and manual review. Names not listed are 'normal'. The owner completes this list (special: categories that need extra documents).",
+    "_note": "NBO 'Category (fa)' name -> group. Groups decide the minimum product count and manual review. Names not listed are 'normal'. The owner completes this list (special: categories that need extra documents). services = exactly the old engine's 'خدمات' (10 products); other service categories use the default.",
     "gold": [
       "طلا"
     ],
     "special": [],
     "services": [
-      "خدمات",
-      "خدمات گردشگری(اقامتگاه، آژانس مسافرتی و تور)",
-      "خدمات سلامت"
+      "خدمات"
     ],
     "education": [
       "آموزشی"
@@ -107,7 +109,7 @@
     "confirmed": false
   },
   "checks": {
-    "_note": "Checks that can be switched off. agreement: the meeting never defined what 'Agreement' means, so it is skipped (enabled=false) and reported as 'not checked' - it does NOT send everything to MANUAL. Turn on only after the rule is defined.",
+    "_note": "Checks that can be switched off. agreement: the meeting never defined what 'Agreement' means, so it is skipped (enabled=false) and reported as 'not checked' - it does NOT send everything to MANUAL. Turn on only after the rule is defined. https: Action Test 4 sends an http-only site to EDIT 'URL wrong or inactive'. enamad_on_site: not in Action Test 4 (off; switch on in Settings).",
     "agreement": {
       "enabled": false
     },
@@ -115,6 +117,9 @@
       "enabled": true
     },
     "enamad_on_site": {
+      "enabled": false
+    },
+    "https": {
       "enabled": true
     }
   },

@@ -78,7 +78,7 @@ class SettingsPage(ScrollPage):
         w, self.r_owner = _radio_row((("EDIT", "اصلاح"), ("CANCEL", "لغو"), ("MANUAL", "دستی")), self._cur("owner_mismatch_action.value"))
         g.addWidget(w, 0, 1)
         g.addWidget(label("سایت باز نمی‌شود", "h3"), 1, 0)
-        w, self.r_unreach = _radio_row((("MANUAL", "دستی"), ("EDIT", "اصلاح (آدرس نامعتبر)")), self._cur("unreachable_site_action.value"))
+        w, self.r_unreach = _radio_row((("EDIT", "اصلاح (آدرس نامعتبر)"), ("MANUAL", "دستی")), self._cur("unreachable_site_action.value"))
         g.addWidget(w, 1, 1)
         g.addWidget(label("نقشه‌ی سایت (sitemap) پیدا نشد", "h3"), 2, 0)
         w, self.r_sitemap = _radio_row((("EDIT", "اصلاح"), ("MANUAL", "دستی")), self._cur("sitemap_missing_action.value"))
@@ -95,9 +95,10 @@ class SettingsPage(ScrollPage):
         d.lay.addLayout(g)
         d.lay.addWidget(label("بررسی‌های قابل خاموش کردن:", "muted"))
         checks = QHBoxLayout()
-        self.c_cart, self.c_seal, self.c_agree = Switch(), Switch(), Switch()
-        for sw, key, text in ((self.c_cart, "checks.add_to_cart.enabled", "افزودن به سبد"),
-                              (self.c_seal, "checks.enamad_on_site.enabled", "نماد اینماد روی سایت"),
+        self.c_cart, self.c_seal, self.c_agree, self.c_https = Switch(), Switch(), Switch(), Switch()
+        for sw, key, text in ((self.c_https, "checks.https.enabled", "سایت بدون https ← اصلاح"),
+                              (self.c_cart, "checks.add_to_cart.enabled", "افزودن به سبد"),
+                              (self.c_seal, "checks.enamad_on_site.enabled", "نماد اینماد روی سایت (در Action Test 4 نبود)"),
                               (self.c_agree, "checks.agreement.enabled", "قرارداد (Agreement) — قاعده‌اش هنوز تعریف نشده")):
             sw.setChecked(bool(self._cur(key)))
             checks.addWidget(sw)
@@ -114,7 +115,8 @@ class SettingsPage(ScrollPage):
         self.p_default = _spin(0, 100000, self._cur("min_products.default.value"))
         self.p_services = _spin(0, 100000, self._cur("min_products.services.value"))
         self.p_education = _spin(0, 100000, self._cur("min_products.education.value"))
-        for text, sp in (("عادی", self.p_default), ("خدمات", self.p_services), ("آموزشی", self.p_education)):
+        self.p_nocat = _spin(0, 100000, self._cur("min_products.no_category.value") or 25)
+        for text, sp in (("عادی", self.p_default), ("خدمات", self.p_services), ("آموزشی", self.p_education), ("بدون دسته", self.p_nocat)):
             row.addWidget(label(text, "muted"))
             row.addWidget(sp)
             row.addSpacing(20)
@@ -283,7 +285,8 @@ class SettingsPage(ScrollPage):
             "owner_mismatch_action.value": picked(self.r_owner), "unreachable_site_action.value": picked(self.r_unreach),
             "sitemap_missing_action.value": picked(self.r_sitemap), "services_go_manual.value": self.s_services.isChecked(),
             "checks.add_to_cart.enabled": self.c_cart.isChecked(), "checks.enamad_on_site.enabled": self.c_seal.isChecked(),
-            "checks.agreement.enabled": self.c_agree.isChecked(),
+            "checks.agreement.enabled": self.c_agree.isChecked(), "checks.https.enabled": self.c_https.isChecked(),
+            "min_products.no_category.value": self.p_nocat.value(),
             "min_products.default.value": self.p_default.value(), "min_products.services.value": self.p_services.value(),
             "min_products.education.value": self.p_education.value(), "min_products.by_category_fa.values": per_cat,
             "category_groups.gold": groups["gold"], "category_groups.special": groups["special"],

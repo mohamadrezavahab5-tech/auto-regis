@@ -79,8 +79,9 @@ def test_batch_end_to_end_offline(isolated_profile):
     assert r.progress.state == "finished" and r.progress.done == 5
     got = results(isolated_profile, "t1")
     assert got["A"]["action"] == "APPROVE", got["A"]["notes"]
-    assert got["B"]["action"] == "MANUAL"                                    # unreachable site => a person looks
-    assert got["C"]["action"] == "EDIT" and got["C"]["reason_codes"] == ["OWNER_MISMATCH"]
+    assert got["B"]["action"] == "EDIT" and got["B"]["reason_codes"] == ["INVALID_URL"]   # Action Test 4: a dead address => EDIT
+    # Action Test 4 checks the registrant vs the bank account before the enamad owner
+    assert got["C"]["action"] == "EDIT" and got["C"]["reason_codes"] == ["REGISTRANT_NAME_AND_BANK_ACCOUNT_OWNER_MISMATCH"]
     assert got["D"]["action"] == "CANCEL" and got["D"]["reason_codes"] == ["DUPLICATE_REQUEST"] and "NBO: OLD" in got["D"]["notes"][0]
     assert got["E"]["action"] == "MANUAL" and "shared platform" in got["E"]["notes"][0]
     assert all(x["duration_ms"] is not None for x in got.values())
@@ -162,11 +163,13 @@ def test_a_seal_drawn_by_javascript_is_seen_by_the_hidden_browser(isolated_profi
 
     def mk():
         return httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    no_browser = Runner(isolated_profile / "t.db", client_factory=mk)
+    rules = settings.load_rules()
+    rules["checks"]["enamad_on_site"]["enabled"] = True     # not an Action Test 4 rule: off by default, switched on here
+    no_browser = Runner(isolated_profile / "t.db", rules=rules, client_factory=mk)
     no_browser.start([row("A", "shop3.ir")], approved_nbo=NBO_OK, approved_crm=CRM_OK, run_id="r0")
     no_browser.join(60)
     assert results(isolated_profile, "r0")["A"]["action"] == "MANUAL"
-    with_browser = Runner(isolated_profile / "t.db", client_factory=mk, render=render)
+    with_browser = Runner(isolated_profile / "t.db", rules=rules, client_factory=mk, render=render)
     with_browser.start([row("A", "shop3.ir")], approved_nbo=NBO_OK, approved_crm=CRM_OK, run_id="r1")
     with_browser.join(60)
     got = results(isolated_profile, "r1")["A"]
@@ -186,7 +189,9 @@ def test_the_hidden_browser_is_not_used_when_it_cannot_change_the_outcome(isolat
 
 
 def test_dashboard_numbers(isolated_profile):
-    r = Runner(isolated_profile / "t.db", client_factory=factory())
+    rules = settings.load_rules()
+    rules["unreachable_site_action"]["value"] = "MANUAL"     # keeps one 'why manual' cause in the numbers
+    r = Runner(isolated_profile / "t.db", rules=rules, client_factory=factory())
     r.start([row("A", "shop.ir"), row("D", "dup.ir"), row("B", "dead.ir")], approved_nbo=NBO_OK, approved_crm=CRM_OK, run_id="t8")
     r.join(60)
     db = store.connect(isolated_profile / "t.db")

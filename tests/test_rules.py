@@ -35,7 +35,7 @@ def test_everything_proven_is_approved():
 
 def test_unknown_anywhere_is_manual_never_a_guess():
     for field in ("website_reachable", "has_enamad", "enamad_expired", "owner_matches_account_holder",
-                  "enamad_shown_on_site", "agreement_ok", "can_add_to_cart", "product_count", "has_contact"):
+                  "agreement_ok", "can_add_to_cart", "has_contact"):
         d = evaluate(good(**{field: None}), RULES, confirmed(ALL))
         assert d.action == MANUAL, field
 
@@ -56,8 +56,20 @@ def test_ambiguous_reason_code_downgrades_to_manual():
     assert d.action == MANUAL and "not unambiguous" in d.notes[0]
 
 
-def test_enamad_not_shown_on_site_uses_the_no_enamad_reason():
-    assert evaluate(good(enamad_shown_on_site=False), RULES, REASONS).reason_codes == ["MISSING_LICENSE"]
+def with_rule(path, value):
+    r = copy.deepcopy(RULES)
+    cur = r
+    for k in path[:-1]:
+        cur = cur[k]
+    cur[path[-1]] = value
+    return r
+
+
+def test_enamad_not_shown_on_site_uses_the_no_enamad_reason_when_switched_on():
+    assert evaluate(good(enamad_shown_on_site=False), RULES, REASONS).action == APPROVE        # not in Action Test 4
+    on = with_rule(("checks", "enamad_on_site", "enabled"), True)
+    assert evaluate(good(enamad_shown_on_site=False), on, REASONS).reason_codes == ["MISSING_LICENSE"]
+    assert evaluate(good(enamad_shown_on_site=None), on, REASONS).action == MANUAL
 
 
 def test_owner_mismatch_follows_the_owner_setting():
@@ -87,9 +99,43 @@ def test_site_inactive_cancels_with_the_real_code():
     assert d.action == CANCEL and d.reason_codes == ["WEBSITE_IS_INACTIVE"]
 
 
-def test_unreachable_site_is_manual_by_default_not_edit():
-    d = evaluate(good(website_reachable=False), RULES, confirmed(ALL))
-    assert d.action == MANUAL
+# ---- Action Test 4 (owner 2026-10-01: "all the old code's rules") ------------------------------------------------------------
+def test_a_dead_address_is_edit_like_action_test_4_unless_switched_to_manual():
+    assert evaluate(good(website_reachable=False), RULES, REASONS).reason_codes == ["INVALID_URL"]
+    manual = with_rule(("unreachable_site_action", "value"), "MANUAL")
+    assert evaluate(good(website_reachable=False), manual, REASONS).action == MANUAL
+
+
+def test_http_only_site_is_edit_url():
+    assert evaluate(good(ssl_ok=False), RULES, REASONS).reason_codes == ["INVALID_URL"]
+    assert evaluate(good(ssl_ok=False), with_rule(("checks", "https", "enabled"), False), REASONS).action == APPROVE
+
+
+def test_inactive_site_is_cancelled():
+    d = evaluate(good(site_active=False), RULES, REASONS)
+    assert d.action == CANCEL and d.reason_codes == ["WEBSITE_IS_INACTIVE"]
+
+
+def test_gate_order_is_action_test_4s():
+    # no enamad beats everything; https beats an inactive site; bank name is checked before the enamad owner
+    assert evaluate(good(has_enamad=False, website_reachable=False), RULES, REASONS).reason_codes == ["MISSING_LICENSE"]
+    assert evaluate(good(ssl_ok=False, site_active=False), RULES, REASONS).reason_codes == ["INVALID_URL"]
+    d = evaluate(good(registrant_matches_account_holder=False, owner_matches_account_holder=False), RULES, REASONS)
+    assert d.reason_codes == ["REGISTRANT_NAME_AND_BANK_ACCOUNT_OWNER_MISMATCH"]
+    assert evaluate(good(has_contact=False, product_count=1), RULES, REASONS).reason_codes == ["MISSING_CONTACT_INFO"]
+
+
+def test_enough_products_need_no_sitemap_and_short_counts_follow_the_sitemap():
+    assert evaluate(good(has_sitemap=False, product_count=70), RULES, REASONS).action == APPROVE
+    assert evaluate(good(has_sitemap=False, product_count=5), RULES, REASONS).reason_codes == ["SITEMAP_IS_MISSING"]
+    assert evaluate(good(category_name="مد و پوشاک", product_count=59), RULES, REASONS).reason_codes ==         ["INSUFFICIENT_NUMBER_OF_PRODUCTS_IN_SITEMAP"]                                                   # default 60
+    assert evaluate(good(category_name=None, product_count=30), RULES, REASONS).action == APPROVE        # no category: 25
+
+
+def test_cart_unknown_without_product_pages_still_reports_missing_sitemap():
+    d = evaluate(good(can_add_to_cart=None, has_sitemap=False, product_count=None), RULES, REASONS)
+    assert d.reason_codes == ["SITEMAP_IS_MISSING"]
+    assert evaluate(good(can_add_to_cart=None), RULES, REASONS).action == MANUAL
 
 
 def test_non_online_request_is_never_acted_on():

@@ -6,6 +6,7 @@ pages, bot challenges, timeouts, a partial read - is None, and None sends the re
 import asyncio
 import gzip
 import html as htmllib
+import json
 import re
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
@@ -28,6 +29,7 @@ class Fetched:
     text: str = ""
     error: Optional[str] = None    # dns | dns_temp | timeout | ssl | connect | redirects | invalid_url | http_<code> | other
     truncated: bool = False        # the body was larger than the cap - only the first part was read
+    total: Optional[int] = None    # X-WP-Total of a WordPress/WooCommerce REST answer (how many items exist in all)
 
 
 Fetch = Callable[[str], Awaitable[Fetched]]
@@ -65,7 +67,9 @@ def make_fetch(client: httpx.AsyncClient, retries: int = 1, cap: int = MAX_BYTES
                             data = gzip.decompress(data)[:cap]
                         except (OSError, EOFError):
                             pass
-                    return Fetched(True, r.status_code, str(r.url), data.decode(r.encoding or "utf-8", errors="replace"), None, truncated)
+                    total = r.headers.get("x-wp-total")
+                    return Fetched(True, r.status_code, str(r.url), data.decode(r.encoding or "utf-8", errors="replace"), None, truncated,
+                                   int(total) if total and total.strip().isdigit() else None)
             except httpx.TooManyRedirects:
                 return Fetched(False, None, url, "", "redirects")
             except (httpx.InvalidURL, httpx.UnsupportedProtocol):
@@ -277,3 +281,27 @@ async def count_products(origin: str, fetch: Fetch, max_files: int = 40) -> dict
                 "basis": "sitemap exists but no product sitemap recognised - count unknown", "samples": []}
     return {"has_sitemap": None if inconclusive else False, "product_count": None, "complete": False,
             "basis": "sitemap fetch inconclusive" if inconclusive else "no sitemap found", "samples": []}
+
+
+# The shop's own catalogue API (WooCommerce / WordPress), read like the old engine did besides the sitemap: an exact total
+# straight from the shop, without guessing from page text. Public endpoints only; nothing is ever sent but a GET.
+PRODUCT_APIS = ("/wp-json/wc/store/v1/products?per_page=5", "/wp-json/wc/store/products?per_page=5",
+                "/wp-json/wp/v2/product?per_page=5&_fields=link")
+
+
+async def count_products_api(origin: str, fetch: Fetch) -> dict:
+    """-> {product_count: int|None, samples: [product page URLs], basis: str}. None = the shop has no such public API."""
+    base = origin.rstrip("/")
+    for path in PRODUCT_APIS:
+        r = await fetch(base + path)
+        if not r.ok or r.total is None:
+            continue
+        try:
+            items = json.loads(r.text)
+        except ValueError:
+            continue
+        if not isinstance(items, list):
+            continue
+        samples = [str(i.get("permalink") or i.get("link")) for i in items if isinstance(i, dict) and (i.get("permalink") or i.get("link"))]
+        return {"product_count": r.total, "samples": samples, "basis": "api " + path.split("?")[0]}
+    return {"product_count": None, "samples": [], "basis": ""}

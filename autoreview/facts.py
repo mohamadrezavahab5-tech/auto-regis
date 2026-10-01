@@ -20,6 +20,23 @@ def category_group(rules: dict, category_name) -> str:
     return "normal"
 
 
+DEAD = {"dns", "dns_temp", "timeout", "connect", "ssl", "invalid_url", "redirects"}
+INACTIVE_HTTP = {"http_404", "http_410", "http_500", "http_502", "http_503", "http_504"}
+
+
+def _apply_enamad(facts, ev, info, row, website, category_map):
+    ev["enamad"] = {"found": info.found, "status": info.status, "owner": info.owner, "valid_until": info.valid_until,
+                    "approve_date": info.approve_date, "domain_shown": info.domain_shown, "business_name": info.business_name,
+                    "activities": info.activities, "error": info.error}
+    facts_e = enamad.to_facts(info, website, row.get("account_holder"), facts.category_name, category_map["titles_by_nbo_category"],
+                              bool(category_map.get("mismatch_allowed")))
+    for k, v in facts_e.items():
+        setattr(facts, k, v)
+    reg, holder = registrant_name(row), str(row.get("account_holder") or "").strip()
+    facts.registrant_matches_account_holder = names_equal(reg, holder) if reg and holder else None
+    ev["names"] = {"account_holder": holder, "registrant": reg, "enamad_owner": info.owner}
+
+
 def registrant_name(row: dict) -> str:
     return " ".join(x for x in (row.get("owner_name", ""), row.get("owner_family", "")) if x).strip()
 
@@ -49,24 +66,6 @@ async def collect(row: dict, rules: dict, fetch, http, enamad_gate: asyncio.Sema
         facts.blocker = f"the website is a page on a shared platform ({declared}), not a shop website"
         return facts, ev
 
-    home, tried = await sitec.fetch_home(website, fetch)
-    facts.website_reachable = sitec.reachable(home)
-    ev["home"] = {"ok": home.ok, "status": home.status, "error": home.error, "url": home.url, "tried": tried}
-    if facts.website_reachable is not True:
-        return facts, ev
-
-    final_host = normalize_site(home.url)
-    if final_host != declared:
-        facts.blocker = f"the website redirects to another domain ({declared} -> {final_host})"
-        return facts, ev
-    problem = detectors.page_problem(home.text)
-    if problem == "challenge":
-        facts.blocker = "the website answers with a bot-protection page; its content could not be read"
-        return facts, ev
-    if problem == "placeholder":
-        facts.blocker = "the website shows a placeholder / suspended / under-construction page"
-        return facts, ev
-
     async def enamad_part():
         async with enamad_gate:
             info = await enamad.lookup(http, website)
@@ -74,23 +73,52 @@ async def collect(row: dict, rules: dict, fetch, http, enamad_gate: asyncio.Sema
                 await asyncio.sleep(pause)
         return info
 
+    # Action Test 4 order: the enamad verdict stands even when the site itself does not open.
+    enamad_task = asyncio.ensure_future(enamad_part())
+    home, tried = await sitec.fetch_home(website, fetch)
+    ev["home"] = {"ok": home.ok, "status": home.status, "error": home.error, "url": home.url, "tried": tried}
+    if home.ok:
+        facts.website_reachable = True
+    elif home.error in DEAD:                            # never opened (old engine: 'URL wrong or inactive' -> EDIT)
+        facts.website_reachable = False
+    elif home.error in INACTIVE_HTTP:                   # opened with an error page (old engine: 'site inactive' -> CANCEL)
+        facts.website_reachable, facts.site_active = True, False
+    if facts.website_reachable:
+        facts.ssl_ok = str(home.url).lower().startswith("https://")
+
+    stop = facts.website_reachable is not True or facts.site_active is False
+    if not stop:
+        final_host = normalize_site(home.url)
+        problem = detectors.page_problem(home.text)
+        if final_host != declared:
+            facts.blocker = f"the website redirects to another domain ({declared} -> {final_host})"
+        elif problem == "challenge":
+            facts.blocker = "the website answers with a bot-protection page; its content could not be read"
+        elif problem == "placeholder":
+            facts.site_active = False                   # parked / suspended / under construction = inactive site
+        else:
+            facts.site_active = True
+        stop = facts.blocker is not None or facts.site_active is False
+    if stop:
+        info = await enamad_task
+        _apply_enamad(facts, ev, info, row, website, category_map)
+        return facts, ev
+
     origin = sitec.origin_of(home.url)
-    info, prod, contact = await asyncio.gather(enamad_part(), sitec.count_products(origin, fetch), sitec.has_contact(home, fetch))
+    info, prod, api, contact = await asyncio.gather(enamad_task, sitec.count_products(origin, fetch),
+                                                    sitec.count_products_api(origin, fetch), sitec.has_contact(home, fetch))
+    _apply_enamad(facts, ev, info, row, website, category_map)
 
-    ev["enamad"] = {"found": info.found, "status": info.status, "owner": info.owner, "valid_until": info.valid_until,
-                    "approve_date": info.approve_date, "domain_shown": info.domain_shown, "business_name": info.business_name,
-                    "activities": info.activities, "error": info.error}
-    facts_e = enamad.to_facts(info, website, row.get("account_holder"), facts.category_name, category_map["titles_by_nbo_category"],
-                              bool(category_map.get("mismatch_allowed")))
-    for k, v in facts_e.items():
-        setattr(facts, k, v)
-
-    reg, holder = registrant_name(row), str(row.get("account_holder") or "").strip()
-    facts.registrant_matches_account_holder = names_equal(reg, holder) if reg and holder else None
-    ev["names"] = {"account_holder": holder, "registrant": reg, "enamad_owner": info.owner}
-
-    facts.has_sitemap, facts.product_count, facts.product_count_complete = prod["has_sitemap"], prod["product_count"], prod["complete"]
-    ev["products"] = {k: prod[k] for k in ("has_sitemap", "product_count", "complete", "basis")}
+    # products: the shop's own catalogue total (exact) or the sitemap count, whichever proves more
+    facts.has_sitemap = prod["has_sitemap"]
+    counts = [(prod["product_count"], prod["complete"], prod["basis"])]
+    if api["product_count"] is not None:
+        counts.append((api["product_count"], True, api["basis"]))
+    best = max((c for c in counts if c[0] is not None), key=lambda c: c[0], default=(None, True, ""))
+    facts.product_count, facts.product_count_complete = best[0], best[1]
+    prod = dict(prod, samples=list(dict.fromkeys(list(prod.get("samples", [])) + api["samples"])))
+    ev["products"] = {"has_sitemap": prod["has_sitemap"], "product_count": best[0], "complete": best[1], "basis": best[2],
+                      "sitemap_count": counts[0][0], "api_count": api["product_count"]}
     facts.has_contact = contact
     facts.enamad_shown_on_site = detectors.enamad_shown_on_site(home.text) if checks.get("enamad_on_site", {}).get("enabled", True) else True
 
