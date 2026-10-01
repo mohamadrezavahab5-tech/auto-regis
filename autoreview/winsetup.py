@@ -112,6 +112,43 @@ def app_running() -> bool:
     return EXE_NAME.lower() in r.stdout.lower()
 
 
+def wait_for_exit(pid: int, timeout=30) -> bool:
+    """Blocks until the process ends (or the timeout passes). True = it has ended."""
+    SYNCHRONIZE = 0x00100000
+    handle = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, int(pid))
+    if not handle:
+        return True                                   # already gone
+    try:
+        return ctypes.windll.kernel32.WaitForSingleObject(handle, int(timeout * 1000)) == 0
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
+# ---- start with Windows ---------------------------------------------------------------------------------------------------
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def autostart_enabled(name=APP_NAME) -> bool:
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            winreg.QueryValueEx(k, name)
+            return True
+    except OSError:
+        return False
+
+
+def set_autostart(exe: Path, on: bool, name=APP_NAME):
+    """Per-user 'Run' entry; the app starts in the background (next to the clock) so the sheet stays in sync."""
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+        if on:
+            winreg.SetValueEx(k, name, 0, winreg.REG_SZ, f'"{exe}" --background')
+        else:
+            try:
+                winreg.DeleteValue(k, name)
+            except OSError:
+                pass
+
+
 def close_app():
     subprocess.run(["taskkill", "/IM", EXE_NAME, "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
 

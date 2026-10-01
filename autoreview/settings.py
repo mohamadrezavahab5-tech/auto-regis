@@ -67,6 +67,7 @@ EDITABLE = {
     ("rules", "workflow.engine_verdict_counts"): _is_bool,
     ("rules", "automation.nbo_minutes"): _int_range(5, 240),
     ("rules", "automation.crm_minutes"): _int_range(2, 120),
+    ("rules", "automation.keep_in_tray"): _is_bool,
     ("category_map", "mismatch_allowed"): _is_bool,
 }
 

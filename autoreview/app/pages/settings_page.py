@@ -1,10 +1,15 @@
 """Settings: every rule the owner may adjust, grouped, with the source of each default. Saved per person (settings.json in
 their profile); shared with colleagues by export/import (the same filter applies, unknown keys are refused)."""
+import sys
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QHeaderView, QMessageBox, QRadioButton,
                                QSpinBox, QTableWidget, QTableWidgetItem, QWidget)
 
-from ... import settings
+from ... import settings, updates, winsetup
+from ...jalali import fa_digits
+from ...version import __version__
 from ...imports import status_key
 from ..widgets import Card, Switch, button, label, num, toast
 from .common import NBO_STATUS_FA, ScrollPage
@@ -46,7 +51,7 @@ class SettingsPage(ScrollPage):
 
     def __init__(self, session, shell):
         super().__init__()
-        self.session = session
+        self.session, self.shell = session, shell
         self._built = False
 
     def on_show(self):
@@ -200,6 +205,27 @@ class SettingsPage(ScrollPage):
             r6.addSpacing(16)
         r6.addStretch(1)
         wf.lay.addLayout(r6)
+        r7 = QHBoxLayout()
+        self.s_tray = Switch()
+        self.s_tray.setChecked(self._cur("automation.keep_in_tray") is not False)
+        r7.addWidget(self.s_tray)
+        r7.addWidget(label("با بستن پنجره، برنامه کنار ساعت ویندوز بماند و با شیت همگام بماند", "muted"))
+        r7.addSpacing(24)
+        self.s_autostart = Switch()
+        self.s_autostart.setEnabled(updates.can_self_update())
+        self.s_autostart.setChecked(winsetup.autostart_enabled())
+        self.s_autostart.toggled.connect(self._autostart)
+        r7.addWidget(self.s_autostart)
+        r7.addWidget(label("با روشن شدن ویندوز اجرا شود", "muted"))
+        r7.addStretch(1)
+        wf.lay.addLayout(r7)
+        r8 = QHBoxLayout()
+        r8.addWidget(label(f"نسخه‌ی نصب‌شده: {fa_digits(__version__)}", "muted"))
+        b_upd = button("بررسی نسخه‌ی جدید", None, "refresh")
+        b_upd.clicked.connect(lambda: self.shell.check_update(manual=True))
+        r8.addWidget(b_upd)
+        r8.addStretch(1)
+        wf.lay.addLayout(r8)
         self.body.addWidget(wf)
 
         # ---- speed
@@ -269,8 +295,17 @@ class SettingsPage(ScrollPage):
             "runtime.http_timeout_seconds": self.timeout.value(), "runtime.request_deadline_seconds": self.deadline.value(),
             "workflow.engine_verdict_counts": self.s_engine.isChecked(),
             "automation.nbo_minutes": self.nbo_every.value(), "automation.crm_minutes": self.crm_every.value(),
+            "automation.keep_in_tray": self.s_tray.isChecked(),
         }
         return {"rules": rules, "category_map": {"mismatch_allowed": self.s_mismatch.isChecked()}}
+
+    def _autostart(self, on):
+        try:
+            winsetup.set_autostart(Path(sys.executable), on)
+        except OSError as e:
+            QMessageBox.warning(self, "اجرا با ویندوز", str(e))
+            return
+        toast(self.window(), "با روشن شدن ویندوز، برنامه در پس‌زمینه اجرا می‌شود" if on else "اجرای خودکار با ویندوز خاموش شد")
 
     def save(self):
         try:

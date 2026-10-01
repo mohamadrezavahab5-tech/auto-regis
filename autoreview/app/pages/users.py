@@ -1,17 +1,18 @@
 """Users (owner only): colleagues get a personal, revocable access code with a role - Online team, Instore team or view only.
 The service-account key never leaves the owner's PC; colleagues go through the Google-hosted service in the owner's sheet."""
+import re
 import secrets
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QGuiApplication
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QMessageBox,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout)
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
+                               QLineEdit, QMessageBox, QTableWidget, QTableWidgetItem, QVBoxLayout)
 
-from ... import google_credentials, sheets, workspace
+from ... import google_credentials, sheets, updates, workspace
 from ...google_sheet import Client
 from ..session import run_bg
 from ..theme import C
-from ..widgets import Card, StepList, button, label
+from ..widgets import Card, StepList, button, label, toast
 from .common import ScrollPage
 
 
@@ -57,7 +58,72 @@ class UsersPage(ScrollPage):
         self.table.setMinimumHeight(260)
         card.lay.addWidget(self.table)
         self.body.addWidget(card)
+
+        rel = Card()
+        rel.header("انتشار نسخه‌ی جدید برای همه", "اپ هر کس نسخه‌ی تازه را خودش می‌بیند و با یک کلیک به‌روز می‌شود")
+        self.rel_steps = StepList()
+        self.rel_steps.set_steps([
+            ("۱. فایل AutoReview-Setup-x.y.z.exe را انتخاب کن", None, "شماره‌ی نسخه از نام فایل و امضای SHA-256 از خود فایل خوانده می‌شود."),
+            ("۲. همان فایل را در Google Drive خودت بگذار و اشتراکش را «Anyone with the link» کن", None, "لینک را در کادر زیر بچسبان."),
+            ("۳. «انتشار» را بزن", None, "در تب Updates شیت خودت ثبت می‌شود؛ فایلی که امضایش نخواند هرگز اجرا نمی‌شود."),
+        ])
+        rel.lay.addWidget(self.rel_steps)
+        r1 = QHBoxLayout()
+        b_pick = button("انتخاب فایل نصب", None, "folder")
+        b_pick.clicked.connect(self.pick_setup)
+        r1.addWidget(b_pick)
+        self.rel_file = label("", "caption", wrap=True)
+        r1.addWidget(self.rel_file, 1)
+        rel.lay.addLayout(r1)
+        self.rel_link = QLineEdit()
+        self.rel_link.setPlaceholderText("https://drive.google.com/file/d/…/view")
+        self.rel_link.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        rel.lay.addWidget(self.rel_link)
+        self.rel_notes = QLineEdit()
+        self.rel_notes.setPlaceholderText("چه چیزی عوض شده (برای همکاران نمایش داده می‌شود)")
+        rel.lay.addWidget(self.rel_notes)
+        b_pub = button("انتشار", "primary", "send")
+        b_pub.clicked.connect(self.publish)
+        rel.lay.addWidget(b_pub, 0, Qt.AlignmentFlag.AlignRight)
+        self.body.addWidget(rel)
+        self.release = None
         self.body.addStretch(1)
+
+    def pick_setup(self):
+        path, _ = QFileDialog.getOpenFileName(self, "فایل نصب", "", "AutoReview Setup (AutoReview-Setup-*.exe)")
+        if not path:
+            return
+        m = re.search(r"AutoReview-Setup-(\d+\.\d+\.\d+)\.exe$", path)
+        if not m:
+            QMessageBox.warning(self, "انتشار", "نام فایل باید مثل AutoReview-Setup-1.2.0.exe باشد.")
+            return
+        self.rel_file.setText("در حال محاسبه‌ی امضا…")
+
+        def done(sha):
+            self.release = dict(version=m.group(1), sha256=sha)
+            self.rel_file.setText(f"نسخه‌ی {m.group(1)} — SHA-256: {sha[:16]}…")
+        run_bg(lambda _p: updates.file_sha256(path), done, lambda e: self.rel_file.setText(str(e)))
+
+    def publish(self):
+        if not self.owner() or not self.release:
+            QMessageBox.information(self, "انتشار", "اول فایل نصب را انتخاب کن.")
+            return
+        link = self.rel_link.text().strip()
+        try:
+            updates.direct_url(link)
+        except updates.UpdateError as e:
+            QMessageBox.warning(self, "انتشار", str(e))
+            return
+        if not updates.is_newer(self.release["version"], "0.0.0"):
+            return
+        rel, notes, cfg, who = dict(self.release), self.rel_notes.text().strip(), sheets.load(), self.session.user_label()
+
+        def work(_p):
+            with Client(cfg["own_sheet_id"]) as google:
+                google.ensure_tabs()
+                google.publish_release(rel["version"], link, rel["sha256"], notes, who)
+        run_bg(work, lambda _r: toast(self.window(), f"نسخه‌ی {rel['version']} منتشر شد؛ اپ همه آن را می‌بیند"),
+               lambda e: QMessageBox.warning(self, "انتشار", str(e)))
 
     def owner(self):
         try:

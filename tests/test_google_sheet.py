@@ -120,7 +120,7 @@ def full_book():
 def test_missing_tabs_are_created_with_dropdowns_and_existing_ones_left_alone():
     b=Book()
     with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
-        assert set(c.ensure_tabs(['دلیل الف']))=={gs.OI_TAB,gs.EXEC_TAB}
+        assert set(c.ensure_tabs(['دلیل الف']))=={gs.OI_TAB,gs.EXEC_TAB,gs.UPD_TAB}
         assert c.ensure_tabs([])==[]
     assert b.tabs[gs.OI_TAB][0][:len(gs.OI_HEAD)]==gs.OI_HEAD
     rules=[r['setDataValidation'] for r in b.requests if 'setDataValidation' in r]
@@ -160,3 +160,11 @@ def test_execution_receipts_are_upserted_per_revision():
     with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
         c.upsert_execution([rec]); c.upsert_execution([dict(rec,label='در NBO تأیید شد',updated_at='t2')])
     assert len(b.tabs[gs.EXEC_TAB])==2 and b.tabs[gs.EXEC_TAB][1][2]=='در NBO تأیید شد'
+
+
+def test_releases_are_published_once_and_read_back():
+    b=full_book()
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        c.publish_release('1.2.0','https://drive.google.com/file/d/'+'a'*30+'/view','f'*64,'notes','owner')
+        with pytest.raises(gs.GoogleSheetError): c.publish_release('1.2.0','https://x','f'*64,'','owner')
+        assert c.releases()[0]['version']=='1.2.0'

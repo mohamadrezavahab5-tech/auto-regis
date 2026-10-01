@@ -3,7 +3,8 @@
 Install = unpack the program into %LOCALAPPDATA%\\Programs\\AutoReview, add Start-menu (and optionally desktop) shortcuts and
 the 'Installed apps' entry (with uninstall). Running it again over an existing install updates the program files; the
 person's data and settings live elsewhere and are never touched.
-Silent mode for automated checks:  --silent [--dir PATH] [--no-shortcuts] [--no-registry] [--no-launch]"""
+Silent mode (automated checks and in-app updates):  --silent [--dir PATH] [--no-shortcuts] [--no-registry] [--no-launch]
+[--wait-pid PID]"""
 import os
 import subprocess
 import sys
@@ -45,6 +46,8 @@ def silent(args):
     target = Path(args[args.index("--dir") + 1]) if "--dir" in args else winsetup.default_install_dir()
     log = Path(os.environ.get("TEMP", ".")) / "AutoReview-Setup.log"
     try:
+        if "--wait-pid" in args:                         # an in-app update: let the app close itself and save its work first
+            winsetup.wait_for_exit(int(args[args.index("--wait-pid") + 1]), timeout=30)
         if winsetup.app_running():
             winsetup.close_app()
         exe = install(target, shortcuts="--no-shortcuts" not in args, registry="--no-registry" not in args)

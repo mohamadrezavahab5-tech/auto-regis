@@ -41,6 +41,7 @@ def run() -> int:
     _close_other_instances()
     winsetup.remove_shortcuts()
     winsetup.remove_registration()
+    winsetup.set_autostart(Path(sys.executable), False)                 # no orphan "start with Windows" entry
     if keep.isChecked():
         shutil.rmtree(winsetup.user_data_dir(), ignore_errors=True)
     if getattr(sys, "frozen", False):

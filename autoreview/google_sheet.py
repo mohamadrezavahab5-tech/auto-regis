@@ -32,8 +32,10 @@ OI_TEAM_COLS = range(7, 12)
 OI_RESULTS = ['تایید قرارداد', 'نیاز به ادیت', 'لغو قرارداد', 'بررسی دستی']
 EXEC_TAB = 'Execution'
 EXEC_HEAD = ['کد درخواست','نسخه پرونده','نتیجه اجرا','زمان','توضیح']
+UPD_TAB = 'Updates'                     # releases the owner publishes; every app updates itself from here (updates.py)
+UPD_HEAD = ['نسخه','لینک دانلود','SHA-256','توضیحات','تاریخ انتشار','منتشرکننده']
 TABS = {'Workflow': WORKFLOW_HEAD, OI_TAB: OI_HEAD, 'Decisions': COMMAND_HEAD, EXEC_TAB: EXEC_HEAD, 'Audit': EVENT_HEAD,
-        'Results': RESULT_HEAD, 'Manual queue': MANUAL_HEAD}
+        'Results': RESULT_HEAD, 'Manual queue': MANUAL_HEAD, UPD_TAB: UPD_HEAD}
 
 
 def col_letter(n):
@@ -323,6 +325,17 @@ class Client:
             req.append(self.update(EXEC_TAB, i + 1, values))
         self.batch(req)
         return len(req)
+
+    # ---- releases -------------------------------------------------------------------------------------------------------
+    def releases(self):
+        return [dict(version=str(r[0]).strip(), url=str(r[1]).strip(), sha256=str(r[2]).strip(), notes=str(r[3]),
+                     published_at=str(r[4])) for r in self.read(UPD_TAB, UPD_HEAD) if str(r[0]).strip()]
+
+    def publish_release(self, version, url, sha256, notes, by):
+        rows = self.read(UPD_TAB, UPD_HEAD)
+        if any(str(r[0]).strip() == version for r in rows):
+            raise GoogleSheetError(f'نسخه‌ی {version} قبلاً منتشر شده؛ شماره‌ی نسخه را بالا ببر')
+        self.batch([self.update(UPD_TAB, len(rows) + 1, [version, url, sha256, notes, now(), by])])
 
     def append_run(self, run_id, source_rows):
         results=self.read('Results',RESULT_HEAD); manual=self.read('Manual queue',MANUAL_HEAD)

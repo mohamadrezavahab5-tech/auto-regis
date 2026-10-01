@@ -24,6 +24,7 @@ class App:
         self.app = app
         self.login = None
         self.shell = None
+        self.background = "--background" in sys.argv
 
     # ---- sign-in
     def start(self):
@@ -118,7 +119,10 @@ class App:
         from .shell import Shell
         self.shell = Shell(Session(prof, crm_password=password))
         self.shell.signed_out.connect(self.sign_out)
-        self.shell.show()
+        if "--background" in sys.argv and self.background:
+            self.background = False                        # started with Windows: stay next to the clock, keep syncing
+        else:
+            self.shell.show()
 
     def sign_out(self):
         if QMessageBox.question(self.shell, "خروج", "از حساب خارج شوی؟ ورود ذخیره‌شده‌ی CRM هم از این کامپیوتر پاک می‌شود.") \
@@ -127,6 +131,7 @@ class App:
         crm_sync.forget_credentials()
         profile.clear()
         log.info("signed out")
+        self.shell._quitting = True                        # a real close, not 'hide next to the clock'
         self.shell.close()
         self.shell = None
         self.show_login()

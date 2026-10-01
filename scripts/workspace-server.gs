@@ -67,6 +67,13 @@ function doPost(e) {
         return output({ok:true,users:rows(table(ss,'Users',USER_HEAD),5).filter(r=>r[0]).map(r=>({username:r[0],role:r[1],enabled:r[2]===true}))});
       }
       if(body.action==='set_user')return output(setUser(body,user,ss));
+      if(body.action==='release') {
+        // Releases the owner published in his Updates tab; the app verifies the SHA-256 before running anything.
+        const upd=ss.getSheetByName('Updates');
+        const list=upd && upd.getLastRow()>1 ? upd.getRange(2,1,upd.getLastRow()-1,5).getValues() : [];
+        return output({ok:true,releases:list.filter(r=>r[0]).map(r=>({version:String(r[0]),url:String(r[1]),sha256:String(r[2]),
+          notes:String(r[3]),published_at:String(r[4])}))});
+      }
       const state=table(ss,'Workspace state',STATE_HEAD), data=rows(state,3);
       if(body.action==='read') {
         const offset=Math.max(0,Number(body.offset)||0), page=data.slice(offset,offset+200).filter(r=>r[0]).map(r=>JSON.parse(r[2]));

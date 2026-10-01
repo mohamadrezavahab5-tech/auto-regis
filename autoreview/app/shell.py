@@ -1,13 +1,16 @@
 """The main window: navigation rail on the right (RTL), a top bar with the page title and today's Jalali date, a permanent
 dry-run notice, and a status bar that always shows the state of every connection."""
+import os
+import sys
 from datetime import datetime
+from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QStackedWidget,
-                               QStatusBar, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QProgressDialog,
+                               QPushButton, QStackedWidget, QStatusBar, QSystemTrayIcon, QVBoxLayout, QWidget)
 
-from .. import crm_sync, jalali, reference, sheets
+from .. import crm_sync, jalali, reference, settings, sheets, updates
 from ..version import __version__
 from . import icons
 from .session import run_bg
@@ -73,6 +76,14 @@ class Shell(QMainWindow):
         self._clock.timeout.connect(self._tick)
         self._clock.start(30_000)
         self._tick()
+        self._quitting = False
+        self._told_tray = False
+        self._make_tray()
+        self.update_info = None
+        self._updates = QTimer(self)
+        self._updates.timeout.connect(self.check_update)
+        self._updates.start(6 * 3600 * 1000)
+        QTimer.singleShot(20_000, self.check_update)
         self.go("dashboard")
 
     # ---- rail
@@ -172,6 +183,11 @@ class Shell(QMainWindow):
         self.pill_crm, self.pill_nbo, self.pill_sheet = Pill("CRM"), Pill("NBO"), Pill("شیت")
         for p in (self.pill_crm, self.pill_nbo, self.pill_sheet):
             sb.addPermanentWidget(p)
+        self.update_button = QPushButton("")
+        self.update_button.setProperty("kind", "chip")
+        self.update_button.setVisible(False)
+        self.update_button.clicked.connect(self.start_update)
+        sb.addPermanentWidget(self.update_button)
         sb.addPermanentWidget(label(f"نسخه {jalali.fa_digits(__version__)}", "caption"))
 
     def _update_status(self):
@@ -257,7 +273,97 @@ class Shell(QMainWindow):
         self.go("nbo")
         self.pages["nbo"].open_smr(smr)
 
+    # ---- always on: next to the clock, so the sheet stays in sync while the window is closed
+    def _make_tray(self):
+        self.tray = QSystemTrayIcon(icons.app_icon(), self)
+        menu = QMenu(self)
+        menu.addAction("باز کردن AutoReview", self.bring_front)
+        menu.addAction("همگام‌سازی با شیت", lambda: self.session.sync_workflow(force=True))
+        menu.addSeparator()
+        menu.addAction("خروج کامل", self.quit_fully)
+        self.tray.setContextMenu(menu)
+        self.tray.setToolTip("AutoReview — در حال همگام‌سازی با شیت")
+        self.tray.activated.connect(lambda reason: self.bring_front()
+                                    if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick)
+                                    else None)
+        self.tray.show()
+
+    def bring_front(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def quit_fully(self):
+        self._quitting = True
+        self.close()
+
+    # ---- updates (published by the owner in the 'Updates' tab of his sheet)
+    def check_update(self, manual=False):
+        def done(rel):
+            if rel and updates.is_newer(rel["version"]):
+                self.update_info = rel
+                self.update_button.setText(f"نسخه‌ی {jalali.fa_digits(rel['version'])} آماده است — به‌روزرسانی")
+                self.update_button.setVisible(True)
+                if not manual and not self.isVisible():
+                    self.tray.showMessage("AutoReview", f"نسخه‌ی {rel['version']} آماده است.")
+            elif manual:
+                toast(self, "آخرین نسخه را داری")
+
+        def failed(e):
+            if manual:
+                QMessageBox.warning(self, "به‌روزرسانی", f"بررسی نسخه‌ی جدید انجام نشد:\n{e}")
+        run_bg(lambda _p: updates.latest(), done, failed)
+
+    def start_update(self):
+        rel = self.update_info
+        if not rel:
+            return
+        if not updates.can_self_update():
+            QMessageBox.information(self, "به‌روزرسانی", "این نسخه از روی کد اجرا شده؛ به‌روزرسانی فقط روی برنامه‌ی نصب‌شده کار می‌کند.")
+            return
+        r = self.session.runner
+        if r and r.is_active():
+            QMessageBox.information(self, "به‌روزرسانی", "یک بررسی در حال اجراست؛ بعد از تمام شدنش به‌روزرسانی کن.")
+            return
+        notes = (rel.get("notes") or "").strip()
+        if QMessageBox.question(self, "به‌روزرسانی AutoReview",
+                                f"نسخه‌ی {rel['version']} دانلود، امضایش بررسی و نصب می‌شود؛ برنامه چند ثانیه بسته و دوباره باز می‌شود. "
+                                f"داده‌ها و تنظیمات دست نمی‌خورد.\n\n{notes}") != QMessageBox.StandardButton.Yes:
+            return
+        dlg = QProgressDialog("در حال دانلود نسخه‌ی جدید…", "", 0, 1000, self)
+        dlg.setWindowTitle("به‌روزرسانی")
+        dlg.setCancelButton(None)
+        dlg.setMinimumDuration(0)
+        dlg.setValue(0)
+
+        def progress(p):
+            done, total = p
+            dlg.setValue(int(1000 * done / total) if total else 0)
+            dlg.setLabelText(f"در حال دانلود… {jalali.fa_digits(done // (1024 * 1024))} مگابایت")
+
+        def downloaded(path):
+            dlg.close()
+            try:
+                updates.install(path, Path(sys.executable).parent, os.getpid())
+            except Exception as e:
+                QMessageBox.warning(self, "به‌روزرسانی", str(e))
+                return
+            self.quit_fully()
+
+        def failed(e):
+            dlg.close()
+            QMessageBox.warning(self, "به‌روزرسانی", f"به‌روزرسانی انجام نشد (چیزی نصب نشد):\n{e}")
+        run_bg(lambda p: updates.download(rel, p), downloaded, failed, progress)
+
     def closeEvent(self, e):
+        keep = settings.load_rules().get("automation", {}).get("keep_in_tray", True)
+        if keep and not self._quitting and QSystemTrayIcon.isSystemTrayAvailable():
+            e.ignore()
+            self.hide()
+            if not self._told_tray:
+                self._told_tray = True
+                self.tray.showMessage("AutoReview", "کنار ساعت ویندوز ماند و با شیت همگام است. خروج کامل: راست‌کلیک روی آیکون.")
+            return
         r = self.session.runner
         if r and r.is_active():
             if QMessageBox.question(self, "بستن برنامه", "یک بررسی در حال اجراست. متوقفش کنم و ببندم؟") != QMessageBox.StandardButton.Yes:
@@ -267,4 +373,5 @@ class Shell(QMainWindow):
             r.join(20)
         self.automatic.stop()
         self.execution.stop()
+        self.tray.hide()
         super().closeEvent(e)

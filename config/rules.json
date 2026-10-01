@@ -151,6 +151,7 @@
   "automation": {
     "nbo_minutes": 15,
     "crm_minutes": 5,
+    "keep_in_tray": true,
     "_note": "How often the open app refreshes NBO (full export) and CRM (changes only) by itself, with the person's own sessions."
   }
 }
