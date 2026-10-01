@@ -72,13 +72,31 @@ def _strict_sub(a: tuple, b: tuple) -> bool:
     return ca != cb and not (ca - cb)
 
 
+def _skeleton(parts: tuple) -> tuple:
+    """Without the optional alef (and a doubled waw): many Arabic-origin names are written both ways ('رحمن'/'رحمان',
+    'اسمعیل'/'اسماعیل', 'داود'/'داوود'). Only alef - dropping 'ی' would make 'رضا' look like 'رضایی'."""
+    return tuple(sorted(p.replace("ا", "").replace("وو", "و") for p in parts))
+
+
+def _one_edit_apart(a: str, b: str) -> bool:
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) > len(b):
+        a, b = b, a
+    i = 0
+    while i < len(a) and a[i] == b[i]:
+        i += 1
+    return a[i:] == b[i + 1:] if len(a) < len(b) else a[i + 1:] == b[i + 1:]
+
+
 def names_equal(a, b) -> "bool | None":
     """True  = the same name: same parts in any order, with spaces / ZWNJ / joined compound parts tolerated
                ('محمد رضا احمدی' = 'احمدی محمدرضا', 'حسین‌زاده' = 'حسینزاده' = 'حسین زاده').
     False = clearly different names.
-    None  = cannot tell: a name is missing, the two are written in different scripts (Persian vs Latin), or one is a
-            strict part of the other ('علی رضایی' vs 'علی رضایی نژاد' - a shortened name or a different person).
-    There is deliberately NO similarity score."""
+    None  = cannot tell: a name is missing, the two are written in different scripts (Persian vs Latin), one is a strict
+            part of the other ('علی رضایی' vs 'علی رضایی نژاد'), or they differ only by a spelling variant / one typed letter
+            ('رحمن زاده' vs 'رحمان زاده'). Those may be the same person, so they are never called a mismatch.
+    There is deliberately NO similarity score that could turn 'alike' into 'equal': alike only ever means 'a person decides'."""
     ta, tb = _name_tokens(a), _name_tokens(b)
     if not ta or not tb:
         return None
@@ -89,5 +107,9 @@ def names_equal(a, b) -> "bool | None":
     if sa & sb:
         return True
     if any(_strict_sub(x, y) or _strict_sub(y, x) for x in sa for y in sb):
+        return None
+    if {_skeleton(x) for x in sa} & {_skeleton(y) for y in sb}:
+        return None
+    if _one_edit_apart("".join(sorted(ta)), "".join(sorted(tb))) and min(len("".join(ta)), len("".join(tb))) >= 6:
         return None
     return False

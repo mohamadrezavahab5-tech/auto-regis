@@ -43,6 +43,14 @@ def test_letter_variants_and_titles_do_not_create_a_mismatch():
     assert names_equal("علي رضائي", "علی رضایی") is True
 
 
+def test_spelling_variants_and_one_typo_are_unknown_never_a_mismatch():
+    assert names_equal("زهرا رحمن زاده", "زهرا رحمان زاده") is None      # seen live 2026-10-01 (was a wrong EDIT)
+    assert names_equal("اسمعیل کریمی", "اسماعیل کریمی") is None
+    assert names_equal("نگار حاجیانی", "نگار حاجانی") is None             # one letter
+    assert names_equal("زهرا رحمانی", "مریم رحمانی") is False             # a different first name is still a mismatch
+    assert names_equal("علی احمدی", "علی محمدی") is False
+
+
 def test_different_scripts_are_unknown_not_a_mismatch():
     assert names_equal("Ali Rezaei", "علی رضایی") is None
     assert names_equal("Ali Rezaei", "rezaei ali") is True
