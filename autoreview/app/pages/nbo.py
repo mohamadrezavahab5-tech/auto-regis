@@ -152,7 +152,7 @@ class NboPage(QWidget):
             QMessageBox.information(self, "AutoReview", "یک بررسی دیگر در حال اجراست؛ بعد از تمام شدنش دوباره بزن.")
             return
         try:
-            self.session.start_run(rows, "page", label=f"صفحه‌ی NBO — {len(rows)}")
+            self.session.start_run(rows, "page", label=f"صفحه‌ی NBO — {num(len(rows))}")
             toast(self.window(), f"بررسی {num(len(rows))} درخواست شروع شد", "info")
         except Exception as e:
             QMessageBox.warning(self, "AutoReview", str(e))

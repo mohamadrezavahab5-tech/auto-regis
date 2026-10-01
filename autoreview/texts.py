@@ -5,6 +5,7 @@ a fallback for a code NBO does not list."""
 import json
 import re
 
+from .jalali import fa_digits
 from .paths import config_dir
 
 ACTION_FA = {"APPROVE": "تایید", "EDIT": "نیاز به اصلاح", "CANCEL": "لغو", "MANUAL": "بررسی دستی"}
@@ -85,7 +86,7 @@ def note_fa(note: str) -> str:
         what = n[len("could not determine: "):]
         m = re.match(r"product count \(at least (\d+), sitemap only partly readable\)", what)
         if m:
-            return f"نامشخص: تعداد محصول (دست‌کم {m.group(1)}؛ نقشه‌ی سایت کامل خوانده نشد)"
+            return f"نامشخص: تعداد محصول (دست‌کم {fa_digits(m.group(1))}؛ نقشه‌ی سایت کامل خوانده نشد)"
         return "نامشخص: " + _UNKNOWN.get(what, what)
     if n.startswith("blocked: "):
         what = n[len("blocked: "):]
@@ -93,6 +94,9 @@ def note_fa(note: str) -> str:
             if re.fullmatch(pat, what):
                 return "مانع: " + re.sub(pat, rep, what)
         return "مانع: " + what
+    m = re.fullmatch(r"timed out: the checks took longer than (\d+) s", n)
+    if m:
+        return f"بررسی بیش از {fa_digits(m.group(1))} ثانیه طول کشید و متوقف شد"
     for pat, rep in _FIXED:
         if re.fullmatch(pat, n):
             return re.sub(pat, rep, n)

@@ -253,7 +253,7 @@ class ReviewPage(ScrollPage):
             return
         label_text = "آنلاین" if kind == "online" else "Online-Instore"
         try:
-            s.start_run(rows, kind, label=f"{label_text} — {len(rows)}")
+            s.start_run(rows, kind, label=f"{label_text} — {num(len(rows))}")
         except Exception as e:
             QMessageBox.warning(self, "شروع بررسی", str(e))
             return

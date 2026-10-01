@@ -6,7 +6,7 @@ from datetime import datetime
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QMessageBox, QPushButton,
-                               QScrollArea, QSplitter, QTableView, QVBoxLayout, QWidget)
+                               QScrollArea, QSizePolicy, QSplitter, QTableView, QVBoxLayout, QWidget)
 
 from ... import export, jalali, sheets, store
 from ...texts import ACTION_FA, notes_fa, reasons_fa
@@ -147,6 +147,7 @@ class ResultsPage(QWidget):
         self.detail = QScrollArea()
         self.detail.setWidgetResizable(True)
         self.detail.setMinimumWidth(380)
+        self.detail.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)   # long text wraps instead
         self.detail.setFrameShape(QFrame.Shape.NoFrame)
         self.detail.setWidget(EmptyState("results", "یک درخواست را انتخاب کن", "شواهد و مسیر تصمیم اینجا نمایش داده می‌شود."))
         split.addWidget(self.detail)
@@ -226,6 +227,7 @@ class ResultsPage(QWidget):
 
     def _detail_widget(self, d, hist, done):
         w = QWidget()
+        w.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         v = QVBoxLayout(w)
         v.setContentsMargins(6, 0, 6, 12)
         v.setSpacing(12)
@@ -253,12 +255,12 @@ class ResultsPage(QWidget):
         b_nbo = button("در NBO", None, "nbo")
         b_nbo.clicked.connect(lambda: self.shell.open_in_nbo(d["smr"]))
         btns.addWidget(b_nbo)
-        if d["action"] == "MANUAL":
-            b_done = button("برگرداندن به صف دستی" if done else "انجام شد", "primary" if not done else None, "check")
-            b_done.clicked.connect(lambda: self._toggle_done(d["smr"], not done))
-            btns.addWidget(b_done)
         btns.addStretch(1)
         head.lay.addLayout(btns)
+        if d["action"] == "MANUAL":
+            b_done = button("برگرداندن به صف دستی" if done else "بررسی دستی انجام شد", "primary" if not done else None, "check")
+            b_done.clicked.connect(lambda: self._toggle_done(d["smr"], not done))
+            head.lay.addWidget(b_done)
         v.addWidget(head)
 
         ev = d.get("evidence") or {}
