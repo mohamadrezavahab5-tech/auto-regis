@@ -8,3 +8,10 @@ def isolated_profile(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("AUTOREVIEW_HOME", str(home))
     return home
+
+
+@pytest.fixture(autouse=True)
+def _no_google_backoff(monkeypatch):
+    from autoreview import google_sheet
+    monkeypatch.setattr(google_sheet, "RETRY_WAITS", ())
+    google_sheet._CHECKED.clear()

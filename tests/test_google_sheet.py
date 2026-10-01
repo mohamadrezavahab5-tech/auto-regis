@@ -179,3 +179,30 @@ def test_only_real_service_account_keys_are_found(tmp_path):
                token_uri='https://oauth2.googleapis.com/token')
     (tmp_path / 'k.json').write_text(json.dumps(key), encoding='utf-8')
     assert gc.find_key_file([tmp_path]) == (str(tmp_path / 'k.json'), 'a@b.iam.gserviceaccount.com')
+
+
+def test_a_rate_limit_is_waited_out_not_reported(monkeypatch):
+    b = full_book()
+    monkeypatch.setattr(gs, 'RETRY_WAITS', (0,))
+    calls = []
+
+    def handle(req):
+        calls.append(req.method)
+        if len(calls) == 1:
+            return httpx.Response(429, json={'error': {'message': 'Quota exceeded'}})
+        return b.handle(req)
+    with gs.Client('x' * 30, transport=httpx.MockTransport(handle)) as c:
+        assert c.ping()['sheet'] == 'test'
+    assert len(calls) == 2
+
+
+def test_audit_dedup_reads_only_the_id_column(book):
+    p = payload()
+    seen = []
+
+    def handle(req):
+        seen.append(str(req.url))
+        return book.handle(req)
+    with gs.Client('x' * 30, transport=httpx.MockTransport(handle)) as c:
+        c.sync(p)
+    assert any("Audit'!A1:A" in u.replace('%27', "'").replace('%21', '!').replace('%3A', ':') for u in seen)

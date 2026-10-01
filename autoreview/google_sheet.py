@@ -4,6 +4,7 @@ All input strings use stringValue/RAW, never executable formulas. One writer per
 workbook; human commands remain separate from the app-owned Workflow projection.
 """
 import json
+import time
 import uuid
 from urllib.parse import quote
 
@@ -47,6 +48,10 @@ def col_letter(n):
     return letter
 
 
+RETRY_WAITS = (2, 6, 15)          # seconds; tests set this to ()
+_CHECKED = {}                     # sheet id -> when ensure_tabs last passed in this process
+
+
 class GoogleSheetError(RuntimeError):
     pass
 
@@ -84,10 +89,16 @@ class Client:
             except Exception:
                 raise GoogleSheetError('احراز هویت Google ناموفق بود؛ اینترنت، زمان ویندوز و اعتبار کلید را بررسی کن') from None
             headers['Authorization'] = 'Bearer ' + self.credentials.token
-        try:
-            r = self.http.request(method, self.base + suffix, headers=headers, **kwargs)
-        except httpx.HTTPError:
-            raise GoogleSheetError('اتصال Google قطع است؛ صف ارسال محفوظ می‌ماند') from None
+        for wait in RETRY_WAITS + (None,):
+            try:
+                r = self.http.request(method, self.base + suffix, headers=headers, **kwargs)
+            except httpx.HTTPError:
+                raise GoogleSheetError('اتصال Google قطع است؛ صف ارسال محفوظ می‌ماند') from None
+            # Google's per-minute read quota (429) or a passing server error: wait briefly and try again
+            if (r.status_code == 429 or r.status_code >= 500) and wait is not None:
+                time.sleep(wait)
+                continue
+            break
         if r.status_code != 200:
             try: message = r.json().get('error', {}).get('message', '')
             except ValueError: message = ''
@@ -115,23 +126,26 @@ class Client:
         raise GoogleSheetError('تب لازم در شیت نیست: ' + name)
 
     def read(self, name, header):
-        prop = self.sheet(name)
+        """One request per tab: only the contract columns, down to the last filled row (empty rows in between keep their
+        place, so a row number always matches the sheet)."""
+        self.sheet(name)
         width = len(header)
-        letter = ''
-        n = width
-        while n: n, r = divmod(n-1,26); letter = chr(65+r)+letter
-        end = prop['gridProperties']['rowCount']
-        # Bounded pages; only contract columns, never unrelated cells.
-        values=[]
-        for start in range(1,end+1,1000):
-            rg = "'" + name.replace("'", "''") + f"'!A{start}:{letter}{min(start+999,end)}"
-            chunk = self.request('GET','/values/'+quote(rg,safe=''),params={'valueRenderOption':'UNFORMATTED_VALUE'}).get('values',[])
-            values.extend([list(r)+['']*(width-len(r)) for r in chunk])
-            # Keep physical row positions even across blank pages.
-            values.extend([['']*width for _ in range(min(1000,end-start+1)-len(chunk))])
+        rg = "'" + name.replace("'", "''") + f"'!A1:{col_letter(width)}"
+        rows = self.request('GET', '/values/' + quote(rg, safe=''), params={'valueRenderOption': 'UNFORMATTED_VALUE'}).get('values', [])
+        values = [(list(r) + [''] * width)[:width] for r in rows]
         if not values or values[0] != header:
             raise GoogleSheetError('ستون‌های تب تغییر کرده: ' + name)
-        while len(values)>1 and not any(v != '' for v in values[-1]): values.pop()
+        while len(values) > 1 and not any(v != '' for v in values[-1]):
+            values.pop()
+        return values[1:]
+
+    def column(self, name, first_header):
+        """Only column A of a tab (e.g. the Audit event ids): a tab that only grows is never read in full width."""
+        rg = "'" + name.replace("'", "''") + "'!A1:A"
+        rows = self.request('GET', '/values/' + quote(rg, safe=''), params={'valueRenderOption': 'UNFORMATTED_VALUE'}).get('values', [])
+        values = [str(r[0]) if r else '' for r in rows]
+        if not values or values[0] != first_header:
+            raise GoogleSheetError('ستون‌های تب تغییر کرده: ' + name)
         return values[1:]
 
     def update(self, name, row, values, col=0):
@@ -161,7 +175,7 @@ class Client:
 
     def sync(self, payload):
         current=self.read('Workflow',WORKFLOW_HEAD)
-        events=self.read('Audit',EVENT_HEAD)
+        event_ids=self.column('Audit',EVENT_HEAD[0])
         device=payload['device_id']
         existing_devices={str(r[16]) for r in current if r[0] and r[16]}
         if existing_devices - {device}:
@@ -183,8 +197,8 @@ class Client:
                 case['state_fa'],case['revision'],case['updated_at'],'، '.join(s.get('reason_codes') or []),device]
             if i is None: i=len(current); ids[case['smr']]=i; current.append(row)
             req.append(self.update('Workflow',i+1,row))
-        known={r[0] for r in events if r[0]}
-        index=len(events)+1
+        known={e for e in event_ids if e}
+        index=len(event_ids)+1
         for e in payload['events']:
             if e['event_id'] in known: continue
             req.append(self.update('Audit',index,[e['event_id'],e['at'],e['smr'],e['kind'],e['actor'],e['revision'],json.dumps(e['detail'],ensure_ascii=False)]))
@@ -225,6 +239,15 @@ class Client:
         row = (self.request('GET', '/values/' + quote(rg, safe=''), params={'valueRenderOption': 'UNFORMATTED_VALUE'}).get('values') or [[]])[0]
         row = [str(v) for v in row][:width]
         return row + [''] * (width - len(row))
+
+    def ensure_tabs_once(self, reason_labels=()):
+        """ensure_tabs at most every half hour per process: the per-sync header checks of read() still guard every write."""
+        last = _CHECKED.get(self.sheet_id)
+        if last is None or time.monotonic() - last > 1800:
+            created = self.ensure_tabs(reason_labels)
+            _CHECKED[self.sheet_id] = time.monotonic()
+            return created
+        return []
 
     def ensure_tabs(self, reason_labels=()):
         """Adds every tab the app needs to the owner's sheet, with its header row. Never changes a tab that already has a

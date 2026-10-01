@@ -40,8 +40,8 @@ def sync_direct(db, google):
     half-way is simply finished by the next round 30 seconds later."""
     from . import execution
     labels = sheets.nbo_labels()
-    google.ensure_tabs(list(labels['edit'].values()) + list(labels['cancel'].values()))
-    sent = workflow.pending(db)
+    google.ensure_tabs_once(list(labels['edit'].values()) + list(labels['cancel'].values()))
+    sent = workflow.pending(db, limit=400)          # one atomic batch; a large first upload takes a few rounds, not dozens
     result = google.sync(sent)
     if result.get('cases') != len(sent['cases']) or result.get('events') != len(sent['events']):
         raise sheets.SheetError('رسید ارسال کامل نیست؛ صف محفوظ می‌ماند')
