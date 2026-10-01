@@ -51,6 +51,12 @@ def duplicate_decision(reasons, info=None):
                              ["FAIL DUPLICATE_REQUEST -> CANCEL"])
 
 
+def unknown_of(decision):
+    """'add to cart' when the engine stopped on 'UNKNOWN add to cart', else None."""
+    last = decision.trace[-1] if decision.trace else ""
+    return last[len("UNKNOWN "):] if decision.action == rulesmod.MANUAL and last.startswith("UNKNOWN ") else None
+
+
 def sibling_decision(siblings):
     return rulesmod.Decision(rulesmod.MANUAL, notes=[f"another pending request has the same website ({', '.join(siblings[:3])})"],
                              trace=["PENDING_SIBLING"])
@@ -59,7 +65,8 @@ def sibling_decision(siblings):
 class Runner:
     """Runs one batch on a background thread with its own event loop. pause/resume/stop are safe to call from the UI thread."""
 
-    def __init__(self, db_path, rules=None, reasons=None, category_map=None, on_update=None, client_factory=None, user_name=None):
+    def __init__(self, db_path, rules=None, reasons=None, category_map=None, on_update=None, client_factory=None, user_name=None,
+                 render=None):
         self.db_path = str(db_path)
         self.rules = rules or settings.load_rules()
         self.reasons = reasons or load_reasons()
@@ -68,6 +75,7 @@ class Runner:
         self.on_update = on_update or (lambda p: None)
         self.client_factory = client_factory          # tests inject an offline transport
         self.user_name = user_name
+        self.render = render                          # async url -> html|None (hidden browser), or None
         self._thread = None
         self._resume = threading.Event()
         self._resume.set()
@@ -171,7 +179,13 @@ class Runner:
                     return sibling_decision(siblings[row["smr"]]), {"pending_siblings": siblings[row["smr"]]}
                 f, ev = await factsmod.collect(row, self.rules, fetch, enamad_client, enamad_gate, self.category_map,
                                                float(rt.get("pause_between_enamad_seconds", 0)))
-                return rulesmod.evaluate(f, self.rules, self.reasons), ev
+                decision = rulesmod.evaluate(f, self.rules, self.reasons)
+                for _ in range(3):                                   # second look only where it can change the outcome
+                    what = unknown_of(decision)
+                    if not self.render or what not in factsmod.RENDERABLE or not await factsmod.render_fill(what, f, ev, self.render):
+                        break
+                    decision = rulesmod.evaluate(f, self.rules, self.reasons)
+                return decision, ev
 
             async def worker():
                 while not self._stop.is_set():

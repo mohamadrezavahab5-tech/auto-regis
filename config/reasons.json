@@ -1,18 +1,98 @@
 {
   "_note": "nbo_code = the internal NBO reason code seen in the real export columns 'Required Editing Reason' / 'Cancel Reason' (count in the 2026-09-30 sample in 'seen'). null + candidates = two or more codes fit and the owner must pick in NBO. dropdown_text = the Persian label shown in NBO's Change-Status dropdown; needed only by the executor, must be read from NBO itself (null = not verified => the executor refuses).",
-  "MISSING_ENAMAD":     { "action": "EDIT",   "nbo_code": "MISSING_LICENSE", "dropdown_text": null, "seen": 490, "note": "NBO label: نداشتن مجوز های رسمی (اینماد). NO_LICENSE is the in-store business-licence reason, not this." },
-  "BAD_OR_DEAD_URL":    { "action": "EDIT",   "nbo_code": "INVALID_URL", "dropdown_text": null, "seen": 657 },
-  "ENAMAD_EXPIRED":     { "action": "EDIT",   "nbo_code": "ENAMAD_EXPIRED", "dropdown_text": null, "seen": 118 },
-  "NAME_MISMATCH_BANK": { "action": "EDIT",   "nbo_code": "REGISTRANT_NAME_AND_BANK_ACCOUNT_OWNER_MISMATCH", "dropdown_text": null, "seen": 2 },
-  "OWNER_MISMATCH":     { "action": "EDIT",   "nbo_code": "OWNER_MISMATCH", "dropdown_text": null, "seen": 221 },
-  "NO_CONTACT":         { "action": "EDIT",   "nbo_code": "MISSING_CONTACT_INFO", "dropdown_text": null, "seen": 12 },
-  "CANNOT_ADD_TO_CART": { "action": "EDIT",   "nbo_code": "PRODUCT_CANNOT_BE_ADDED_TO_CART", "dropdown_text": null, "seen": 16 },
-  "ENAMAD_NOT_ON_SITE": { "action": "EDIT",   "nbo_code": "MISSING_LICENSE", "dropdown_text": null, "seen": 0, "note": "owner 2026-10-01: enamad not shown on the site uses the same reason as having no enamad" },
-  "OWNER_MISMATCH_CANCEL": { "action": "CANCEL", "nbo_code": "ENAMAD_OWNER_NAME_MISMATCH", "dropdown_text": null, "seen": 1099, "note": "used only when rules.owner_mismatch_action = CANCEL" },
-  "SITEMAP_MISSING":    { "action": "EDIT",   "nbo_code": "SITEMAP_IS_MISSING", "dropdown_text": null, "seen": 265 },
-  "TOO_FEW_PRODUCTS":   { "action": "EDIT",   "nbo_code": "INSUFFICIENT_NUMBER_OF_PRODUCTS_IN_SITEMAP", "dropdown_text": null, "seen": 586 },
-  "CATEGORY_MISMATCH":  { "action": "EDIT",   "nbo_code": "ENAMAD_CATEGORY_MISMATCH", "dropdown_text": null, "seen": 7, "note": "NBO label: دسته‌بندی اینماد با اطلاعات اعلام‌شده مغایرت دارد. WRONG_CATEGORY is a different reason (wrong activity category chosen)." },
-  "SITE_INACTIVE":      { "action": "CANCEL", "nbo_code": "WEBSITE_IS_INACTIVE", "dropdown_text": null, "seen": 169 },
-  "DUPLICATE_REQUEST":  { "action": "CANCEL", "nbo_code": "DUPLICATE_REQUEST", "dropdown_text": null, "seen": 1870 },
-  "ACTION_NEEDS_HUMAN": { "action": "MANUAL", "nbo_code": null, "candidates": [], "dropdown_text": null, "seen": 0 }
+  "MISSING_ENAMAD": {
+    "action": "EDIT",
+    "nbo_code": "MISSING_LICENSE",
+    "dropdown_text": "نداشتن مجوز های رسمی (اینماد)",
+    "seen": 490,
+    "note": "NBO label: نداشتن مجوز های رسمی (اینماد). NO_LICENSE is the in-store business-licence reason, not this."
+  },
+  "BAD_OR_DEAD_URL": {
+    "action": "EDIT",
+    "nbo_code": "INVALID_URL",
+    "dropdown_text": "آدرس سایت (URL) اشتباه یا غیرفعال",
+    "seen": 657
+  },
+  "ENAMAD_EXPIRED": {
+    "action": "EDIT",
+    "nbo_code": "ENAMAD_EXPIRED",
+    "dropdown_text": "اینماد منقضی شده است",
+    "seen": 118
+  },
+  "NAME_MISMATCH_BANK": {
+    "action": "EDIT",
+    "nbo_code": "REGISTRANT_NAME_AND_BANK_ACCOUNT_OWNER_MISMATCH",
+    "dropdown_text": "مغایرت نام شخص ثبت‌نام‌کننده با نام صاحب حساب بانکی",
+    "seen": 2
+  },
+  "OWNER_MISMATCH": {
+    "action": "EDIT",
+    "nbo_code": "OWNER_MISMATCH",
+    "dropdown_text": "مغایرت صاحب مجوز بارگذاری‌شده با صاحب حساب بانکی",
+    "seen": 221
+  },
+  "NO_CONTACT": {
+    "action": "EDIT",
+    "nbo_code": "MISSING_CONTACT_INFO",
+    "dropdown_text": "نبود اطلاعات تماس یا پشتیبانی قابل اعتماد",
+    "seen": 12
+  },
+  "CANNOT_ADD_TO_CART": {
+    "action": "EDIT",
+    "nbo_code": "PRODUCT_CANNOT_BE_ADDED_TO_CART",
+    "dropdown_text": "امکان اضافه شدن محصول به سبد خرید نمی‌باشد",
+    "seen": 16
+  },
+  "ENAMAD_NOT_ON_SITE": {
+    "action": "EDIT",
+    "nbo_code": "MISSING_LICENSE",
+    "dropdown_text": "نداشتن مجوز های رسمی (اینماد)",
+    "seen": 0,
+    "note": "owner 2026-10-01: enamad not shown on the site uses the same reason as having no enamad"
+  },
+  "OWNER_MISMATCH_CANCEL": {
+    "action": "CANCEL",
+    "nbo_code": "ENAMAD_OWNER_NAME_MISMATCH",
+    "dropdown_text": "نام صاحب اینماد با مدارک ثبت شده مغایرت دارد",
+    "seen": 1099,
+    "note": "used only when rules.owner_mismatch_action = CANCEL"
+  },
+  "SITEMAP_MISSING": {
+    "action": "EDIT",
+    "nbo_code": "SITEMAP_IS_MISSING",
+    "dropdown_text": "سایت‌مپ وجود ندارد",
+    "seen": 265
+  },
+  "TOO_FEW_PRODUCTS": {
+    "action": "EDIT",
+    "nbo_code": "INSUFFICIENT_NUMBER_OF_PRODUCTS_IN_SITEMAP",
+    "dropdown_text": "تعداد محصولات موجود در سایت‌مپ ناکافی می‌باشد",
+    "seen": 586
+  },
+  "CATEGORY_MISMATCH": {
+    "action": "EDIT",
+    "nbo_code": "ENAMAD_CATEGORY_MISMATCH",
+    "dropdown_text": "دسته‌بندی اینماد با اطلاعات اعلام‌شده مغایرت دارد",
+    "seen": 7,
+    "note": "NBO label: دسته‌بندی اینماد با اطلاعات اعلام‌شده مغایرت دارد. WRONG_CATEGORY is a different reason (wrong activity category chosen)."
+  },
+  "SITE_INACTIVE": {
+    "action": "CANCEL",
+    "nbo_code": "WEBSITE_IS_INACTIVE",
+    "dropdown_text": "سایت غیرفعال می‌باشد",
+    "seen": 169
+  },
+  "DUPLICATE_REQUEST": {
+    "action": "CANCEL",
+    "nbo_code": "DUPLICATE_REQUEST",
+    "dropdown_text": "تکراری بودن درخواست",
+    "seen": 1870
+  },
+  "ACTION_NEEDS_HUMAN": {
+    "action": "MANUAL",
+    "nbo_code": null,
+    "candidates": [],
+    "dropdown_text": null,
+    "seen": 0
+  }
 }

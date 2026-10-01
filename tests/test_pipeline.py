@@ -147,6 +147,44 @@ def test_a_request_that_takes_too_long_goes_to_a_person(isolated_profile):
     assert got["A"]["action"] == "MANUAL" and got["A"]["notes"][0].startswith("timed out")
 
 
+def test_a_seal_drawn_by_javascript_is_seen_by_the_hidden_browser(isolated_profile):
+    base = make_handler()
+
+    async def handler(request):                       # shop3.ir: the seal is NOT in the downloaded HTML (JavaScript draws it)
+        if request.url.host == "shop3.ir" and request.url.path == "/":
+            return httpx.Response(200, text=home_html("shop3.ir").replace("trustseal.enamad.ir", "cdn.example.ir"))
+        return await base(request)
+    rendered = []
+
+    async def render(url):
+        rendered.append(url)
+        return home_html("shop3.ir")                  # after JavaScript ran, the seal is on the page
+
+    def mk():
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    no_browser = Runner(isolated_profile / "t.db", client_factory=mk)
+    no_browser.start([row("A", "shop3.ir")], approved_nbo=NBO_OK, approved_crm=CRM_OK, run_id="r0")
+    no_browser.join(60)
+    assert results(isolated_profile, "r0")["A"]["action"] == "MANUAL"
+    with_browser = Runner(isolated_profile / "t.db", client_factory=mk, render=render)
+    with_browser.start([row("A", "shop3.ir")], approved_nbo=NBO_OK, approved_crm=CRM_OK, run_id="r1")
+    with_browser.join(60)
+    got = results(isolated_profile, "r1")["A"]
+    assert got["action"] == "APPROVE" and rendered == ["https://shop3.ir"]
+
+
+def test_the_hidden_browser_is_not_used_when_it_cannot_change_the_outcome(isolated_profile):
+    calls = []
+
+    async def render(url):
+        calls.append(url)
+        return None
+    r = Runner(isolated_profile / "t.db", client_factory=factory(), render=render)
+    r.start([row("A", "shop.ir"), row("D", "dup.ir"), row("C", "shop2.ir", holder="فرد دیگر")], approved_nbo=NBO_OK, approved_crm=CRM_OK, run_id="r2")
+    r.join(60)
+    assert calls == []
+
+
 def test_dashboard_numbers(isolated_profile):
     r = Runner(isolated_profile / "t.db", client_factory=factory())
     r.start([row("A", "shop.ir"), row("D", "dup.ir"), row("B", "dead.ir")], approved_nbo=NBO_OK, approved_crm=CRM_OK, run_id="t8")

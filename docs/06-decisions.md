@@ -15,3 +15,10 @@
 9. 2026-10-01 owner: the Online-Instore sheet stays as the shared board for colleagues, but the app does NOT record into it (nor into Main-Data): all app output goes to the owner's own sheet 'AutoReview - Results'. 'Enamad not shown on site' = the same reason as no enamad (MISSING_LICENSE). Owner-name mismatch is configurable: rules.json owner_mismatch_action = EDIT | CANCEL | MANUAL (shipped: MANUAL until the owner chooses).
 
 10. 2026-10-01 owner: owner_mismatch_action = EDIT (confirmed). The owner's screenshot of NBO's Change Status dialog shows the radio options APPROVE / EDIT NEEDED (+ CANCEL) and the reason list with exactly the Persian labels found in NBO's front-end - so nbo_catalog labels equal what the dropdown shows.
+
+11. 2026-10-01 owner (confirmed, replaces part of #9): NBO and CRM open INSIDE the app with the person's own login (NBO with
+    their OTP). An AutoReview panel next to them SUGGESTS decisions; applying anything in NBO happens only after the person
+    confirms. Sheets: in the shared Online-Instore sheet the app fills ONLY the 4 Online-group columns of the Pending tab
+    (Date Online Check, بررسی قرارداد, دلیل نیاز به ادیت, دلیل لغو قرارداد), only where they are empty, with the sheet's own
+    dropdown values - never another team's columns, never a new column or tab. All full results and logs go to the owner's
+    own sheet. The app must always show how much of the day's work is done and left, and every status.

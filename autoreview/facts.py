@@ -104,5 +104,41 @@ async def collect(row: dict, rules: dict, fetch, http, enamad_gate: asyncio.Sema
                 break
     else:
         facts.can_add_to_cart = True
+    ev["home_url"] = home.url
+    ev["samples"] = prod.get("samples", [])[:3]
     ev["facts"] = asdict(facts)
     return facts, ev
+
+
+# ---- second look with a real (hidden) browser ------------------------------------------------------------------------------
+# Some shops draw the enamad seal, the cart button or the footer with JavaScript, which plain HTTP cannot see. When - and only
+# when - the engine stops on one of these unknowns, the page is rendered once in a hidden browser and checked again.
+RENDERABLE = {"enamad displayed on site", "add to cart", "contact info"}
+
+
+async def render_fill(what: str, facts: Facts, ev: dict, render) -> bool:
+    """Fill ONE unknown fact from a rendered page. Returns True when the fact changed. Rendering can only ever prove that
+    something IS there; it never turns an unknown into a failure."""
+    rendered = ev.setdefault("rendered", [])
+    if what in ("enamad displayed on site", "contact info"):
+        url = ev.get("home_url")
+        if not url:
+            return False
+        html = await render(url)
+        rendered.append({"url": url, "ok": bool(html), "for": what})
+        if not html:
+            return False
+        changed = False
+        if facts.enamad_shown_on_site is None and detectors.enamad_shown_on_site(html):
+            facts.enamad_shown_on_site, changed = True, True
+        if facts.has_contact is None and sitec.contact_on_page(html):
+            facts.has_contact, changed = True, True
+        return changed
+    if what == "add to cart":
+        for url in ev.get("samples", [])[:2]:
+            html = await render(url)
+            rendered.append({"url": url, "ok": bool(html), "for": what})
+            if html and detectors.can_add_to_cart(html):
+                facts.can_add_to_cart = True
+                return True
+    return False

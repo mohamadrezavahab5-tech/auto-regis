@@ -1,12 +1,26 @@
 """Persian wording for what the engine writes (the engine itself keeps stable English notes in the database).
 
-Reason CODES are NBO's own; the Persian next to them is our description, not NBO's dropdown label (the executor reads the
-real labels from NBO itself, see nbo_catalog.py)."""
+Reason labels are NBO's OWN text (config/nbo_reasons.json, read from NBO's front-end); the short descriptions below are only
+a fallback for a code NBO does not list."""
+import json
 import re
+
+from .paths import config_dir
 
 ACTION_FA = {"APPROVE": "تایید", "EDIT": "نیاز به اصلاح", "CANCEL": "لغو", "MANUAL": "بررسی دستی"}
 
-REASON_FA = {
+
+def _nbo_labels() -> dict:
+    try:
+        data = json.loads((config_dir() / "nbo_reasons.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    labels = dict(data.get("cancel", {}))
+    labels.update(data.get("edit", {}))                  # a code in both lists has the same text; edit wording wins
+    return labels
+
+
+_FALLBACK = {
     "MISSING_LICENSE": "نداشتن مجوز رسمی (اینماد)",
     "INVALID_URL": "آدرس سایت نامعتبر است",
     "ENAMAD_EXPIRED": "اینماد منقضی شده است",
@@ -21,6 +35,7 @@ REASON_FA = {
     "WEBSITE_IS_INACTIVE": "سایت غیرفعال است",
     "DUPLICATE_REQUEST": "درخواست تکراری",
 }
+REASON_FA = {**_FALLBACK, **_nbo_labels()}
 
 _UNKNOWN = {
     "is_online": "آنلاین بودن درخواست",
