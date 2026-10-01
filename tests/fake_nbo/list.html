@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>registrations</title>
+<script>localStorage.setItem('token', 'test-token');</script>
+<input placeholder="Request ID"><button id="s">Search</button>
+<table id="t"></table>
+<script>
+document.getElementById('s').onclick = () => setTimeout(() => {
+  const v = document.querySelector('input').value;
+  if (v === 'SMR-1001') document.getElementById('t').innerHTML = '<tr><td>SMR-1001</td><td><a href="/detail.html">Details</a></td></tr>';
+}, 300);
+</script>

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogBut
                                QHeaderView, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter,
                                QTableView, QVBoxLayout, QWidget)
 
-from ... import jalali, sheets, workflow, workspace
+from ... import execution, jalali, sheets, workflow, workspace
 from ...texts import ACTION_FA, reasons_fa
 from .. import theme
 from ..session import run_bg
@@ -322,7 +322,16 @@ class WorkflowPage(QWidget):
                 card.lay.addWidget(label(html.escape(reasons_fa(sug["reason_codes"])), "muted", wrap=True))
             v.addWidget(card)
         btns = QHBoxLayout()
-        b_nbo = button("باز کردن در NBO", "primary" if st == "READY" else None, "nbo")
+        tgt = execution.target(r)
+        if tgt and r.get("active"):
+            from .execution_page import apply_case
+            b_apply = button({"APPROVE": "تأیید در NBO", "EDIT": "اصلاح در NBO", "CANCEL": "لغو در NBO"}[tgt[0]], "primary", "check")
+            b_apply.clicked.connect(lambda: apply_case(self, self.shell.execution, r))
+            b_try = button("تمرین", None, "play", "همه‌ی مراحل در NBO جز ثبت نهایی؛ چیزی تغییر نمی‌کند")
+            b_try.clicked.connect(lambda: apply_case(self, self.shell.execution, r, rehearsal=True))
+            btns.addWidget(b_apply)
+            btns.addWidget(b_try)
+        b_nbo = button("باز کردن در NBO", None, "nbo")
         b_nbo.clicked.connect(lambda: self.shell.open_in_nbo(r["smr"]))
         b_copy = button("کپی کد", None, "copy")
         b_copy.clicked.connect(lambda: (QGuiApplication.clipboard().setText(r["smr"]), toast(self.window(), "کد کپی شد")))
@@ -342,9 +351,9 @@ class WorkflowPage(QWidget):
             "MANUAL": "کار بعدی: یک نفر از تیم Online بررسی و نظر ثبت کند",
             "WAIT_INSTORE": f"کار بعدی: نظر تیم Instore — در اپ، یا در تب {ltr('Online + Instore')} شیت خودت",
             "CONFLICT": "دو تیم نظر متفاوت دارند؛ یکی باید نظرش را عوض کند",
-            "READY": "کار بعدی: تأیید در NBO — داخل همین اپ، دکمه‌ی «باز کردن در NBO»",
-            "EDIT": "کار بعدی: درخواست اصلاح در NBO با همین دلیل",
-            "CANCEL": "کار بعدی: لغو در NBO با همین دلیل",
+            "READY": "کار بعدی: تأیید در NBO — دکمه‌ی «تأیید در NBO» (یا خودکار، در حالت واقعی)",
+            "EDIT": "کار بعدی: اصلاح در NBO با همین دلیل — دکمه‌ی «اصلاح در NBO»",
+            "CANCEL": "کار بعدی: لغو در NBO با همین دلیل — دکمه‌ی «لغو در NBO»",
             "DONE_APPROVED": "تمام شد — در NBO تأیید شده",
             "DONE_CLOSED": "تمام شد — در NBO بسته شده (اصلاح/لغو/…)",
         }.get(st, "خارج از صف فعال")

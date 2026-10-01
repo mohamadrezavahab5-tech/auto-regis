@@ -33,9 +33,10 @@ def test_mode_page_starts_dry_and_displays_readiness(monkeypatch):
     page = ExecutionPage(session, type('Shell', (), {'execution': control})())
     page.on_show()
     assert not page.switch.isChecked() and page.switch.isEnabled()
-    assert control.readiness in page.readiness.text()
-    page.switch.setChecked(True)                     # owner tries live: refused while no NBO approval API is connected
-    assert not control.mode.live and not page.switch.isChecked()
+    assert "Change Status" in page.readiness.text()
+    page.switch.setChecked(True)                     # the owner may switch live on (it never survives a restart)
+    assert control.mode.live and page.switch.isChecked()
+    assert not ExecutionControl(session).mode.live
     control.stop()
     page.close()
 

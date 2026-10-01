@@ -79,6 +79,7 @@ class Shell(QMainWindow):
         self._quitting = False
         self._told_tray = False
         self._make_tray()
+        self.execution.notice.connect(self._execution_notice)
         self.update_info = None
         self._updates = QTimer(self)
         self._updates.timeout.connect(self.check_update)
@@ -313,6 +314,11 @@ class Shell(QMainWindow):
                                     if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick)
                                     else None)
         self.tray.show()
+
+    def _execution_notice(self, text):
+        toast(self, text, "warn")
+        if not self.isVisible():
+            self.tray.showMessage("AutoReview — NBO", text)
 
     def bring_front(self):
         self.showNormal()

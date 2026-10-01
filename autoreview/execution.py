@@ -1,14 +1,15 @@
-"""Approval execution ledger. An uncertain write is never automatically repeated.
+"""Execution ledger: what the app did in NBO, per request and case revision. An uncertain write is never repeated by itself.
 
-Until an official NBO approval API is connected (nbo_execution has the safety logic, no live transport), approval in NBO is
-done by a person in the embedded NBO page; the ledger records what NBO then shows (APPROVED_IN_NBO), so 'ready' and
-'really approved' are never confused."""
+Owner 2026-10-01: decisions are applied in NBO's own screen the way the team's old scripts did (app/nbo_actor.py) - by hand
+(one request, the person confirms) or automatically (live mode, owner only). What NBO then shows in its next export is
+recorded too (APPROVED_IN_NBO), so 'sent' and 'really approved' are never confused."""
 from datetime import datetime, timezone
 
 from . import store, workflow
 from .workspace import ADMIN, username
 
 LABELS = {'PREVIEW': 'آماده؛ منتظر تأیید در NBO', 'SENDING': 'در حال ارسال',
+          'SENT': 'در NBO ثبت شد؛ منتظر دیده‌شدن در خروجی بعدی', 'REHEARSED': 'تمرین موفق (چیزی ثبت نشد)',
           'APPROVED_IN_NBO': 'در NBO تأیید شد',
           'VERIFIED': 'تأیید در NBO بررسی شد', 'BLOCKED': 'متوقف؛ نیازمند بررسی',
           'UNCERTAIN': 'نتیجه نامشخص؛ تکرار خودکار ممنوع'}
@@ -26,20 +27,38 @@ def ensure(db):
                    ('برنامه هنگام ارسال بسته شده؛ ابتدا وضعیت NBO بررسی شود',))
 
 
+MAX_SOURCE_AGE = 1800        # the live NBO page is re-read before every click; the export only has to be recent
+
+
+def target(case):
+    """-> (NBO action, reason code) the case's verdicts ask for, or None. Approve only when every needed team approved;
+    edit / cancel carry the NBO reason the deciding verdict gave."""
+    st = workflow.state(case)
+    if st == 'READY':
+        return 'APPROVE', ''
+    if st in ('EDIT', 'CANCEL'):
+        for team in ('online', 'instore'):
+            v = case.get(team) or {}
+            if v.get('action') == st and v.get('reason'):
+                return st, v['reason']
+    return None
+
+
 def eligibility(case, now=None):
     if case.get('channel') not in ('online', 'both'):
         return 'مسیر درخواست مشخص نیست'
-    if workflow.state(case) != 'READY':
-        return 'تأیید تیم‌های لازم کامل نیست'
+    if target(case) is None:
+        return 'تأیید تیم‌های لازم کامل نیست' if workflow.state(case) in ('WAIT_ONLINE', 'WAIT_INSTORE', 'MANUAL', 'CONFLICT') \
+            else 'این پرونده کاری در NBO ندارد'
     if case.get('source_status') not in ('PENDING', 'COMMERCIAL_IN_PROGRESS'):
-        return 'وضعیت مرجع برای تأیید مجاز نیست'
+        return 'وضعیت مرجع برای تغییر مجاز نیست'
     try:
         loaded = datetime.fromisoformat(case['source_loaded_at'].replace('Z', '+00:00'))
         if loaded.tzinfo is None:
             return 'زمان مرجع منطقه زمانی ندارد'
         age = ((now or datetime.now(timezone.utc)) - loaded).total_seconds()
-        if age < -30 or age > 300:
-            return 'مرجع NBO باید در پنج دقیقه اخیر به‌روز شده باشد'
+        if age < -30 or age > MAX_SOURCE_AGE:
+            return 'خروجی NBO باید در نیم ساعت اخیر گرفته شده باشد'
     except (KeyError, ValueError, TypeError):
         return 'زمان دریافت مرجع معتبر نیست'
     return ''
@@ -77,19 +96,20 @@ def record(db, case, state, detail=''):
         store.log(db, case['smr'], 'NBO_' + state, {'revision': case['revision'], 'detail': detail})
 
 
-def claim(db, case):
+def claim(db, case, require_synced=True):
     """Only one process can claim a revision; any previous ambiguous send blocks the SMR."""
     db.execute('BEGIN IMMEDIATE')
     try:
         current = workflow.get(db, case['smr'])
         if not current or current['revision'] != case['revision'] or eligibility(current):
             raise ValueError('پرونده تغییر کرده یا آماده نیست')
-        if db.execute("SELECT 1 FROM nbo_execution WHERE smr=? AND state IN ('SENDING','UNCERTAIN','VERIFIED')",
-                      (case['smr'],)).fetchone():
+        if db.execute("SELECT 1 FROM nbo_execution WHERE smr=? AND (state IN ('SENDING','UNCERTAIN') OR "
+                      "(revision=? AND state IN ('VERIFIED','SENT')))", (case['smr'], case['revision'])).fetchone():
             raise ValueError('این درخواست قبلاً ارسال شده یا نتیجه نامشخص دارد')
-        row = db.execute('SELECT synced_revision FROM workflow_cases WHERE smr=?', (case['smr'],)).fetchone()
-        if not row or row[0] < case['revision']:
-            raise ValueError('تأییدها هنوز با شیت همگام نشده‌اند')
+        if require_synced:
+            row = db.execute('SELECT synced_revision FROM workflow_cases WHERE smr=?', (case['smr'],)).fetchone()
+            if not row or row[0] < case['revision']:
+                raise ValueError('تأییدها هنوز با شیت همگام نشده‌اند')
         db.execute('''INSERT INTO nbo_execution VALUES(?,?,?,?,?) ON CONFLICT(smr,revision)
           DO UPDATE SET state=excluded.state,updated_at=excluded.updated_at,detail=excluded.detail''',
                    (case['smr'], case['revision'], 'SENDING', store.now(), ''))

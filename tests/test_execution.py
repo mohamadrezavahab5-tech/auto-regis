@@ -42,7 +42,7 @@ def test_missing_channel_never_approved(db):
 
 def test_stale_source_blocked(db):
     case = ready(db)
-    case['source_loaded_at'] = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+    case['source_loaded_at'] = (datetime.now(timezone.utc) - timedelta(minutes=31)).isoformat()
     assert execution.eligibility(case)
 
 
@@ -93,5 +93,23 @@ def test_preview_is_not_actual_approval(db):
     assert execution.records(db)[0]['state'] == 'PREVIEW'
     execution.claim(db, case)
     execution.record(db, case, 'VERIFIED')
+    with pytest.raises(ValueError):
+        execution.claim(db, case)
+
+
+def test_edit_and_cancel_verdicts_carry_their_nbo_reason(db):
+    row = dict(smr='SMR-7', site='e.test', status='PENDING', has_online='true', has_instore='false')
+    workflow.refresh(db, [row], {'SMR-7'})
+    case = workflow.get(db, 'SMR-7')
+    workflow.decide(db, 'SMR-7', 'online', 'EDIT', 'r', 'n', case['revision'], 'SITEMAP_IS_MISSING',
+                    {'edit': {'SITEMAP_IS_MISSING': 'سایت‌مپ وجود ندارد'}})
+    case = workflow.get(db, 'SMR-7')
+    assert execution.target(case) == ('EDIT', 'SITEMAP_IS_MISSING') and execution.eligibility(case) == ''
+
+
+def test_a_sent_case_is_not_sent_again_but_a_new_revision_may_be(db):
+    case = ready(db)
+    execution.claim(db, case)
+    execution.record(db, case, 'SENT')
     with pytest.raises(ValueError):
         execution.claim(db, case)

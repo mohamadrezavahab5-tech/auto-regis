@@ -1,0 +1,30 @@
+<!doctype html><meta charset="utf-8"><title>detail</title>
+<div>Request SMR-1001</div>
+<button id="assign">Assign to me</button>
+<button id="main" disabled>Change Status</button>
+<div id="host"></div>
+<script>
+const assigned = localStorage.getItem('assigned') === '1';
+if (assigned) { document.getElementById('main').disabled = false; document.getElementById('assign').disabled = true; }
+document.getElementById('assign').onclick = () => localStorage.setItem('assigned', '1');
+const reasons = JSON.parse(localStorage.getItem('reasons') || '["سایت‌مپ وجود ندارد"]');
+document.getElementById('main').onclick = () => {
+  document.getElementById('host').innerHTML = `<div role="dialog">
+    <label><span class="label-text">APPROVE</span></label><label><span class="label-text">EDIT NEEDED</span></label>
+    <label><span class="label-text">CANCEL</span></label>
+    <div><input id="react-select-3-input"><div id="menu"></div><div id="chosen"></div></div>
+    <button id="final" disabled>Change Status</button></div>`;
+  let option = null, reason = null;
+  const fin = document.getElementById('final');
+  const check = () => { fin.disabled = !(option === 'APPROVE' || (option && reason)); };
+  document.querySelectorAll('.label-text').forEach(l => l.onclick = () => { option = l.innerText; check(); });
+  document.getElementById('react-select-3-input').addEventListener('input', e => {
+    document.getElementById('menu').innerHTML = reasons.filter(r => r.includes(e.target.value))
+      .map((r, i) => `<div id="react-select-3-option-${i}">${r}</div>`).join('');
+    document.querySelectorAll('#menu > div').forEach(o => o.onclick = () => {
+      reason = o.innerText; document.getElementById('chosen').innerHTML = `<div class="x-singleValue">${reason}</div>`; check();
+    });
+  });
+  fin.onclick = () => { localStorage.setItem('result', option + '|' + (reason || '')); document.getElementById('host').innerHTML = ''; };
+};
+</script>

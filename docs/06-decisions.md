@@ -38,3 +38,9 @@
     - The app connects to the owner's sheet with his service-account key (DPAPI, his PC only) and syncs every 30 s while
       open. Colleagues: personal revocable codes via the Google-hosted service in his sheet (owner = mohammadreza.vahab).
     - Codex built most of this in a separate copy (2026-10-01 15:57-22:52); taken over with the owner's approval and completed.
+13. 2026-10-02 owner: decisions are applied in NBO "both by hand and automatically", the way the team's old scripts did
+    (registrations -> search -> Details -> Assign to me -> Change Status -> APPROVE / EDIT NEEDED / CANCEL -> reason).
+    By hand: one request, the person confirms and watches NBO's screen; "rehearsal" runs every step except Assign and the
+    final click. Automatic: live mode, owner only, never survives a restart, approvals only unless edit/cancel are switched
+    on, one at a time, stops at the first problem and after the very first real change. Unlike the old code it never
+    force-clicks a disabled button, never picks a "similar" reason and never acts on a page that is not this request.

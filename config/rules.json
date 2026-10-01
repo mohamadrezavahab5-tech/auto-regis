@@ -158,5 +158,11 @@
     "crm_minutes": 5,
     "keep_in_tray": true,
     "_note": "How often the open app refreshes NBO (full export) and CRM (changes only) by itself, with the person's own sessions."
+  },
+  "execution": {
+    "auto_actions": [
+      "APPROVE"
+    ],
+    "_note": "What live mode may do in NBO by itself, one request at a time: APPROVE (default) / EDIT / CANCEL. Applying by hand is always possible for any of them."
   }
 }
