@@ -61,3 +61,43 @@ def test_a_wrong_secret_is_reported():
     cfg["webapp_url"] = URL
     with pytest.raises(sheets.SheetError, match="کلید"):
         sheets.ping(cfg, client(lambda r: httpx.Response(200, json={"ok": False, "error": "forbidden"})))
+
+
+def test_script_carries_only_the_configured_online_instore_sheet():
+    cfg = sheets.load()
+    code = sheets.script_code(cfg)
+    assert "const ONLINE_INSTORE_ID = '1FCt7WfmuQ5zy_jwafsLe2a7xkbKouS28wep1d94lF3s';" in code and "const OI_TAB = 'Pending';" in code
+    cfg["oi"]["sheet_id"] = "x'); DriveApp.getRootFolder(); ('"            # anything odd is stripped, never injected
+    assert "DriveApp" not in sheets.script_code(cfg).split("const ONLINE_INSTORE_ID")[1].splitlines()[0]
+
+
+def test_online_instore_rows_use_the_sheet_values_and_nbo_labels_and_skip_manual():
+    cfg = sheets.load()
+    labels = {"edit": {"ENAMAD_EXPIRED": "اینماد منقضی شده است"}, "cancel": {"DUPLICATE_REQUEST": "تکراری بودن درخواست"}}
+    res = [{"smr": "A", "action": "APPROVE", "reason_codes": []},
+           {"smr": "B", "action": "EDIT", "reason_codes": ["ENAMAD_EXPIRED"]},
+           {"smr": "C", "action": "CANCEL", "reason_codes": ["DUPLICATE_REQUEST"]},
+           {"smr": "D", "action": "MANUAL", "reason_codes": []},
+           {"smr": "E", "action": "EDIT", "reason_codes": ["UNKNOWN_CODE"]}]
+    rows, skipped = sheets.oi_rows(res, cfg, labels, today="1405/07/09")
+    assert rows == [
+        {"case_id": "A", "date": "1405/07/09", "result": "تایید قرارداد", "edit_reason": "", "cancel_reason": ""},
+        {"case_id": "B", "date": "1405/07/09", "result": "نیاز به ادیت", "edit_reason": "اینماد منقضی شده است", "cancel_reason": ""},
+        {"case_id": "C", "date": "1405/07/09", "result": "لغو قرارداد", "edit_reason": "", "cancel_reason": "تکراری بودن درخواست"}]
+    assert [s[0] for s in skipped] == ["D", "E"]
+
+
+def test_values_missing_from_the_sheet_dropdowns_are_reported():
+    cfg = sheets.load()
+    labels = {"edit": {"X": "الف"}, "cancel": {"Y": "ب"}}
+    ok = {"allowed": {"result": ["تایید قرارداد", "نیاز به ادیت", "لغو قرارداد"], "edit": ["الف"], "cancel": ["ب"]}}
+    assert sheets.oi_problems(ok, cfg, labels) == []
+    bad = {"allowed": {"result": ["تایید", "ادیت"], "edit": [], "cancel": ["ج"]}}
+    probs = sheets.oi_problems(bad, cfg, labels)
+    assert any("تایید قرارداد" in p for p in probs) and any("لغو" in p for p in probs)
+
+
+def test_writing_to_online_instore_is_off_until_switched_on():
+    cfg = sheets.load()
+    with pytest.raises(sheets.SheetError, match="خاموش"):
+        sheets.oi_write("r", [], cfg=cfg)

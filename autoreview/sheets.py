@@ -17,11 +17,16 @@ from .texts import ACTION_FA, notes_fa, reasons_fa
 
 log = logs.get("sheet")
 
-APPS_SCRIPT = r"""// AutoReview -> this spreadsheet. It only ADDS rows to its own three tabs; nothing else in the file is read or changed.
+APPS_SCRIPT = r"""// AutoReview -> this spreadsheet. It only ADDS rows to its own tabs; nothing else in this file is read or changed.
+// Optional: the Online team's 4 columns in the shared Online-Instore sheet (only cells that are still empty, see oiWrite).
 // Setup: Extensions > Apps Script > paste all of this > Save
 //        Deploy > New deployment > type: Web app > Execute as: Me > Who has access: Anyone > Deploy
 //        allow access when Google asks, then copy the "Web app URL" into AutoReview.
 const SECRET = '__SECRET__';
+const ONLINE_INSTORE_ID = '__OI_ID__';          // the ONLY other spreadsheet this script may write to ('' = never)
+const OI_TAB = '__OI_TAB__';
+const OI_LOG_TAB = 'AutoReview - ثبت در Online-Instore';
+const OI_LOG_HEAD = ['زمان', 'اجرا', 'کاربر', 'کد درخواست', 'ردیف در Online-Instore', 'نتیجه', 'دلیل', 'وضعیت'];
 const TABS = { results: 'AutoReview - نتایج', manual: 'AutoReview - صف دستی', runs: 'AutoReview - اجراها' };
 const HEAD = ['زمان ثبت', 'اجرا', 'کاربر', 'کد درخواست', 'وب‌سایت', 'دسته‌بندی', 'تاریخ ایجاد', 'تصمیم', 'کد دلیل NBO',
               'شرح دلیل', 'توضیح', 'زمان بررسی (ثانیه)'];
@@ -33,7 +38,17 @@ function doPost(e) {
   try { body = JSON.parse(e.postData.contents); } catch (err) { return out({ ok: false, error: 'bad_json' }); }
   if (!body || body.secret !== SECRET) return out({ ok: false, error: 'forbidden' });
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (body.action === 'ping') return out({ ok: true, sheet: ss.getName(), url: ss.getUrl(), version: 1 });
+  if (body.action === 'ping') return out({ ok: true, sheet: ss.getName(), url: ss.getUrl(), version: 2, online_instore: ONLINE_INSTORE_ID !== '' });
+  if (body.action === 'oi_describe' || body.action === 'oi_write') {
+    try {
+      if (body.action === 'oi_describe') return out(oiDescribe());
+      const lock = LockService.getScriptLock();
+      lock.waitLock(30000);
+      try { return out(oiWrite(body, ss)); } finally { lock.releaseLock(); }
+    } catch (err) {
+      return out({ ok: false, error: String(err.message || err) });
+    }
+  }
   if (body.action !== 'append') return out({ ok: false, error: 'unknown_action' });
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -85,9 +100,93 @@ function write(sh, rows) {
 function out(o) {
   return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
 }
+
+// ---- shared Online-Instore sheet: the Online team's 4 columns only -------------------------------------------------------
+function oiSheet() {
+  if (!ONLINE_INSTORE_ID) throw new Error('online_instore_not_configured');
+  const sh = SpreadsheetApp.openById(ONLINE_INSTORE_ID).getSheetByName(OI_TAB);
+  if (!sh) throw new Error('tab_not_found');
+  return sh;
+}
+
+function oiLayout(sh) {
+  const top = sh.getRange(1, 1, Math.min(5, Math.max(1, sh.getLastRow())), sh.getLastColumn()).getDisplayValues();
+  let headRow = -1, dateCol = -1, caseCol = -1;
+  for (let r = 0; r < top.length; r++) {
+    for (let c = 0; c < top[r].length; c++) {
+      const v = String(top[r][c]).replace(/\s+/g, ' ').trim().toLowerCase();
+      if (v === 'date online check') { headRow = r; dateCol = c; }
+      if (v === 'case id' && caseCol < 0) caseCol = c;
+    }
+  }
+  if (dateCol < 0) throw new Error('online_columns_not_found');
+  if (caseCol < 0) throw new Error('case_id_column_not_found');
+  const h = top[headRow];
+  const names = [h[dateCol], h[dateCol + 1], h[dateCol + 2], h[dateCol + 3]];
+  if (names[1].indexOf('بررسی') < 0 || names[2].indexOf('ادیت') < 0 || names[3].indexOf('لغو') < 0) throw new Error('online_columns_unexpected');
+  return { headRow: headRow + 1, first: headRow + 2, date: dateCol + 1, result: dateCol + 2, edit: dateCol + 3, cancel: dateCol + 4,
+           caseCol: caseCol + 1, names: names };
+}
+
+function allowedValues(sh, row, col) {
+  const dv = sh.getRange(row, col).getDataValidation();
+  if (!dv) return null;
+  const t = dv.getCriteriaType();
+  if (t === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) return dv.getCriteriaValues()[0];
+  if (t === SpreadsheetApp.DataValidationCriteria.VALUE_IN_RANGE) {
+    return dv.getCriteriaValues()[0].getDisplayValues().map(function (r) { return r[0]; }).filter(String);
+  }
+  return null;
+}
+
+function oiDescribe() {
+  const sh = oiSheet();
+  const L = oiLayout(sh);
+  const n = Math.max(0, sh.getLastRow() - L.first + 1);
+  const vals = n ? sh.getRange(L.first, 1, n, sh.getLastColumn()).getDisplayValues() : [];
+  const distinct = function (col) {
+    const m = {};
+    vals.forEach(function (r) { const v = r[col - 1]; if (v) m[v] = (m[v] || 0) + 1; });
+    return Object.keys(m).sort(function (a, b) { return m[b] - m[a]; }).slice(0, 40);
+  };
+  const empty = vals.filter(function (r) {
+    return r[L.caseCol - 1] && !r[L.date - 1] && !r[L.result - 1] && !r[L.edit - 1] && !r[L.cancel - 1];
+  }).map(function (r) { return r[L.caseCol - 1]; });
+  return { ok: true, layout: L, rows: n, empty_count: empty.length, empty_ids: empty.slice(0, 5000),
+           allowed: { result: allowedValues(sh, L.first, L.result), edit: allowedValues(sh, L.first, L.edit), cancel: allowedValues(sh, L.first, L.cancel) },
+           seen: { date: distinct(L.date).slice(0, 5), result: distinct(L.result), edit: distinct(L.edit), cancel: distinct(L.cancel) } };
+}
+
+function oiWrite(body, ss) {
+  const sh = oiSheet();
+  const L = oiLayout(sh);
+  const n = Math.max(0, sh.getLastRow() - L.first + 1);
+  const ids = n ? sh.getRange(L.first, L.caseCol, n, 1).getDisplayValues().map(function (r) { return String(r[0]).trim(); }) : [];
+  const cur = n ? sh.getRange(L.first, L.date, n, 4).getDisplayValues() : [];
+  const log = [];
+  const now = new Date();
+  let written = 0;
+  (body.rows || []).forEach(function (x) {
+    const i = ids.indexOf(String(x.case_id).trim());
+    const base = [now, body.run_id, body.user || '', x.case_id];
+    if (i < 0) { log.push(base.concat(['', '', '', 'در شیت پیدا نشد'])); return; }
+    if (cur[i].some(function (v) { return v !== ''; })) { log.push(base.concat([L.first + i, '', '', 'قبلاً پر شده؛ دست نخورد'])); return; }
+    sh.getRange(L.first + i, L.date, 1, 4).setValues([[x.date, x.result, x.edit_reason || '', x.cancel_reason || '']]);
+    cur[i] = [x.date, x.result, x.edit_reason || '', x.cancel_reason || ''];
+    written++;
+    log.push(base.concat([L.first + i, x.result, x.edit_reason || x.cancel_reason || '', 'نوشته شد']));
+  });
+  write(tab(ss, OI_LOG_TAB, OI_LOG_HEAD), log);
+  return { ok: true, written: written, skipped: (body.rows || []).length - written };
+}
 """
 
 _WEBAPP = re.compile(r"^https://script\.google\.com/(?:a/[^/]+/)?macros/s/[A-Za-z0-9_-]{20,}/exec$")
+
+# The team's shared Online-Instore sheet (tab 'Pending', columns H-K = the Online team's own; seen on the owner's screenshot
+# 2026-10-01: H 'Date Online Check' as '1405/06/17', I 'بررسی قرارداد' with these three values, J/K NBO's own reason labels).
+DEFAULT_OI = {"sheet_id": "1FCt7WfmuQ5zy_jwafsLe2a7xkbKouS28wep1d94lF3s", "tab": "Pending", "enabled": False,
+              "result_values": {"APPROVE": "تایید قرارداد", "EDIT": "نیاز به ادیت", "CANCEL": "لغو قرارداد"}}
 
 
 class SheetError(RuntimeError):
@@ -111,6 +210,9 @@ def load() -> dict:
     cfg.setdefault("auto_send", False)
     cfg.setdefault("sheet_name", "")
     cfg.setdefault("sent_runs", [])
+    oi = cfg.setdefault("oi", {})
+    for k, v in DEFAULT_OI.items():
+        oi.setdefault(k, json.loads(json.dumps(v)))
     if changed:
         save(cfg)
     return cfg
@@ -121,7 +223,13 @@ def save(cfg: dict) -> None:
 
 
 def script_code(cfg: dict = None) -> str:
-    return APPS_SCRIPT.replace("__SECRET__", (cfg or load())["secret"])
+    cfg = cfg or load()
+    oi = cfg.get("oi", {})
+    sheet_id = str(oi.get("sheet_id", "")).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{25,80}", sheet_id):          # not a Google file id => the script may write nowhere else
+        sheet_id = ""
+    tab = re.sub(r"['\"\\\r\n]", "", str(oi.get("tab", "")))
+    return APPS_SCRIPT.replace("__SECRET__", cfg["secret"]).replace("__OI_ID__", sheet_id).replace("__OI_TAB__", tab)
 
 
 def valid_webapp_url(url: str) -> bool:
@@ -180,4 +288,73 @@ def send_run(run_id: str, results: list, user_name: str = "", cfg: dict = None, 
         save(cfg)
     log.info("run %s sent to the Google Sheet: %s rows%s (%.1fs)", run_id, data.get("appended", 0),
              " (already there)" if data.get("duplicate") else "", time.monotonic() - t0)
+    return data
+
+
+# ---- shared Online-Instore sheet (Pending tab, the Online team's 4 columns) ------------------------------------------------
+def nbo_labels() -> dict:
+    from .paths import config_dir
+    data = json.loads((config_dir() / "nbo_reasons.json").read_text(encoding="utf-8"))
+    return {"edit": data.get("edit", {}), "cancel": data.get("cancel", {})}
+
+
+def oi_describe(cfg: dict = None, client=None) -> dict:
+    """Layout, dropdown values and the Case IDs whose 4 Online cells are all still empty (read through the person's script)."""
+    cfg = cfg or load()
+    return _post(cfg.get("webapp_url", ""), {"secret": cfg["secret"], "action": "oi_describe"}, client)
+
+
+def oi_rows(results: list, cfg: dict = None, labels: dict = None, today: str = None):
+    """-> (rows to write, [(smr, why skipped)]). MANUAL is never written: those cells stay empty for a person.
+    EDIT/CANCEL are written only with NBO's own label for the reason (never a guessed text)."""
+    from .jalali import jdate
+    cfg = cfg or load()
+    labels = labels or nbo_labels()
+    values = cfg["oi"]["result_values"]
+    today = today or jdate(persian_digits=False)
+    rows, skipped = [], []
+    for r in results:
+        action = r["action"]
+        if action not in ("APPROVE", "EDIT", "CANCEL"):
+            skipped.append((r["smr"], "بررسی دستی - برای همکار خالی می‌ماند"))
+            continue
+        code = (r.get("reason_codes") or [None])[0]
+        edit = labels["edit"].get(code, "") if action == "EDIT" else ""
+        cancel = labels["cancel"].get(code, "") if action == "CANCEL" else ""
+        if action != "APPROVE" and not (edit or cancel):
+            skipped.append((r["smr"], f"برچسب NBO برای «{code}» نیست"))
+            continue
+        rows.append({"case_id": r["smr"], "date": today, "result": values[action], "edit_reason": edit, "cancel_reason": cancel})
+    return rows, skipped
+
+
+def oi_problems(describe: dict, cfg: dict = None, labels: dict = None) -> list:
+    """Every value the app would write must exist in the sheet's own dropdown lists; otherwise nothing is written."""
+    cfg = cfg or load()
+    labels = labels or nbo_labels()
+    allowed = describe.get("allowed") or {}
+    problems = []
+    res = allowed.get("result")
+    if res:
+        for action, v in cfg["oi"]["result_values"].items():
+            if v not in res:
+                problems.append(f"مقدار «{v}» ({action}) در فهرست ستون «بررسی قرارداد» نیست")
+    else:
+        problems.append("ستون «بررسی قرارداد» فهرست کشویی ندارد؛ مقدارها قابل تطبیق نیستند")
+    for kind, col in (("edit", "دلایل نیاز به ادیت"), ("cancel", "دلایل لغو قرارداد")):
+        lst = allowed.get(kind)
+        if lst:
+            missing = [lab for lab in labels[kind].values() if lab not in lst]
+            if missing:
+                problems.append(f"{len(missing)} دلیل NBO در فهرست ستون «{col}» نیست (آن درخواست‌ها نوشته نمی‌شوند)")
+    return problems
+
+
+def oi_write(run_id: str, rows: list, user_name: str = "", cfg: dict = None, client=None) -> dict:
+    cfg = cfg or load()
+    if not cfg["oi"].get("enabled"):
+        raise SheetError("ثبت در شیت Online-Instore خاموش است (تنظیمات > اتصال‌ها).")
+    data = _post(cfg.get("webapp_url", ""), {"secret": cfg["secret"], "action": "oi_write", "run_id": run_id, "user": user_name or "",
+                                            "rows": rows}, client)
+    log.info("run %s -> Online-Instore: %s written, %s skipped", run_id, data.get("written"), data.get("skipped"))
     return data

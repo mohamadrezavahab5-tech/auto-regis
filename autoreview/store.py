@@ -23,7 +23,11 @@ CREATE TABLE IF NOT EXISTS runs (
   run_id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT, source_file TEXT, total INTEGER, state TEXT
 );
 CREATE INDEX IF NOT EXISTS results_decided ON results (decided_at);
+CREATE INDEX IF NOT EXISTS results_smr ON results (smr, decided_at);
 CREATE INDEX IF NOT EXISTS audit_stage ON audit (stage);
+CREATE TABLE IF NOT EXISTS manual_done (
+  smr TEXT PRIMARY KEY, done_at TEXT NOT NULL, user_name TEXT, note TEXT
+);
 """
 # columns added after the first release; created on open so old databases keep working
 _ADDED = {"results": [("duration_ms", "INTEGER")], "runs": [("user_name", "TEXT"), ("label", "TEXT")]}
@@ -149,6 +153,26 @@ def result_detail(db, run_id, smr):
     cols = _RESULT_COLS + ("trace", "evidence")
     r = db.execute(f"SELECT {', '.join(cols)} FROM results WHERE run_id = ? AND smr = ?", (run_id, smr)).fetchone()
     return _decode(dict(zip(cols, r))) if r else None
+
+
+def latest_decisions(db) -> dict:
+    """{smr: action} - the most recent decision of every request ever reviewed."""
+    cur = db.execute("SELECT r.smr, r.action FROM results r JOIN (SELECT smr, MAX(decided_at) m FROM results GROUP BY smr) x "
+                     "ON r.smr = x.smr AND r.decided_at = x.m")
+    return dict(cur.fetchall())
+
+
+def set_manual_done(db, smr, done: bool, user_name=None, note=None):
+    with db:
+        if done:
+            db.execute("INSERT OR REPLACE INTO manual_done (smr, done_at, user_name, note) VALUES (?,?,?,?)", (smr, now(), user_name, note))
+        else:
+            db.execute("DELETE FROM manual_done WHERE smr = ?", (smr,))
+        log(db, smr, "MANUAL_DONE" if done else "MANUAL_REOPENED", {"user": user_name, "note": note})
+
+
+def manual_done_set(db) -> set:
+    return {r[0] for r in db.execute("SELECT smr FROM manual_done")}
 
 
 # ---- dashboard numbers -----------------------------------------------------------------------------------------------------
