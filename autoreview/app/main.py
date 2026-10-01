@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from .. import crm_sync, logs, profile, sheets, workspace
+from .. import crm_sync, google_credentials, logs, profile, sheets, workspace
 from ..paths import APP_ID
 from . import icons, theme
 
@@ -72,7 +72,10 @@ class App:
         except ValueError:
             is_owner = False
         cfg = sheets.load()
-        if not is_owner or cfg.get('auth_mode') == 'workspace':
+        # Owner 2026-10-02: a few trusted colleagues may connect with the owner's key file (he hands it over himself);
+        # without it they use the personal access code.
+        has_key = google_credentials.available() or bool(google_credentials.find_key_file())
+        if cfg.get('auth_mode') == 'workspace' or not (is_owner or has_key):
             self._workspace_login(prof, password)
             return
         self._show_shell(prof, password)

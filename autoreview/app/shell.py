@@ -10,7 +10,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QProgressDialog,
                                QPushButton, QStackedWidget, QStatusBar, QSystemTrayIcon, QVBoxLayout, QWidget)
 
-from .. import crm_sync, google_credentials, jalali, reference, settings, sheets, updates, workspace
+from .. import crm_sync, google_credentials, jalali, reference, settings, sheets, updates
 from ..version import __version__
 from . import icons
 from .session import run_bg
@@ -88,14 +88,10 @@ class Shell(QMainWindow):
         self.go("dashboard")
 
     def _offer_google_key(self):
-        """Owner's PC, sheet not connected yet: the key file he downloaded from Google Cloud is found in Downloads and connected
-        after one 'yes'. The key is never part of the installer: shipped to colleagues it would let anyone write to his sheet."""
-        try:
-            is_owner = workspace.username(self.session.profile.get("username")) == workspace.ADMIN
-        except ValueError:
-            is_owner = False
+        """Sheet not connected yet: the owner's key file (his own download, or the copy he handed to a trusted colleague) is
+        found in Downloads / Desktop and connected after one 'yes'. The key is never baked into the installer."""
         cfg = sheets.load()
-        if not is_owner or (cfg.get("auth_mode") == "service_account" and google_credentials.available()):
+        if cfg.get("auth_mode") == "workspace" or (cfg.get("auth_mode") == "service_account" and google_credentials.available()):
             return
         found = google_credentials.find_key_file()
         if not found:

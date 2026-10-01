@@ -178,9 +178,9 @@ class ConnectionsPage(ScrollPage):
         email = cfg.get('service_account_email')
         self.google_email.setText(f"کلید وارد شده: {email}" if email and google_credentials.available()
                                   else "هنوز فایل کلید وارد نشده — همان فایل JSON که از Google Cloud گرفتی")
-        owner = self._owner()
-        self.owner_box.setVisible(owner)
-        self.access_card.setVisible(not owner)
+        direct = self._owner() or google_credentials.available()
+        self.owner_box.setVisible(True)                          # trusted colleagues may use the owner's key file too
+        self.access_card.setVisible(not direct)
         self.workflow_switch.setChecked(bool(cfg.get("workflow_sync")))
         self.workspace_url.setText(cfg.get('workspace_url',''))
         self._loading = False
