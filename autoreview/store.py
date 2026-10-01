@@ -155,6 +155,12 @@ def result_detail(db, run_id, smr):
     return _decode(dict(zip(cols, r))) if r else None
 
 
+def latest_result(db, smr):
+    """The most recent review of one request, with its evidence and rule trace (None if it was never reviewed)."""
+    r = db.execute("SELECT run_id FROM results WHERE smr = ? ORDER BY decided_at DESC LIMIT 1", (smr,)).fetchone()
+    return result_detail(db, r[0], smr) if r else None
+
+
 def latest_decisions(db) -> dict:
     """{smr: action} - the most recent decision of every request ever reviewed."""
     cur = db.execute("SELECT r.smr, r.action FROM results r JOIN (SELECT smr, MAX(decided_at) m FROM results GROUP BY smr) x "

@@ -288,44 +288,7 @@ class ResultsPage(QWidget):
         return w
 
     def _evidence_card(self, ev):
-        card = Card()
-        card.lay.addWidget(label("شواهد", "h3"))
-
-        def line(k, val):
-            card.lay.addWidget(label(f"<span style='color:{C['text3']}'>{k}:</span>&nbsp; {val}", wrap=True, selectable=True))
-        names = ev.get("names") or {}
-        if names:
-            line("صاحب حساب بانکی", html.escape(names.get("account_holder") or "—"))
-            line("ثبت‌کننده", html.escape(names.get("registrant") or "—"))
-            line("صاحب اینماد", html.escape(names.get("enamad_owner") or "—"))
-        e = ev.get("enamad") or {}
-        if e:
-            found = {True: "دارد", False: "ندارد", None: "نامشخص"}.get(e.get("found"))
-            status = {1: "معتبر", 3: "معتبر (مجوز کسب در انتظار)", 5: "منقضی", 6: "تعلیق"}.get(e.get("status"), e.get("status"))
-            line("اینماد", f"{found}" + (f" — {status}" if e.get("found") else "") + (f" — اعتبار تا {jalali.fa_digits(e['valid_until'])}" if e.get("valid_until") else ""))
-            if e.get("activities"):
-                line("فعالیت‌های تاییدشده‌ی اینماد", html.escape("، ".join(e["activities"])))
-        p = ev.get("products") or {}
-        if p:
-            cnt = p.get("product_count")
-            line("نقشه‌ی سایت", {True: "دارد", False: "ندارد", None: "نامشخص"}.get(p.get("has_sitemap")))
-            line("تعداد محصول", (num(cnt) + ("" if p.get("complete") else " (دست‌کم)")) if cnt is not None else "نامشخص")
-        f = ev.get("facts") or {}
-        if f:
-            yn = {True: "بله", False: "خیر", None: "نامشخص"}
-            line("افزودن به سبد", yn.get(f.get("can_add_to_cart")))
-            line("اطلاعات تماس", yn.get(f.get("has_contact")))
-            line("نماد اینماد روی سایت", yn.get(f.get("enamad_shown_on_site")))
-        if ev.get("duplicate_of"):
-            line("تکراریِ", html.escape("، ".join(ev["duplicate_of"])))
-        if ev.get("rendered"):
-            line("نگاه دوم با مرورگر پنهان", f"{num(len(ev['rendered']))} صفحه")
-        home = ev.get("home") or {}
-        if home and not home.get("ok"):
-            line("باز شدن سایت", html.escape(str(home.get("error") or home.get("status"))))
-        if card.lay.count() == 1:
-            card.lay.addWidget(label("شاهد جداگانه‌ای ثبت نشده (مثلاً تکراری یا مانع).", "caption"))
-        return card
+        return evidence_card(ev)
 
     def _toggle_done(self, smr, done):
         db = self.session.db()
@@ -363,3 +326,45 @@ class ResultsPage(QWidget):
             return
         self.session.send_run_to_sheet(self.run_id, lambda r: toast(self.window(), "در شیت ثبت شد" if not r.get("duplicate") else "این اجرا قبلاً در شیت بود"),
                                        lambda e: QMessageBox.warning(self, "شیت", str(e)))
+
+
+def evidence_card(ev):
+    """The evidence behind one review (names, enamad, sitemap, cart, contact) - shared by Results and Quick review."""
+    card = Card()
+    card.lay.addWidget(label("شواهد", "h3"))
+
+    def line(k, val):
+        card.lay.addWidget(label(f"<span style='color:{C['text3']}'>{k}:</span>&nbsp; {val}", wrap=True, selectable=True))
+    names = ev.get("names") or {}
+    if names:
+        line("صاحب حساب بانکی", html.escape(names.get("account_holder") or "—"))
+        line("ثبت‌کننده", html.escape(names.get("registrant") or "—"))
+        line("صاحب اینماد", html.escape(names.get("enamad_owner") or "—"))
+    e = ev.get("enamad") or {}
+    if e:
+        found = {True: "دارد", False: "ندارد", None: "نامشخص"}.get(e.get("found"))
+        status = {1: "معتبر", 3: "معتبر (مجوز کسب در انتظار)", 5: "منقضی", 6: "تعلیق"}.get(e.get("status"), e.get("status"))
+        line("اینماد", f"{found}" + (f" — {status}" if e.get("found") else "") + (f" — اعتبار تا {jalali.fa_digits(e['valid_until'])}" if e.get("valid_until") else ""))
+        if e.get("activities"):
+            line("فعالیت‌های تاییدشده‌ی اینماد", html.escape("، ".join(e["activities"])))
+    p = ev.get("products") or {}
+    if p:
+        cnt = p.get("product_count")
+        line("نقشه‌ی سایت", {True: "دارد", False: "ندارد", None: "نامشخص"}.get(p.get("has_sitemap")))
+        line("تعداد محصول", (num(cnt) + ("" if p.get("complete") else " (دست‌کم)")) if cnt is not None else "نامشخص")
+    f = ev.get("facts") or {}
+    if f:
+        yn = {True: "بله", False: "خیر", None: "نامشخص"}
+        line("افزودن به سبد", yn.get(f.get("can_add_to_cart")))
+        line("اطلاعات تماس", yn.get(f.get("has_contact")))
+        line("نماد اینماد روی سایت", yn.get(f.get("enamad_shown_on_site")))
+    if ev.get("duplicate_of"):
+        line("تکراریِ", html.escape("، ".join(ev["duplicate_of"])))
+    if ev.get("rendered"):
+        line("نگاه دوم با مرورگر پنهان", f"{num(len(ev['rendered']))} صفحه")
+    home = ev.get("home") or {}
+    if home and not home.get("ok"):
+        line("باز شدن سایت", html.escape(str(home.get("error") or home.get("status"))))
+    if card.lay.count() == 1:
+        card.lay.addWidget(label("شاهد جداگانه‌ای ثبت نشده (مثلاً تکراری یا مانع).", "caption"))
+    return card

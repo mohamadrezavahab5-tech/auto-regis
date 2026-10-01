@@ -21,7 +21,7 @@ from .widgets import Pill, label, toast
 NAV = [
     ("کار", [("dashboard", "داشبورد", "dashboard"), ("control", "اتاق کنترل", "clock"), ("accuracy", "دقت موتور", "check"),
              ("review", "بررسی", "review"), ("results", "نتایج", "results"),
-             ("workflow", "گردش کار", "list-check"), ("execution", "کنترل اجرا", "shield"),
+             ("workflow", "گردش کار", "list-check"), ("triage", "بررسی سریع", "play"), ("execution", "کنترل اجرا", "shield"),
              ("search", "جستجو در مرجع", "search")]),
     ("سامانه‌ها", [("nbo", "NBO", "nbo"), ("crm", "CRM", "crm")]),
     ("مدیریت", [("connections", "اتصال‌ها", "plug"), ("users", "کاربران", "user"), ("logs", "لاگ‌ها", "logs"), ("settings", "تنظیمات", "settings")]),

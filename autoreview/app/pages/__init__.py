@@ -13,6 +13,7 @@ def build_pages(session, shell):
     from .settings_page import SettingsPage
     from .workflow_page import WorkflowPage
     from .insights_pages import AccuracyPage, ControlRoomPage
+    from .triage import TriagePage
     from .users import UsersPage
     from .execution_page import ExecutionPage
     return {
@@ -20,6 +21,7 @@ def build_pages(session, shell):
         "review": ReviewPage(session, shell),
         "results": ResultsPage(session, shell),
         "workflow": WorkflowPage(session, shell),
+        "triage": TriagePage(session, shell),
         "control": ControlRoomPage(session, shell),
         "accuracy": AccuracyPage(session, shell),
         "users": UsersPage(session, shell),
