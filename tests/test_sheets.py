@@ -101,3 +101,12 @@ def test_writing_to_online_instore_is_off_until_switched_on():
     cfg = sheets.load()
     with pytest.raises(sheets.SheetError, match="خاموش"):
         sheets.oi_write("r", [], cfg=cfg)
+
+
+def test_the_marker_word_marks_manual_rows_when_configured():
+    cfg = sheets.load()
+    res = [{"smr": "D", "action": "MANUAL", "reason_codes": []}]
+    assert sheets.oi_rows(res, cfg, {"edit": {}, "cancel": {}}, today="1405/07/09")[0] == []
+    cfg["oi"]["marker"] = "بررسی کد"
+    rows, skipped = sheets.oi_rows(res, cfg, {"edit": {}, "cancel": {}}, today="1405/07/09")
+    assert rows == [{"case_id": "D", "date": "1405/07/09", "result": "بررسی کد", "edit_reason": "", "cancel_reason": ""}] and skipped == []

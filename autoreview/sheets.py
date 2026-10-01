@@ -41,7 +41,7 @@ function doPost(e) {
   if (body.action === 'ping') return out({ ok: true, sheet: ss.getName(), url: ss.getUrl(), version: 2, online_instore: ONLINE_INSTORE_ID !== '' });
   if (body.action === 'oi_describe' || body.action === 'oi_write') {
     try {
-      if (body.action === 'oi_describe') return out(oiDescribe());
+      if (body.action === 'oi_describe') return out(oiDescribe(body));
       const lock = LockService.getScriptLock();
       lock.waitLock(30000);
       try { return out(oiWrite(body, ss)); } finally { lock.releaseLock(); }
@@ -139,7 +139,8 @@ function allowedValues(sh, row, col) {
   return null;
 }
 
-function oiDescribe() {
+function oiDescribe(body) {
+  const marker = String((body && body.marker) || '');
   const sh = oiSheet();
   const L = oiLayout(sh);
   const n = Math.max(0, sh.getLastRow() - L.first + 1);
@@ -149,8 +150,10 @@ function oiDescribe() {
     vals.forEach(function (r) { const v = r[col - 1]; if (v) m[v] = (m[v] || 0) + 1; });
     return Object.keys(m).sort(function (a, b) { return m[b] - m[a]; }).slice(0, 40);
   };
+  // ours to review: the 4 Online cells are empty, or the result is the automation's own marker word (it could not decide before)
   const empty = vals.filter(function (r) {
-    return r[L.caseCol - 1] && !r[L.date - 1] && !r[L.result - 1] && !r[L.edit - 1] && !r[L.cancel - 1];
+    const blank = !r[L.date - 1] && !r[L.result - 1] && !r[L.edit - 1] && !r[L.cancel - 1];
+    return r[L.caseCol - 1] && (blank || (marker !== '' && r[L.result - 1] === marker));
   }).map(function (r) { return r[L.caseCol - 1]; });
   return { ok: true, layout: L, rows: n, empty_count: empty.length, empty_ids: empty.slice(0, 5000),
            allowed: { result: allowedValues(sh, L.first, L.result), edit: allowedValues(sh, L.first, L.edit), cancel: allowedValues(sh, L.first, L.cancel) },
@@ -165,12 +168,14 @@ function oiWrite(body, ss) {
   const cur = n ? sh.getRange(L.first, L.date, n, 4).getDisplayValues() : [];
   const log = [];
   const now = new Date();
+  const marker = String(body.marker || '');
   let written = 0;
   (body.rows || []).forEach(function (x) {
     const i = ids.indexOf(String(x.case_id).trim());
     const base = [now, body.run_id, body.user || '', x.case_id];
     if (i < 0) { log.push(base.concat(['', '', '', 'در شیت پیدا نشد'])); return; }
-    if (cur[i].some(function (v) { return v !== ''; })) { log.push(base.concat([L.first + i, '', '', 'قبلاً پر شده؛ دست نخورد'])); return; }
+    const ours = cur[i].every(function (v) { return v === ''; }) || (marker !== '' && cur[i][1] === marker);
+    if (!ours) { log.push(base.concat([L.first + i, '', '', 'قبلاً پر شده؛ دست نخورد'])); return; }
     sh.getRange(L.first + i, L.date, 1, 4).setValues([[x.date, x.result, x.edit_reason || '', x.cancel_reason || '']]);
     cur[i] = [x.date, x.result, x.edit_reason || '', x.cancel_reason || ''];
     written++;
@@ -185,7 +190,9 @@ _WEBAPP = re.compile(r"^https://script\.google\.com/(?:a/[^/]+/)?macros/s/[A-Za-
 
 # The team's shared Online-Instore sheet (tab 'Pending', columns H-K = the Online team's own; seen on the owner's screenshot
 # 2026-10-01: H 'Date Online Check' as '1405/06/17', I 'بررسی قرارداد' with these three values, J/K NBO's own reason labels).
-DEFAULT_OI = {"sheet_id": "1FCt7WfmuQ5zy_jwafsLe2a7xkbKouS28wep1d94lF3s", "tab": "Pending", "enabled": False,
+# 'marker': the word the old automation wrote in 'بررسی قرارداد' when it could not decide (garbled in the meeting recording;
+# the person picks it from the values the sheet actually holds). Empty = MANUAL writes nothing and only empty rows are ours.
+DEFAULT_OI = {"sheet_id": "1FCt7WfmuQ5zy_jwafsLe2a7xkbKouS28wep1d94lF3s", "tab": "Pending", "enabled": False, "marker": "",
               "result_values": {"APPROVE": "تایید قرارداد", "EDIT": "نیاز به ادیت", "CANCEL": "لغو قرارداد"}}
 
 
@@ -301,12 +308,13 @@ def nbo_labels() -> dict:
 def oi_describe(cfg: dict = None, client=None) -> dict:
     """Layout, dropdown values and the Case IDs whose 4 Online cells are all still empty (read through the person's script)."""
     cfg = cfg or load()
-    return _post(cfg.get("webapp_url", ""), {"secret": cfg["secret"], "action": "oi_describe"}, client)
+    return _post(cfg.get("webapp_url", ""), {"secret": cfg["secret"], "action": "oi_describe", "marker": cfg["oi"].get("marker", "")}, client)
 
 
 def oi_rows(results: list, cfg: dict = None, labels: dict = None, today: str = None):
-    """-> (rows to write, [(smr, why skipped)]). MANUAL is never written: those cells stay empty for a person.
-    EDIT/CANCEL are written only with NBO's own label for the reason (never a guessed text)."""
+    """-> (rows to write, [(smr, why skipped)]). MANUAL writes nothing - unless the team's marker word is set, then the marker
+    goes into 'بررسی قرارداد' like the old code did ('looked at, a person must decide'). EDIT/CANCEL are written only with
+    NBO's own label for the reason (never a guessed text)."""
     from .jalali import jdate
     cfg = cfg or load()
     labels = labels or nbo_labels()
@@ -316,7 +324,11 @@ def oi_rows(results: list, cfg: dict = None, labels: dict = None, today: str = N
     for r in results:
         action = r["action"]
         if action not in ("APPROVE", "EDIT", "CANCEL"):
-            skipped.append((r["smr"], "بررسی دستی - برای همکار خالی می‌ماند"))
+            marker = cfg["oi"].get("marker", "")
+            if marker:
+                rows.append({"case_id": r["smr"], "date": today, "result": marker, "edit_reason": "", "cancel_reason": ""})
+            else:
+                skipped.append((r["smr"], "بررسی دستی - برای همکار خالی می‌ماند"))
             continue
         code = (r.get("reason_codes") or [None])[0]
         edit = labels["edit"].get(code, "") if action == "EDIT" else ""
@@ -355,6 +367,6 @@ def oi_write(run_id: str, rows: list, user_name: str = "", cfg: dict = None, cli
     if not cfg["oi"].get("enabled"):
         raise SheetError("ثبت در شیت Online-Instore خاموش است (تنظیمات > اتصال‌ها).")
     data = _post(cfg.get("webapp_url", ""), {"secret": cfg["secret"], "action": "oi_write", "run_id": run_id, "user": user_name or "",
-                                            "rows": rows}, client)
+                                            "marker": cfg["oi"].get("marker", ""), "rows": rows}, client)
     log.info("run %s -> Online-Instore: %s written, %s skipped", run_id, data.get("written"), data.get("skipped"))
     return data

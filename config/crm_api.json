@@ -24,5 +24,18 @@
     "لغو فعال سازی فنی",
     "نقص مدارک"
   ],
-  "_status_labels_note": "All labels of the CRM picklist new_merchantstatus (read from CRM metadata 2026-10-01)."
+  "_status_labels_note": "All labels of the CRM picklist new_merchantstatus (read from CRM metadata 2026-10-01).",
+  "reference": {
+    "_note": "The whole Merchant Registrations list (all statuses) for the duplicate reference and the website lookup. First load = everything; later loads = only rows modified since the last load. Field names read from CRM metadata 2026-10-01: new_personcompany = نوع قرارداد (حقیقی/حقوقی), new_new_store_type = نوع فروشگاه.",
+    "fields": {
+      "caseid": "new_caseid",
+      "status": "new_merchantstatus",
+      "site": "new_urlsite",
+      "brand": "new_brandname",
+      "person_company": "new_personcompany",
+      "store_type": "new_new_store_type",
+      "created_on": "createdon",
+      "modified_on": "modifiedon"
+    }
+  }
 }

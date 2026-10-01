@@ -1,0 +1,173 @@
+"""The reference data the old 'Main' sheet held - now in the person's own database.
+
+What Main did, and where it lives now:
+  NBO Data / CRM Data tabs (Update EMIO / Update CRM scripts)  -> ref_nbo / ref_crm tables (NBO: full export each time;
+                                                                   CRM: full once, then only what changed since last time)
+  EMIO Approved / CRM Approved                                  -> approved_sets()
+  Daily Pending (tick + matched names)                          -> the duplicate check in the runner (uses approved_sets)
+  Dashboard (count per status)                                  -> status_counts()
+  'Has this website had a request before?' (NBO cannot search   -> search()
+   by website)
+Every load records when and from where, so the app always shows how fresh the data is."""
+import re
+from datetime import datetime, timezone
+
+from .duplicates import site_key
+from .imports import status_key
+from .normalize import normalize_text
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS ref_nbo (
+  smr TEXT PRIMARY KEY, status TEXT, site TEXT, site_key TEXT, category TEXT, ownership TEXT, has_online TEXT, has_instore TEXT,
+  account_holder TEXT, owner_name TEXT, owner_family TEXT, created_at TEXT, brand_fa TEXT, edit_reason TEXT, cancel_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS ref_nbo_site ON ref_nbo (site_key);
+CREATE TABLE IF NOT EXISTS ref_crm (
+  caseid TEXT PRIMARY KEY, status TEXT, site TEXT, site_key TEXT, brand TEXT, person_company TEXT, store_type TEXT,
+  created_on TEXT, modified_on TEXT
+);
+CREATE INDEX IF NOT EXISTS ref_crm_site ON ref_crm (site_key);
+CREATE TABLE IF NOT EXISTS ref_meta (source TEXT PRIMARY KEY, loaded_at TEXT, origin TEXT, rows INTEGER, watermark TEXT);
+"""
+NBO_FIELDS = ("smr", "status", "site", "site_key", "category", "ownership", "has_online", "has_instore", "account_holder", "owner_name",
+              "owner_family", "created_at", "brand_fa", "edit_reason", "cancel_reason")
+CRM_FIELDS = ("caseid", "status", "site", "site_key", "brand", "person_company", "store_type", "created_on", "modified_on")
+STALE_HOURS = 12
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def ensure(db):
+    db.executescript(SCHEMA)
+
+
+def _set_meta(db, source, origin, rows, watermark=None):
+    db.execute("INSERT OR REPLACE INTO ref_meta (source, loaded_at, origin, rows, watermark) VALUES (?,?,?,?,?)",
+               (source, now_iso(), origin, rows, watermark))
+
+
+def meta(db, source):
+    ensure(db)
+    r = db.execute("SELECT loaded_at, origin, rows, watermark FROM ref_meta WHERE source = ?", (source,)).fetchone()
+    return dict(zip(("loaded_at", "origin", "rows", "watermark"), r)) if r else None
+
+
+def is_stale(m, hours=STALE_HOURS) -> bool:
+    if not m or not m.get("loaded_at"):
+        return True
+    return (datetime.now(timezone.utc) - datetime.fromisoformat(m["loaded_at"])).total_seconds() > hours * 3600
+
+
+# ---- loading -------------------------------------------------------------------------------------------------------------
+def import_nbo(db, rows, origin):
+    """A full NBO export REPLACES the NBO reference (same as the old 'clear + rewrite' of the NBO tab)."""
+    ensure(db)
+    data = [tuple(site_key(r.get("site")) if f == "site_key" else (r.get(f) or "") for f in NBO_FIELDS) for r in rows]
+    with db:
+        db.execute("DELETE FROM ref_nbo")
+        db.executemany(f"INSERT OR REPLACE INTO ref_nbo ({', '.join(NBO_FIELDS)}) VALUES ({', '.join('?' * len(NBO_FIELDS))})", data)
+        _set_meta(db, "nbo", origin, len(data))
+    return len(data)
+
+
+def upsert_crm(db, rows, origin, full=False):
+    """CRM rows ({caseid, status, site, brand, person_company, store_type, created_on, modified_on}). full=True replaces
+    everything; otherwise the rows are merged in (incremental: only what changed since the last load)."""
+    ensure(db)
+    data = [tuple(site_key(r.get("site")) if f == "site_key" else (r.get(f) or "") for f in CRM_FIELDS) for r in rows]
+    with db:
+        if full:
+            db.execute("DELETE FROM ref_crm")
+        db.executemany(f"INSERT OR REPLACE INTO ref_crm ({', '.join(CRM_FIELDS)}) VALUES ({', '.join('?' * len(CRM_FIELDS))})", data)
+        total = db.execute("SELECT COUNT(*) FROM ref_crm").fetchone()[0]
+        mark = db.execute("SELECT MAX(modified_on) FROM ref_crm").fetchone()[0]
+        _set_meta(db, "crm", origin, total, mark)
+    return len(data)
+
+
+# ---- what the review uses -----------------------------------------------------------------------------------------------
+def _nbo_rows(db, where="", args=()):
+    cur = db.execute(f"SELECT {', '.join(NBO_FIELDS)} FROM ref_nbo {where}", args)
+    return [dict(zip(NBO_FIELDS, r)) for r in cur.fetchall()]
+
+
+def all_nbo_rows(db):
+    ensure(db)
+    return _nbo_rows(db)
+
+
+def approved_sets(db, rules):
+    """-> (nbo approved [{id, site}], crm approved [{id, site}]). CRM: approved statuses AND a store type that includes
+    online (the team's CRM reference was 'Store Type = Online'); an empty list in the settings means 'any store type'."""
+    ensure(db)
+    nbo_ok = {status_key(s) for s in rules["approved_statuses"]["nbo"]}
+    crm_ok = {status_key(s) for s in rules["approved_statuses"]["crm"]}
+    store_types = [normalize_text(s).replace(" ", "") for s in rules.get("crm_store_types", [])]
+    nbo = [{"id": smr, "site": site} for smr, status, site in db.execute("SELECT smr, status, site FROM ref_nbo") if status_key(status) in nbo_ok]
+    crm = []
+    for caseid, status, site, store in db.execute("SELECT caseid, status, site, store_type FROM ref_crm"):
+        if status_key(status) not in crm_ok:
+            continue
+        if store_types and store and normalize_text(store).replace(" ", "") not in store_types:
+            continue                                           # a row without a store type is kept (unknown is not 'offline')
+        crm.append({"id": caseid, "site": site})
+    return nbo, crm
+
+
+def status_counts(db):
+    ensure(db)
+    nbo = dict(db.execute("SELECT COALESCE(NULLIF(status, ''), '?'), COUNT(*) FROM ref_nbo GROUP BY 1 ORDER BY 2 DESC").fetchall())
+    crm = dict(db.execute("SELECT COALESCE(NULLIF(status, ''), '?'), COUNT(*) FROM ref_crm GROUP BY 1 ORDER BY 2 DESC").fetchall())
+    return {"nbo": nbo, "crm": crm}
+
+
+# ---- the lookup the old Main sheet was used for -------------------------------------------------------------------------
+_CODE = re.compile(r"^(SMR|MRG)-\d+$", re.I)
+
+
+def search(db, query: str, limit=300):
+    """Website / request code / name -> every NBO and CRM record that matches, newest first."""
+    ensure(db)
+    q = (query or "").strip()
+    if len(q) < 2:
+        return []
+    out = []
+    if _CODE.match(q):
+        code = q.upper()
+        out += [dict(r, source="NBO") for r in _nbo_rows(db, "WHERE upper(smr) = ?", (code,))]
+        out += [dict(zip(CRM_FIELDS, r), source="CRM") for r in db.execute(f"SELECT {', '.join(CRM_FIELDS)} FROM ref_crm WHERE upper(caseid) = ?", (code,))]
+        return out
+    key = site_key(q)
+    if key:
+        out += [dict(r, source="NBO") for r in _nbo_rows(db, "WHERE site_key = ? ORDER BY created_at DESC", (key,))]
+        out += [dict(zip(CRM_FIELDS, r), source="CRM") for r in db.execute(
+            f"SELECT {', '.join(CRM_FIELDS)} FROM ref_crm WHERE site_key = ? ORDER BY created_on DESC", (key,))]
+        if out:
+            return out[:limit]
+    like = f"%{q}%"
+    out += [dict(r, source="NBO") for r in _nbo_rows(
+        db, "WHERE site LIKE ? OR account_holder LIKE ? OR brand_fa LIKE ? OR (owner_name || ' ' || owner_family) LIKE ? "
+            "ORDER BY created_at DESC LIMIT ?", (like, like, like, like, limit))]
+    out += [dict(zip(CRM_FIELDS, r), source="CRM") for r in db.execute(
+        f"SELECT {', '.join(CRM_FIELDS)} FROM ref_crm WHERE site LIKE ? OR brand LIKE ? ORDER BY created_on DESC LIMIT ?", (like, like, limit))]
+    return out[:limit]
+
+
+def backlog_rows(db, rules, include_optional=None):
+    """Today's backlog from the NBO reference: online-only, individual, pending (newest first, the owner's order)."""
+    from . import backlog
+    cfg = rules["backlog"]
+    opt = cfg.get("include_optional") if include_optional is None else include_optional
+    picked, skipped = backlog.select(all_nbo_rows(db), cfg, include_optional=bool(opt))
+    return picked, skipped
+
+
+def both_channel_rows(db, rules, include_optional=None):
+    """Pending requests that are Online AND InStore - the Online-Instore sheet flow (never acted on in NBO by this app)."""
+    cfg = rules["backlog"]
+    opt = cfg.get("include_optional") if include_optional is None else include_optional
+    statuses = set(cfg["statuses"]) | (set(cfg.get("optional_statuses", [])) if opt else set())
+    return [r for r in all_nbo_rows(db) if r["status"] in statuses and str(r["has_online"]).lower() == "true"
+            and str(r["has_instore"]).lower() == "true"]

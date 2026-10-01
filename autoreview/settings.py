@@ -63,6 +63,7 @@ EDITABLE = {
     ("rules", "backlog.include_optional"): _is_bool,
     ("rules", "approved_statuses.nbo"): _str_list,
     ("rules", "approved_statuses.crm"): _str_list,
+    ("rules", "crm_store_types"): _str_list,
     ("category_map", "mismatch_allowed"): _is_bool,
 }
 

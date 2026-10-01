@@ -182,6 +182,38 @@ def fetch_rows(mapping=None, runner=None):
     return rows
 
 
+def fetch_reference(since=None, runner=None, progress=None, mapping=None):
+    """The whole Merchant Registrations list (every status) for the reference: [{caseid, status, site, brand, person_company,
+    store_type, created_on, modified_on}]. since = ISO time: only rows modified after it (incremental load).
+    progress(pages_done, rows_so_far) is called after every page."""
+    m = mapping or load_mapping()
+    f = m["reference"]["fields"]
+    path = f"{m['entity_set']}?$select={','.join(f.values())}"
+    if since:
+        path += "&$filter=" + quote(f"{f['modified_on']} gt {since}", safe="")
+    t0 = time.monotonic()
+    rows, pages = [], 0
+    while path:
+        data = get(path, runner)
+        for r in data.get("value", []):
+            caseid = str(r.get(f["caseid"]) or "").strip()
+            if not caseid:
+                continue
+            rows.append({"caseid": caseid,
+                         "status": str(r.get(f["status"] + FORMATTED) or r.get(f["status"]) or "").strip(),
+                         "site": str(r.get(f["site"]) or "").strip(),
+                         "brand": str(r.get(f["brand"]) or "").strip(),
+                         "person_company": str(r.get(f["person_company"] + FORMATTED) or "").strip(),
+                         "store_type": str(r.get(f["store_type"] + FORMATTED) or "").strip(),
+                         "created_on": str(r.get(f["created_on"]) or ""), "modified_on": str(r.get(f["modified_on"]) or "")})
+        pages += 1
+        if progress:
+            progress(pages, len(rows))
+        path = data.get("@odata.nextLink")
+    log.info("CRM reference: %d rows (%s) in %.1fs", len(rows), f"changed since {since}" if since else "full", time.monotonic() - t0)
+    return rows
+
+
 def check(runner=None, reachable=None) -> list:
     """Connection test for the Connections page: [(step, ok: bool|None, detail)]. Stops at the first failing step."""
     steps = []

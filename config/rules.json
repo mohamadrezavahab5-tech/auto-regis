@@ -136,5 +136,12 @@
       "NBO reason SITEMAP_IS_MISSING used 265 times in the 2026-09-30 sample"
     ],
     "_note": "No sitemap at robots.txt / the standard paths (and no fetch error) => EDIT SITEMAP_IS_MISSING. MANUAL = let a person look."
-  }
+  },
+  "crm_store_types": [
+    "آنلاین",
+    "آنلاین - آفلاین",
+    "آنلاین - شبکه اجتماعی",
+    "آنلاین - آفلاین -شبکه اجتماعی"
+  ],
+  "_crm_store_types_note": "CRM duplicate reference = approved statuses AND one of these store types (the team's CRM export used 'Store Type = Online'). A row without a store type is kept. Empty list = any store type."
 }

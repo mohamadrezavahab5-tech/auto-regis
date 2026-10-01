@@ -162,6 +162,23 @@ def latest_decisions(db) -> dict:
     return dict(cur.fetchall())
 
 
+def latest_states(db) -> dict:
+    """{smr: (action, [reason codes], decided_at)} - the most recent decision of every request ever reviewed."""
+    cur = db.execute("SELECT r.smr, r.action, r.reason_codes, r.decided_at FROM results r JOIN "
+                     "(SELECT smr, MAX(decided_at) m FROM results GROUP BY smr) x ON r.smr = x.smr AND r.decided_at = x.m")
+    return {smr: (action, json.loads(codes or "[]"), at) for smr, action, codes, at in cur.fetchall()}
+
+
+def history(db, smr) -> list:
+    """Everything that happened to one request, oldest first: decisions (with run) and audit events."""
+    events = [{"ts": at, "kind": "DECISION", "run_id": run, "action": action, "codes": json.loads(codes or "[]"), "notes": json.loads(notes or "[]")}
+              for run, action, codes, notes, at in db.execute(
+                  "SELECT run_id, action, reason_codes, notes, decided_at FROM results WHERE smr = ? ORDER BY decided_at", (smr,))]
+    events += [{"ts": ts, "kind": stage, "detail": json.loads(detail or "{}")}
+               for ts, stage, detail in db.execute("SELECT ts, stage, detail FROM audit WHERE smr = ? AND stage != 'DECISION' ORDER BY id", (smr,))]
+    return sorted(events, key=lambda e: e["ts"])
+
+
 def set_manual_done(db, smr, done: bool, user_name=None, note=None):
     with db:
         if done:
