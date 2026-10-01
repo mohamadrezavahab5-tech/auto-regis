@@ -118,5 +118,24 @@ def test_per_category_minimum_overrides_the_group_default():
 
 
 def test_missing_sitemap_uses_its_own_reason():
-    d = evaluate(good(product_count=3, has_sitemap=False), RULES, confirmed(ALL))
-    assert d.reason_keys == ["SITEMAP_MISSING"]
+    d = evaluate(good(product_count=None, has_sitemap=False, can_add_to_cart=None), RULES, confirmed(ALL))
+    assert d.reason_keys == ["SITEMAP_MISSING"]                  # no sitemap => no product page to try the cart on: still decided
+    rules = copy.deepcopy(RULES)
+    rules["sitemap_missing_action"]["value"] = "MANUAL"
+    assert evaluate(good(product_count=None, has_sitemap=False), rules, confirmed(ALL)).action == MANUAL
+
+
+def test_a_blocker_always_goes_to_a_person():
+    d = evaluate(good(blocker="the website is a social-media page"), RULES, confirmed(ALL))
+    assert d.action == MANUAL and "social-media" in d.notes[0]
+
+
+def test_a_lower_bound_count_proves_enough_but_never_too_few():
+    assert evaluate(good(product_count=90, product_count_complete=False), RULES, confirmed(ALL)).action == APPROVE
+    d = evaluate(good(product_count=12, product_count_complete=False), RULES, confirmed(ALL))
+    assert d.action == MANUAL and "at least 12" in d.notes[0]
+
+
+def test_products_are_judged_before_the_cart():
+    d = evaluate(good(product_count=5, can_add_to_cart=None), RULES, confirmed(ALL))
+    assert d.action == EDIT and d.reason_keys == ["TOO_FEW_PRODUCTS"]

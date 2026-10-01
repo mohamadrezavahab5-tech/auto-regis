@@ -87,7 +87,8 @@
     "online_only": true,
     "order": "newest_first",
     "batch_size": 150,
-    "_note": "online_only = Has Online true AND Has InStore false. Requests that also have InStore belong to the separate Online-Insta flow (to be confirmed). Created At is a Jalali DATE without time, so order inside one day is the export order."
+    "_note": "online_only = Has Online true AND Has InStore false. Requests that also have InStore belong to the separate Online-Insta flow (to be confirmed). Created At is a Jalali DATE without time, so order inside one day is the export order.",
+    "include_optional": false
   },
   "category_groups": {
     "_note": "NBO 'Category (fa)' name -> group. Groups decide the minimum product count and manual review. Names not listed are 'normal'. The owner completes this list (special: categories that need extra documents).",
@@ -121,6 +122,19 @@
     "concurrency": 6,
     "enamad_concurrency": 2,
     "http_timeout_seconds": 20,
-    "pause_between_enamad_seconds": 0.4
+    "pause_between_enamad_seconds": 0.4,
+    "request_deadline_seconds": 150
+  },
+  "sitemap_missing_action": {
+    "value": "EDIT",
+    "options": [
+      "EDIT",
+      "MANUAL"
+    ],
+    "confirmed": false,
+    "sources": [
+      "NBO reason SITEMAP_IS_MISSING used 265 times in the 2026-09-30 sample"
+    ],
+    "_note": "No sitemap at robots.txt / the standard paths (and no fetch error) => EDIT SITEMAP_IS_MISSING. MANUAL = let a person look."
   }
 }

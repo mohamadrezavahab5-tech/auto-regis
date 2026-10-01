@@ -73,22 +73,57 @@ def test_owner_name_uses_exact_token_equality_not_similarity():
     assert facts(info(owner=None))["owner_matches_account_holder"] is None
 
 
-def test_lookup_end_to_end_with_a_fake_transport():
+def _transport(getdata):
     def handler(request: httpx.Request):
         if request.url.host == "enamad.ir" and request.method == "GET":
             return httpx.Response(200, text="home", headers={"set-cookie": "a=b"})
         if request.url.path == "/Home/GetData":
-            body = request.content.decode()
-            if "missing.ir" in body:
-                return httpx.Response(200, json={})
-            return httpx.Response(200, json={"id": 7, "code": "c", "enamad_status": 1, "expdate": "1406/05/10"})
+            return getdata(request.content.decode())
         if request.url.host == "trustseal.enamad.ir":
             return httpx.Response(200, text=PROFILE)
         return httpx.Response(404)
+    return httpx.MockTransport(handler)
 
+
+def _lookup(getdata, site):
     async def run():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
-            return await en.lookup(c, "https://www.shop-example.ir/"), await en.lookup(c, "missing.ir")
-    ok, missing = asyncio.run(run())
+        async with httpx.AsyncClient(transport=_transport(getdata)) as c:
+            return await en.lookup(c, site, retries=0)
+    return asyncio.run(run())
+
+
+def test_lookup_end_to_end_with_a_fake_transport():
+    def getdata(body):
+        if "missing.ir" in body:
+            return httpx.Response(200, content=b"null", headers={"content-type": "application/json;charset=UTF-8"})   # real 'no enamad'
+        return httpx.Response(200, json={"id": 7, "code": "c", "enamad_status": 1, "expdate": "1406/05/10"})
+    ok = _lookup(getdata, "https://www.shop-example.ir/")
     assert ok.found is True and ok.owner == "علی رضایی" and ok.status == 1
-    assert missing.found is False
+    assert _lookup(getdata, "missing.ir").found is False
+
+
+def test_an_odd_answer_is_unknown_never_no_enamad():
+    for resp in (httpx.Response(200, json={}), httpx.Response(200, json={"message": "too many requests"}),
+                 httpx.Response(200, json=[]), httpx.Response(429, json={"x": 1}), httpx.Response(200, text="<html>blocked</html>")):
+        info = _lookup(lambda body, r=resp: r, "shop.ir")
+        assert info.found is None, resp
+
+
+def test_unknown_or_suspended_status_is_never_decided():
+    for status in (2, 4, 6, 9):
+        f = to_facts(info(status=status), "https://www.shop-example.ir/x", "علی رضایی", "مد و پوشاک", MAP)
+        assert f["has_enamad"] is None, status
+    assert to_facts(info(status=3), "shop-example.ir", "علی رضایی", "مد و پوشاک", MAP)["has_enamad"] is True
+
+
+def test_profile_domain_with_www_still_belongs_to_the_site():
+    f = to_facts(info(domain_shown="www.shop-example.ir"), "https://shop-example.ir", "علی رضایی", "مد و پوشاک", MAP)
+    assert f["has_enamad"] is True and f["owner_matches_account_holder"] is True
+
+
+def test_owner_label_and_value_on_one_line_and_missing_value():
+    one_line = "<div>shop-example.ir</div><div>صاحب امتیاز : مریم احمدی</div><div>تاریخ اعتبار : معتبر تا تاریخ 1406/01/01</div>"
+    p = parse_profile(one_line)
+    assert p["owner"] == "مریم احمدی" and p["valid_until"] == "1406/01/01"
+    empty = "<div>صاحب امتیاز :</div><div>تاریخ اعطا :</div><div>1401/01/01</div>"
+    assert parse_profile(empty)["owner"] is None                       # never take the next label as the owner's name

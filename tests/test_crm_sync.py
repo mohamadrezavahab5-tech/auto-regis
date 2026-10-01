@@ -24,3 +24,21 @@ def test_only_get_requests_exist():
     src = inspect.getsource(c) + open(str(c._script("crm-get.ps1")), encoding="utf-8").read()
     for verb in ("POST", "PATCH", "DELETE", "PUT"):
         assert f"-Method {verb}" not in src
+
+
+def test_username_gets_the_domain_unless_it_already_has_one():
+    assert c.normalize_username("ali") == "SNAPP\\ali"
+    assert c.normalize_username(" ali ") == "SNAPP\\ali"
+    assert c.normalize_username("SNAPP\\ali") == "SNAPP\\ali"
+    assert c.normalize_username("ali@snapp.ir") == "ali@snapp.ir"
+
+
+def test_a_401_removes_the_stored_login_and_is_reported_clearly(tmp_path, monkeypatch):
+    class R:
+        returncode, stdout, stderr = 1, "", "The remote server returned an error: (401) Unauthorized."
+    cred = tmp_path / "cred.xml"; cred.write_text("x")
+    monkeypatch.setattr(c, "cred_file", lambda: cred)
+    monkeypatch.setattr(c, "_ps", lambda *a, **k: R())
+    with pytest.raises(c.CrmAuthError):
+        c.whoami()
+    assert not cred.exists()                      # a refused password is never sent again

@@ -1,0 +1,105 @@
+"""Persian wording for what the engine writes (the engine itself keeps stable English notes in the database).
+
+Reason CODES are NBO's own; the Persian next to them is our description, not NBO's dropdown label (the executor reads the
+real labels from NBO itself, see nbo_catalog.py)."""
+import re
+
+ACTION_FA = {"APPROVE": "تایید", "EDIT": "نیاز به اصلاح", "CANCEL": "لغو", "MANUAL": "بررسی دستی"}
+
+REASON_FA = {
+    "MISSING_LICENSE": "نداشتن مجوز رسمی (اینماد)",
+    "INVALID_URL": "آدرس سایت نامعتبر است",
+    "ENAMAD_EXPIRED": "اینماد منقضی شده است",
+    "REGISTRANT_NAME_AND_BANK_ACCOUNT_OWNER_MISMATCH": "نام ثبت‌کننده با صاحب حساب بانکی یکی نیست",
+    "OWNER_MISMATCH": "نام صاحب اینماد با صاحب حساب یکی نیست",
+    "ENAMAD_OWNER_NAME_MISMATCH": "نام صاحب اینماد مغایرت دارد",
+    "MISSING_CONTACT_INFO": "اطلاعات تماس روی سایت نیست",
+    "PRODUCT_CANNOT_BE_ADDED_TO_CART": "محصول به سبد خرید اضافه نمی‌شود",
+    "SITEMAP_IS_MISSING": "نقشه‌ی سایت (sitemap) وجود ندارد",
+    "INSUFFICIENT_NUMBER_OF_PRODUCTS_IN_SITEMAP": "تعداد محصول در نقشه‌ی سایت کافی نیست",
+    "ENAMAD_CATEGORY_MISMATCH": "دسته‌بندی اینماد با دسته‌ی اعلام‌شده مغایرت دارد",
+    "WEBSITE_IS_INACTIVE": "سایت غیرفعال است",
+    "DUPLICATE_REQUEST": "درخواست تکراری",
+}
+
+_UNKNOWN = {
+    "is_online": "آنلاین بودن درخواست",
+    "website_reachable": "باز شدن سایت (پاسخ نامشخص بود)",
+    "website unreachable": "سایت باز نشد",
+    "enamad availability": "وجود اینماد (پاسخ اینماد نامشخص بود)",
+    "enamad expiry": "اعتبار اینماد",
+    "enamad owner vs account holder": "تطبیق نام صاحب اینماد با صاحب حساب",
+    "registrant vs account holder": "تطبیق نام ثبت‌کننده با صاحب حساب",
+    "enamad category mapping": "تطبیق دسته‌ی اینماد با دسته‌ی NBO (عنوان فعالیت در جدول نگاشت نیست)",
+    "enamad displayed on site": "نمایش نماد اینماد روی سایت",
+    "agreement": "قرارداد (Agreement)",
+    "add to cart": "امکان افزودن به سبد خرید",
+    "product count": "تعداد محصول",
+    "contact info": "اطلاعات تماس",
+}
+
+_BLOCKERS = [
+    (r"no usable website address in the request", "آدرس سایت معتبری در درخواست نیست"),
+    (r"the website is a page on a shared platform \((.*)\), not a shop website", r"آدرس، صفحه‌ای در یک پلتفرم عمومی است (\1)، نه سایت فروشگاه"),
+    (r"the website redirects to another domain \((.*) -> (.*)\)", r"سایت به دامنه‌ی دیگری می‌رود (\1 ← \2)"),
+    (r"the website answers with a bot-protection page; its content could not be read", "سایت صفحه‌ی ضدربات نشان می‌دهد؛ محتوایش خوانده نشد"),
+    (r"the website shows a placeholder / suspended / under-construction page", "سایت صفحه‌ی موقت / مسدود / در دست ساخت نشان می‌دهد"),
+]
+
+_FIXED = [
+    (r"all gates passed", "همه‌ی بررسی‌ها قبول شد"),
+    (r"(\w+): NBO reason code not unambiguous - not acting", r"کد دلیل NBO برای «\1» قطعی نیست؛ اقدامی انجام نشد"),
+    (r"enamad owner differs from the account holder - owner_mismatch_action is MANUAL", "نام صاحب اینماد با صاحب حساب فرق دارد (طبق تنظیم: بررسی دستی)"),
+    (r"category group 'gold' needs documents - human review", "دسته‌ی طلا مدرک لازم دارد؛ بررسی دستی"),
+    (r"category group 'special' needs documents - human review", "دسته‌ی خاص مدرک لازم دارد؛ بررسی دستی"),
+    (r"category group '(\w+)' needs documents - human review", r"گروه «\1» مدرک لازم دارد؛ بررسی دستی"),
+    (r"services go to manual review by rule", "طبق تنظیم، دسته‌ی خدمات دستی بررسی می‌شود"),
+    (r"agreement check failed - rule and reason not defined yet", "بررسی قرارداد رد شد؛ قاعده‌اش هنوز تعریف نشده"),
+    (r"no sitemap found - sitemap_missing_action is MANUAL", "نقشه‌ی سایت پیدا نشد (طبق تنظیم: بررسی دستی)"),
+    (r"the same website is already approved(.*)", r"همین سایت قبلاً تایید شده است\1"),
+    (r"duplicate found but the NBO cancel reason is not unambiguous(.*)", r"تکراری است ولی کد دلیل لغو قطعی نیست\1"),
+    (r"another pending request has the same website \((.*)\)", r"درخواست در انتظارِ دیگری با همین سایت هست (\1)"),
+    (r"timed out: the checks took longer than (\d+) s", r"بررسی بیش از \1 ثانیه طول کشید و متوقف شد"),
+    (r"internal error: (.*)", r"خطای داخلی: \1"),
+]
+
+
+def note_fa(note: str) -> str:
+    n = str(note or "")
+    if n.startswith("could not determine: "):
+        what = n[len("could not determine: "):]
+        m = re.match(r"product count \(at least (\d+), sitemap only partly readable\)", what)
+        if m:
+            return f"نامشخص: تعداد محصول (دست‌کم {m.group(1)}؛ نقشه‌ی سایت کامل خوانده نشد)"
+        return "نامشخص: " + _UNKNOWN.get(what, what)
+    if n.startswith("blocked: "):
+        what = n[len("blocked: "):]
+        for pat, rep in _BLOCKERS:
+            if re.fullmatch(pat, what):
+                return "مانع: " + re.sub(pat, rep, what)
+        return "مانع: " + what
+    for pat, rep in _FIXED:
+        if re.fullmatch(pat, n):
+            return re.sub(pat, rep, n)
+    return n
+
+
+def notes_fa(notes) -> str:
+    return " | ".join(note_fa(n) for n in (notes or []))
+
+
+def reasons_fa(codes) -> str:
+    return "، ".join(REASON_FA.get(c, c) for c in (codes or []))
+
+
+CAUSE_FA = {
+    "could not determine: product count": "تعداد محصول نامشخص",
+    "blocked: redirect to another domain": "انتقال به دامنه‌ی دیگر",
+    "blocked: social-media page": "صفحه‌ی شبکه‌ی اجتماعی",
+    "internal error": "خطای داخلی",
+    "another pending request for the same website": "درخواست دیگر با همین سایت",
+}
+
+
+def cause_fa(key: str) -> str:
+    return CAUSE_FA.get(key) or note_fa(key)

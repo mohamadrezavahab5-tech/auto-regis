@@ -1,4 +1,4 @@
-from autoreview.duplicates import find_duplicates
+from autoreview.duplicates import find_duplicates, pending_siblings, site_key
 
 
 def test_duplicate_by_site_ignores_itself():
@@ -7,14 +7,23 @@ def test_duplicate_by_site_ignores_itself():
     crm = [{"id": "MRG-7", "site": "http://a.ir"}]
     r = {x["id"]: x for x in find_duplicates(pending, nbo, crm)}
     assert r["SMR-1"]["is_duplicate"] and r["SMR-1"]["related"] == ["SMR-9", "MRG-7"]
-    assert not r["SMR-2"]["is_duplicate"]      # only matches itself
-    assert not r["SMR-3"]["is_duplicate"]      # no site -> never a duplicate
+    assert r["SMR-1"]["in_nbo"] and r["SMR-1"]["in_crm"]
+    assert not r["SMR-2"]["is_duplicate"] and not r["SMR-2"]["in_nbo"]      # only matches itself
+    assert not r["SMR-3"]["is_duplicate"]                                    # no site -> never a duplicate
 
 
-def test_shared_platform_pages_are_never_duplicates():
-    from autoreview.duplicates import find_duplicates
+def test_shared_platform_pages_and_junk_values_are_never_duplicate_keys():
     res = find_duplicates([{"id": "P", "site": "https://instagram.com/shop_b"}], [{"id": "A", "site": "instagram.com/shop_a"}], [])
     assert res[0]["is_duplicate"] is False
+    for junk in ("0", "-", "ندارد", "www", "http://", "shop", "123"):
+        assert site_key(junk) is None, junk
+    assert site_key("https://m.instagram.com/x") is None
+    assert site_key("Shop.ir") == "shop.ir"
+
+
+def test_two_pending_requests_for_one_site_are_flagged():
+    sib = pending_siblings([{"id": "A", "site": "x.ir"}, {"id": "B", "site": "https://www.x.ir/"}, {"id": "C", "site": "y.ir"}])
+    assert sib == {"A": ["B"], "B": ["A"]}
 
 
 def test_status_labels_compare_without_spacing():

@@ -1,15 +1,12 @@
 """Command line: python -m autoreview <command>. Read-only towards NBO/CRM/Sheets - it only reads exports and writes its own db."""
 import argparse
-import json
 import sys
 from pathlib import Path
 
-from . import backlog, duplicates, imports, store
+from . import backlog, duplicates, imports, settings, store
+from .paths import data_dir
 
-from .paths import app_root, config_dir
-
-ROOT = app_root()
-RULES = json.loads((config_dir() / "rules.json").read_text(encoding="utf-8"))
+RULES = settings.load_rules()
 
 
 def cmd_import(a):
@@ -52,14 +49,14 @@ def cmd_backlog(a):
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="autoreview")
-    p.add_argument("--db", default=str(ROOT / "data" / "autoreview.db"))
+    p.add_argument("--db", default=str(data_dir() / "autoreview.db"))
     sub = p.add_subparsers(dest="cmd", required=True)
     i = sub.add_parser("import", help="load an NBO or CRM export (replaces that source)")
     i.add_argument("source", choices=["nbo", "crm"]); i.add_argument("file"); i.set_defaults(fn=cmd_import)
     d = sub.add_parser("dupes", help="duplicate check of a pending export against the approved sets (no action taken)")
     d.add_argument("pending"); d.set_defaults(fn=cmd_dupes)
     b = sub.add_parser("backlog", help="today\x27s PENDING backlog from an NBO export, newest first, split into batch files")
-    b.add_argument("file"); b.add_argument("--out", default=str(ROOT / "data" / "batches")); b.add_argument("--batch-size", type=int)
+    b.add_argument("file"); b.add_argument("--out", default=str(data_dir() / "batches")); b.add_argument("--batch-size", type=int)
     b.add_argument("--with-commercial-in-progress", action="store_true"); b.set_defaults(fn=cmd_backlog)
     a = p.parse_args(argv)
     Path(a.db).parent.mkdir(parents=True, exist_ok=True)

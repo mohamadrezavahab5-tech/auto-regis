@@ -15,6 +15,7 @@ APPROVE, EDIT, CANCEL, MANUAL = "APPROVE", "EDIT", "CANCEL", "MANUAL"
 
 @dataclass
 class Facts:
+    blocker: Optional[str] = None                  # a reason the site cannot be judged at all (social page, bot wall, ...) => MANUAL
     is_online: Optional[bool] = None
     website_reachable: Optional[bool] = None       # None = check failed (timeout, error)
     site_active: Optional[bool] = None
@@ -28,6 +29,7 @@ class Facts:
     category_group: str = "normal"                 # normal | services | education | gold | special
     category_name: Optional[str] = None            # NBO "Category (fa)"; a per-category minimum overrides the group default
     product_count: Optional[int] = None
+    product_count_complete: bool = True            # False: some product sitemap was unreadable - the count is only a lower bound
     has_sitemap: Optional[bool] = None
     has_contact: Optional[bool] = None
     can_add_to_cart: Optional[bool] = None
@@ -66,6 +68,9 @@ def evaluate(facts: Facts, rules: dict, reasons: dict) -> Decision:
     if facts.is_online is not True:
         return unknown("is_online")
     d.trace.append("PASS is_online")
+    if facts.blocker:
+        d.trace.append(f"BLOCKED {facts.blocker}")
+        return _manual(d, f"blocked: {facts.blocker}")
 
     # 1. reachability
     if facts.website_reachable is None:
@@ -125,20 +130,29 @@ def evaluate(facts: Facts, rules: dict, reasons: dict) -> Decision:
         return unknown("agreement")
     if facts.agreement_ok is False:
         return _manual(d, "agreement check failed - rule and reason not defined yet")
+
+    # 6. products (threshold depends on the category group). Checked before the cart: the cart is tried on a product page
+    #    taken from the product sitemap, so without a sitemap there is nothing to try.
+    limits = rules["min_products"]
+    per_cat = limits.get("by_category_fa", {}).get("values", {})
+    limit = per_cat.get(facts.category_name) if facts.category_name in per_cat else limits.get(facts.category_group, limits["default"])["value"]
+    if facts.has_sitemap is False:
+        if rules.get("sitemap_missing_action", {}).get("value", "EDIT") != "EDIT":
+            return _manual(d, "no sitemap found - sitemap_missing_action is MANUAL")
+        return fail(EDIT, "SITEMAP_MISSING")
+    if facts.product_count is None:
+        return unknown("product count")
+    if facts.product_count < limit:
+        if not facts.product_count_complete:                     # a lower bound can prove "enough", never "too few"
+            return unknown(f"product count (at least {facts.product_count}, sitemap only partly readable)")
+        return fail(EDIT, "TOO_FEW_PRODUCTS")
+    d.trace.append(f"PASS products {facts.product_count} >= {limit}")
+
     if facts.can_add_to_cart is None:
         return unknown("add to cart")
     if facts.can_add_to_cart is False:
         return fail(EDIT, "CANNOT_ADD_TO_CART")
-
-    # 6. products (threshold depends on the category group)
-    limits = rules["min_products"]
-    per_cat = limits.get("by_category_fa", {}).get("values", {})
-    limit = per_cat.get(facts.category_name) if facts.category_name in per_cat else limits.get(facts.category_group, limits["default"])["value"]
-    if facts.product_count is None:
-        return unknown("product count")
-    if facts.product_count < limit:
-        return fail(EDIT, "SITEMAP_MISSING" if facts.has_sitemap is False else "TOO_FEW_PRODUCTS")
-    d.trace.append(f"PASS products {facts.product_count} >= {limit}")
+    d.trace.append("PASS add to cart")
 
     # 7. contact
     if facts.has_contact is None:

@@ -65,7 +65,7 @@ class CrmLoginDialog(QDialog):
         self.user, self.pw = QLineEdit(), QLineEdit()
         self.pw.setEchoMode(QLineEdit.Password)
         form = QFormLayout(self)
-        form.addRow(QLabel("این مشخصات فقط روی همین کامپیوتر و با رمزنگاری ویندوز ذخیره می‌شود.\nاپ فقط از CRM می‌خواند و چیزی در آن نمی‌نویسد."))
+        form.addRow(QLabel("این مشخصات فقط روی همین کامپیوتر و با رمزنگاری ویندوز ذخیره می‌شود.\nاپ فقط از CRM می‌خواند و چیزی در آن نمی‌نویسد.\nفقط نام کاربری را بنویس؛ «SNAPP\\» خودکار اضافه می‌شود."))
         form.addRow("نام کاربری", self.user)
         form.addRow("رمز عبور", self.pw)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -329,9 +329,17 @@ class MainWindow(QMainWindow):
         if d.exec() == QDialog.Accepted and d.user.text() and d.pw.text():
             try:
                 crm_sync.save_credentials(d.user.text().strip(), d.pw.text())
-                self.crm_label.setText("CRM: ورود ذخیره شد")
             except Exception as e:
-                QMessageBox.critical(self, "خطا", str(e))
+                QMessageBox.critical(self, "خطا", str(e)); return
+            self.crm_label.setText("CRM: در حال بررسی ورود…")
+
+            def check():
+                try:
+                    crm_sync.whoami()
+                    self.bridge.crm_done.emit("CRM: ورود تایید شد ✓ — حالا «دریافت خودکار از CRM» را بزن", True)
+                except Exception as e:
+                    self.bridge.crm_done.emit(f"CRM: {e}", False)
+            threading.Thread(target=check, daemon=True).start()
 
     def fetch_crm(self):
         if not crm_sync.have_credentials():

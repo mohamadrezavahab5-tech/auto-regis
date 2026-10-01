@@ -7,5 +7,22 @@
     "site": "new_urlsite"
   },
   "status_labels_are_formatted_values": true,
-  "filter": "new_merchantstatus eq 100000005 or new_merchantstatus eq 100000001 or new_merchantstatus eq 100000003"
+  "filter": "new_merchantstatus eq 100000005 or new_merchantstatus eq 100000001 or new_merchantstatus eq 100000003",
+  "status_labels": [
+    "لغو درخواست",
+    "درخواست تایید شده است",
+    "ثبت نام اولیه",
+    "در انتظار اطلاعات طرف قرارداد",
+    "بررسی استعلام",
+    "پیشنویس قرارداد",
+    "در دست بررسی تیم فروش",
+    "ثبت نام انجام شده",
+    "بررسی اولیه تیم فروش",
+    "درحال فعال سازی فنی",
+    "توقف فعال سازی فنی",
+    "اتمام فعال سازی فنی",
+    "لغو فعال سازی فنی",
+    "نقص مدارک"
+  ],
+  "_status_labels_note": "All labels of the CRM picklist new_merchantstatus (read from CRM metadata 2026-10-01)."
 }
