@@ -1,0 +1,24 @@
+"""Every page of the main window. Each page has a title, a subtitle and on_show() (called whenever it is opened)."""
+
+
+def build_pages(session, shell):
+    from .connections import ConnectionsPage
+    from .crm import CrmPage
+    from .dashboard import DashboardPage
+    from .logs import LogsPage
+    from .nbo import NboPage
+    from .results import ResultsPage
+    from .review import ReviewPage
+    from .search import SearchPage
+    from .settings_page import SettingsPage
+    return {
+        "dashboard": DashboardPage(session, shell),
+        "review": ReviewPage(session, shell),
+        "results": ResultsPage(session, shell),
+        "search": SearchPage(session, shell),
+        "nbo": NboPage(session, shell),
+        "crm": CrmPage(session, shell),
+        "connections": ConnectionsPage(session, shell),
+        "logs": LogsPage(session, shell),
+        "settings": SettingsPage(session, shell),
+    }

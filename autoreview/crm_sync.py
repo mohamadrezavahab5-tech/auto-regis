@@ -225,7 +225,7 @@ def check(runner=None, reachable=None) -> list:
         steps.append(("ورود به CRM", False, "وارد نشده‌ای"))
         return steps
     try:
-        who = whoami(runner)
+        whoami(runner)
         steps.append(("ورود به CRM پذیرفته شد", True, stored_username() or ""))
     except Exception as e:
         steps.append(("ورود به CRM پذیرفته شد", False, str(e)))

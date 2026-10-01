@@ -3,6 +3,7 @@
 Palette: a deep petrol rail and a cool green-grey canvas (SnappPay is a fintech brand in the green family); decision colours
 are fixed app-wide - approve green, edit amber, cancel red, manual indigo - and appear identically in tiles, chips, charts
 and the Excel/Sheet output."""
+from PySide6.QtCore import QLocale
 from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -133,6 +134,7 @@ QLabel#pill {{ border-radius: 10px; padding: 2px 10px; font-size: 12px; }}
 
 
 def apply(app: QApplication) -> None:
+    QLocale.setDefault(QLocale(QLocale.Language.Persian, QLocale.Country.Iran))      # number boxes show ۱۵۰, not 150
     app.setStyle("Fusion")
     pal = QPalette()
     pal.setColor(QPalette.ColorRole.Window, QColor(C["canvas"]))
