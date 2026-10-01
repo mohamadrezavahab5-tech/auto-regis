@@ -69,3 +69,31 @@ def test_crm_reference_fetch_maps_fields_and_filters_by_modified_time():
     assert rows[0] == {"caseid": "MRG-1", "status": "درخواست تایید شده است", "site": "a.ir", "brand": "الف", "person_company": "حقیقی",
                        "store_type": "آنلاین", "created_on": "2026-01-01T00:00:00Z", "modified_on": "2026-09-30T10:00:00Z"}
     assert "modifiedon%20gt%202026-09-30T00%3A00%3A00Z" in seen[0]
+
+
+def test_identity_is_stored_only_as_a_fingerprint_and_links_related_requests():
+    from autoreview import store
+    db = store.connect()
+    reference.ensure(db)
+    base = dict(status="PENDING", has_online="true", has_instore="false", created_at="1405/07/09")
+    reference.import_nbo(db, [
+        dict(base, smr="SMR-1", site="a.ir", owner_national_id="0012345678", iban="IR12 0170 0000 0000 0000 0001"),
+        dict(base, smr="SMR-2", site="b.ir", status="COMMERCIAL_APPROVED", owner_national_id="۰۰۱۲۳۴۵۶۷۸", iban="IR990170000000000000000002"),
+        dict(base, smr="SMR-3", site="c.ir", owner_national_id="9999999999", iban="ir12-0170-0000-0000-0000-0001"),
+    ], "test")
+    dump = "\n".join(str(r) for r in db.execute("SELECT * FROM ref_nbo"))
+    assert "0012345678" not in dump and "IR12" not in dump and "0170" not in dump
+    rel = reference.related(db, "SMR-1")
+    assert [r[0] for r in rel["same_owner"]] == ["SMR-2"]                 # Persian digits = same national ID
+    assert [r[0] for r in rel["same_iban"]] == ["SMR-3"] and rel["iban_other_owner"]
+    assert reference.related(db, "SMR-404") == {"same_owner": [], "same_iban": [], "iban_other_owner": False}
+
+
+def test_an_old_database_gets_the_new_columns():
+    from autoreview import store
+    db = store.connect()
+    db.executescript("CREATE TABLE ref_nbo (smr TEXT PRIMARY KEY, status TEXT, site TEXT, site_key TEXT, category TEXT, ownership TEXT, "
+                     "has_online TEXT, has_instore TEXT, account_holder TEXT, owner_name TEXT, owner_family TEXT, created_at TEXT, "
+                     "brand_fa TEXT, edit_reason TEXT, cancel_reason TEXT)")
+    reference.ensure(db)
+    assert {"owner_key", "iban_key"} <= {r[1] for r in db.execute("PRAGMA table_info(ref_nbo)")}

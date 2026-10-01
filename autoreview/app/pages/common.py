@@ -49,3 +49,27 @@ class ScrollPage(QWidget):
 
 
 __all__ = ["ACTION_FA", "ACTION_COLORS", "C", "NBO_STATUS_FA", "STATE_COLORS", "ScrollPage", "nbo_status_fa", "state_items"]
+
+
+def related_card(rel):
+    """'Same owner / same bank account' for one request (reference.related), or None when it has no siblings."""
+    import html
+    from ..widgets import Card, label, ltr, num
+    if not rel or not (rel["same_owner"] or rel["same_iban"]):
+        return None
+    card = Card(soft=True)
+    card.lay.addWidget(label("درخواست‌های مرتبط", "h3"))
+
+    def lines(title, items):
+        if not items:
+            return
+        card.lay.addWidget(label(f"{title}: {num(len(items))}", "muted"))
+        for smr, status, site in items:
+            card.lay.addWidget(label(f"• {ltr(smr)} — {nbo_status_fa(status)} — {ltr(html.escape(site or ''))}", "caption", wrap=True,
+                                     selectable=True))
+    lines("همین صاحب (کد ملی)", rel["same_owner"])
+    lines("همین حساب بانکی (شبا)", rel["same_iban"])
+    if rel.get("iban_other_owner"):
+        card.lay.addWidget(label(f"<span style='color:{theme.C['danger']}'>این شبا در درخواست صاحب دیگری هم آمده؛ دقیق‌تر بررسی شود.</span>",
+                                 wrap=True))
+    return card

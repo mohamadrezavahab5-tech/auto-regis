@@ -19,7 +19,8 @@ from .normalize import normalize_text
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ref_nbo (
   smr TEXT PRIMARY KEY, status TEXT, site TEXT, site_key TEXT, category TEXT, ownership TEXT, has_online TEXT, has_instore TEXT,
-  account_holder TEXT, owner_name TEXT, owner_family TEXT, created_at TEXT, brand_fa TEXT, edit_reason TEXT, cancel_reason TEXT
+  account_holder TEXT, owner_name TEXT, owner_family TEXT, created_at TEXT, brand_fa TEXT, edit_reason TEXT, cancel_reason TEXT,
+  owner_key TEXT, iban_key TEXT
 );
 CREATE INDEX IF NOT EXISTS ref_nbo_site ON ref_nbo (site_key);
 CREATE TABLE IF NOT EXISTS ref_crm (
@@ -30,7 +31,11 @@ CREATE INDEX IF NOT EXISTS ref_crm_site ON ref_crm (site_key);
 CREATE TABLE IF NOT EXISTS ref_meta (source TEXT PRIMARY KEY, loaded_at TEXT, origin TEXT, rows INTEGER, watermark TEXT);
 """
 NBO_FIELDS = ("smr", "status", "site", "site_key", "category", "ownership", "has_online", "has_instore", "account_holder", "owner_name",
-              "owner_family", "created_at", "brand_fa", "edit_reason", "cancel_reason")
+              "owner_family", "created_at", "brand_fa", "edit_reason", "cancel_reason", "owner_key", "iban_key")
+# Identity fingerprints: the owner's national ID and the IBAN are NEVER stored - only a keyed hash, enough to say "same owner /
+# same bank account as request X" and useless for anything else.
+_FP_SALT = b"AutoReview/identity-fingerprint/v1"
+_LATIN = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 CRM_FIELDS = ("caseid", "status", "site", "site_key", "brand", "person_company", "store_type", "created_on", "modified_on")
 STALE_HOURS = 12
 
@@ -41,6 +46,21 @@ def now_iso():
 
 def ensure(db):
     db.executescript(SCHEMA)
+    have = {r[1] for r in db.execute("PRAGMA table_info(ref_nbo)")}
+    for col in ("owner_key", "iban_key"):                       # databases from before 2026-10-02
+        if col not in have:
+            db.execute(f"ALTER TABLE ref_nbo ADD COLUMN {col} TEXT")
+    db.execute("CREATE INDEX IF NOT EXISTS ref_nbo_owner ON ref_nbo (owner_key)")
+    db.execute("CREATE INDEX IF NOT EXISTS ref_nbo_iban ON ref_nbo (iban_key)")
+    db.commit()
+
+
+def fingerprint(value) -> str:
+    """'۰۰۱۲۳۴۵۶۷۸' / 'IR12 0170 ...' -> a stable 24-hex fingerprint ('' when empty)."""
+    import hashlib
+    import hmac
+    s = "".join(ch for ch in str(value or "").translate(_LATIN).upper() if ch.isalnum())
+    return hmac.new(_FP_SALT, s.encode(), hashlib.sha256).hexdigest()[:24] if s else ""
 
 
 def _set_meta(db, source, origin, rows, watermark=None):
@@ -64,7 +84,15 @@ def is_stale(m, hours=STALE_HOURS) -> bool:
 def import_nbo(db, rows, origin):
     """A full NBO export REPLACES the NBO reference (same as the old 'clear + rewrite' of the NBO tab)."""
     ensure(db)
-    data = [tuple(site_key(r.get("site")) if f == "site_key" else (r.get(f) or "") for f in NBO_FIELDS) for r in rows]
+    def value(r, f):
+        if f == "site_key":
+            return site_key(r.get("site"))
+        if f == "owner_key":
+            return fingerprint(r.get("owner_national_id"))
+        if f == "iban_key":
+            return fingerprint(r.get("iban"))
+        return r.get(f) or ""
+    data = [tuple(value(r, f) for f in NBO_FIELDS) for r in rows]
     with db:
         db.execute("DELETE FROM ref_nbo")
         db.executemany(f"INSERT OR REPLACE INTO ref_nbo ({', '.join(NBO_FIELDS)}) VALUES ({', '.join('?' * len(NBO_FIELDS))})", data)
@@ -171,3 +199,21 @@ def both_channel_rows(db, rules, include_optional=None):
     statuses = set(cfg["statuses"]) | (set(cfg.get("optional_statuses", [])) if opt else set())
     return [r for r in all_nbo_rows(db) if r["status"] in statuses and str(r["has_online"]).lower() == "true"
             and str(r["has_instore"]).lower() == "true"]
+
+
+def related(db, smr, limit=8):
+    """Other requests of the same owner (national ID) or paid to the same bank account (IBAN), from the NBO reference.
+    -> {'same_owner': [(smr, status, site)], 'same_iban': [...], 'iban_other_owner': bool}"""
+    me = db.execute("SELECT owner_key, iban_key FROM ref_nbo WHERE smr = ?", (smr,)).fetchone()
+    if not me:
+        return {"same_owner": [], "same_iban": [], "iban_other_owner": False}
+    owner, iban = me
+
+    def others(col, key):
+        if not key:
+            return []
+        return db.execute(f"SELECT smr, status, site, owner_key FROM ref_nbo WHERE {col} = ? AND smr != ? ORDER BY created_at DESC LIMIT ?",
+                          (key, smr, limit)).fetchall()
+    same_owner, same_iban = others("owner_key", owner), others("iban_key", iban)
+    return {"same_owner": [r[:3] for r in same_owner], "same_iban": [r[:3] for r in same_iban],
+            "iban_other_owner": any(r[3] and owner and r[3] != owner for r in same_iban)}

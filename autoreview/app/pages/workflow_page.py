@@ -9,12 +9,13 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogBut
                                QHeaderView, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter,
                                QTableView, QVBoxLayout, QWidget)
 
-from ... import execution, jalali, sheets, workflow, workspace
+from ... import execution, jalali, reference, sheets, workflow, workspace
 from ...texts import ACTION_FA, reasons_fa
 from .. import theme
 from ..session import run_bg
 from ..theme import C
 from ..widgets import Card, EmptyState, Pill, SearchBox, button, label, ltr, num, toast
+from .common import related_card
 
 COLS = ("کد درخواست", "مسیر", "وب‌سایت", "نظر Online", "نظر Instore", "وضعیت", "آخرین تغییر")
 # two rows: what is still open, then what is finished (next to the search box)
@@ -262,6 +263,11 @@ class WorkflowPage(QWidget):
         if not rows:
             return
         self.current = self.proxy.data(rows[0], Qt.ItemDataRole.UserRole)
+        db = self.session.db()
+        try:
+            self._rel = reference.related(db, self.current["smr"])
+        finally:
+            db.close()
         self.detail.setWidget(self._detail(self.current))
 
     def _detail(self, r):
@@ -284,6 +290,9 @@ class WorkflowPage(QWidget):
                                  (f" • {html.escape(r.get('category') or '')}" if r.get("category") else ""), "caption", wrap=True))
         head.lay.addWidget(label(self._next_step(r, st), "h3", wrap=True))
         v.addWidget(head)
+        rel = related_card(getattr(self, "_rel", None))
+        if rel:
+            v.addWidget(rel)
 
         for team, title in (("online", "تیم Online"), ("instore", "تیم Instore")):
             if team == "instore" and r["channel"] != "both":

@@ -21,7 +21,9 @@
       "brand_fa": "Brand Name (fa)",
       "instagram": "Instagram URL",
       "online_term": "Online Payment Term",
-      "infra": "Website Infra"
+      "infra": "Website Infra",
+      "owner_national_id": "Owner National Id",
+      "iban": "IBAN"
     }
   }
 }

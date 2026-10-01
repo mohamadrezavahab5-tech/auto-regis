@@ -19,6 +19,7 @@ from ..session import run_bg
 from ..theme import C
 from ..web import Page
 from ..widgets import Card, EmptyState, Pill, button, label, ltr, num, toast
+from .common import related_card
 from .results import evidence_card
 
 QUEUES = (("manual", "دستی و اختلاف", ("MANUAL", "CONFLICT"), "online"),
@@ -153,6 +154,7 @@ class TriagePage(QWidget):
         db = self.session.db()
         try:
             res = store.latest_result(db, c["smr"])
+            self.rel = reference.related(db, c["smr"])
         finally:
             db.close()
         self.info.setWidget(self._info(c, res))
@@ -209,6 +211,9 @@ class TriagePage(QWidget):
                 why.lay.addWidget(label(f"نظر {title}: {ACTION_FA.get(verdict['action'], verdict['action'])} — "
                                         f"{html.escape(verdict.get('actor') or '')}", "caption", wrap=True))
         v.addWidget(why)
+        rel = related_card(getattr(self, "rel", None))
+        if rel:
+            v.addWidget(rel)
         if res and res.get("evidence"):
             v.addWidget(evidence_card(res["evidence"]))
         v.addStretch(1)

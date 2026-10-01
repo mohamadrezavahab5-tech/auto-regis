@@ -8,11 +8,12 @@ from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QMessageBox, QPushButton,
                                QScrollArea, QSizePolicy, QSplitter, QTableView, QVBoxLayout, QWidget)
 
-from ... import export, jalali, sheets, store
+from ... import export, jalali, reference, sheets, store
 from ...texts import ACTION_FA, notes_fa, reasons_fa
 from .. import theme
 from ..theme import C
 from ..widgets import Card, EmptyState, SearchBox, action_pill, button, label, ltr, num, toast
+from .common import related_card
 
 COLS = ("کد درخواست", "وب‌سایت", "دسته‌بندی", "تصمیم", "دلیل", "توضیح")
 
@@ -220,6 +221,7 @@ class ResultsPage(QWidget):
             d = store.result_detail(db, self.run_id, r["smr"])
             hist = store.history(db, r["smr"])
             done = r["smr"] in store.manual_done_set(db)
+            self._rel = reference.related(db, r["smr"])
         finally:
             db.close()
         self.detail.setWidget(self._detail_widget(d, hist, done))
@@ -261,6 +263,9 @@ class ResultsPage(QWidget):
             b_done.clicked.connect(lambda: self._toggle_done(d["smr"], not done))
             head.lay.addWidget(b_done)
         v.addWidget(head)
+        rel = related_card(getattr(self, "_rel", None))
+        if rel:
+            v.addWidget(rel)
 
         ev = d.get("evidence") or {}
         v.addWidget(self._evidence_card(ev))
