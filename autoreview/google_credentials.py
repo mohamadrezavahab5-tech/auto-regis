@@ -66,3 +66,28 @@ def load():
 
 def available():
     return key_path().is_file()
+
+
+def find_key_file(folders=None):
+    """The service-account key the owner downloaded (Downloads / Desktop) -> (path, client_email) or None. Only files that
+    really are Google service-account keys count; the newest wins."""
+    home = Path.home()
+    folders = folders or [home / 'Downloads', home / 'Desktop']
+    found = []
+    for folder in folders:
+        try:
+            files = list(Path(folder).glob('*.json'))
+        except OSError:
+            continue
+        for f in files:
+            try:
+                if f.stat().st_size > 20_000:
+                    continue
+                info = validate(json.loads(f.read_text(encoding='utf-8-sig')))
+            except (OSError, ValueError, AttributeError):
+                continue
+            found.append((f.stat().st_mtime, str(f), info['client_email']))
+    if not found:
+        return None
+    _, path, email = max(found)
+    return path, email

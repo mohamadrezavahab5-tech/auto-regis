@@ -10,7 +10,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QProgressDialog,
                                QPushButton, QStackedWidget, QStatusBar, QSystemTrayIcon, QVBoxLayout, QWidget)
 
-from .. import crm_sync, jalali, reference, settings, sheets, updates
+from .. import crm_sync, google_credentials, jalali, reference, settings, sheets, updates, workspace
 from ..version import __version__
 from . import icons
 from .session import run_bg
@@ -84,7 +84,37 @@ class Shell(QMainWindow):
         self._updates.timeout.connect(self.check_update)
         self._updates.start(6 * 3600 * 1000)
         QTimer.singleShot(20_000, self.check_update)
+        QTimer.singleShot(2500, self._offer_google_key)
         self.go("dashboard")
+
+    def _offer_google_key(self):
+        """Owner's PC, sheet not connected yet: the key file he downloaded from Google Cloud is found in Downloads and connected
+        after one 'yes'. The key is never part of the installer: shipped to colleagues it would let anyone write to his sheet."""
+        try:
+            is_owner = workspace.username(self.session.profile.get("username")) == workspace.ADMIN
+        except ValueError:
+            is_owner = False
+        cfg = sheets.load()
+        if not is_owner or (cfg.get("auth_mode") == "service_account" and google_credentials.available()):
+            return
+        found = google_credentials.find_key_file()
+        if not found:
+            return
+        path, email = found
+        if QMessageBox.question(self, "اتصال به شیت", f"فایل کلید گوگل پیدا شد ({Path(path).name}، {email}).\n"
+                                "با همین به شیت خودت وصل شوم؟ کلید رمزگذاری‌شده روی همین ویندوز ذخیره می‌شود.") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            google_credentials.import_file(path)
+        except Exception:
+            QMessageBox.warning(self, "اتصال به شیت", "فایل کلید وارد نشد؛ از «اتصال‌ها» دوباره امتحان کن.")
+            return
+        cfg = sheets.load()
+        cfg.update(auth_mode="service_account", service_account_email=email)
+        sheets.save(cfg)
+        self.go("connections")
+        self.pages["connections"].test_direct()
 
     # ---- rail
     def _rail(self):

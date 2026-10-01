@@ -168,3 +168,14 @@ def test_releases_are_published_once_and_read_back():
         c.publish_release('1.2.0','https://drive.google.com/file/d/'+'a'*30+'/view','f'*64,'notes','owner')
         with pytest.raises(gs.GoogleSheetError): c.publish_release('1.2.0','https://x','f'*64,'','owner')
         assert c.releases()[0]['version']=='1.2.0'
+
+
+def test_only_real_service_account_keys_are_found(tmp_path):
+    from autoreview import google_credentials as gc
+    (tmp_path / 'other.json').write_text('{"type": "authorized_user"}', encoding='utf-8')
+    (tmp_path / 'broken.json').write_text('{', encoding='utf-8')
+    assert gc.find_key_file([tmp_path]) is None
+    key = dict(type='service_account', private_key='-----BEGIN PRIVATE KEY-----x', client_email='a@b.iam.gserviceaccount.com',
+               token_uri='https://oauth2.googleapis.com/token')
+    (tmp_path / 'k.json').write_text(json.dumps(key), encoding='utf-8')
+    assert gc.find_key_file([tmp_path]) == (str(tmp_path / 'k.json'), 'a@b.iam.gserviceaccount.com')
