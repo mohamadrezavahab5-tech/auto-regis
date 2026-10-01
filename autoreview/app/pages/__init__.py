@@ -12,6 +12,7 @@ def build_pages(session, shell):
     from .search import SearchPage
     from .settings_page import SettingsPage
     from .workflow_page import WorkflowPage
+    from .insights_pages import AccuracyPage, ControlRoomPage
     from .users import UsersPage
     from .execution_page import ExecutionPage
     return {
@@ -19,6 +20,8 @@ def build_pages(session, shell):
         "review": ReviewPage(session, shell),
         "results": ResultsPage(session, shell),
         "workflow": WorkflowPage(session, shell),
+        "control": ControlRoomPage(session, shell),
+        "accuracy": AccuracyPage(session, shell),
         "users": UsersPage(session, shell),
         "execution": ExecutionPage(session, shell),
         "search": SearchPage(session, shell),

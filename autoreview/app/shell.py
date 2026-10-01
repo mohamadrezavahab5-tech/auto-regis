@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QProgressDialog,
-                               QPushButton, QStackedWidget, QStatusBar, QSystemTrayIcon, QVBoxLayout, QWidget)
+                               QPushButton, QScrollArea, QStackedWidget, QStatusBar, QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from .. import crm_sync, google_credentials, jalali, reference, settings, sheets, updates
 from ..version import __version__
@@ -19,7 +19,8 @@ from .web import NboClient, PageRenderer
 from .widgets import Pill, label, toast
 
 NAV = [
-    ("کار", [("dashboard", "داشبورد", "dashboard"), ("review", "بررسی", "review"), ("results", "نتایج", "results"),
+    ("کار", [("dashboard", "داشبورد", "dashboard"), ("control", "اتاق کنترل", "clock"), ("accuracy", "دقت موتور", "check"),
+             ("review", "بررسی", "review"), ("results", "نتایج", "results"),
              ("workflow", "گردش کار", "list-check"), ("execution", "کنترل اجرا", "shield"),
              ("search", "جستجو در مرجع", "search")]),
     ("سامانه‌ها", [("nbo", "NBO", "nbo"), ("crm", "CRM", "crm")]),
@@ -135,6 +136,13 @@ class Shell(QMainWindow):
         self.buttons = {}
         group = QButtonGroup(self)
         group.setExclusive(True)
+        # the menu scrolls when the window is short, so the account box at the bottom is never pushed out of sight
+        nav_holder = QWidget()
+        nav_holder.setObjectName("railNav")
+        nav_holder.setStyleSheet("QWidget#railNav { background: transparent; }")
+        outer, v = v, QVBoxLayout(nav_holder)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(4)
         for section, items in NAV:
             v.addWidget(label(section, "railSection"))
             for key, text, ic in items:
@@ -150,6 +158,16 @@ class Shell(QMainWindow):
                 v.addWidget(b)
                 self.buttons[key] = b
         v.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidget(nav_holder)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }"
+                             f"QScrollBar:vertical {{ width: 6px; background: transparent; margin: 0; }}"
+                             f"QScrollBar::handle:vertical {{ background: {C['rail_active']}; border-radius: 3px; min-height: 24px; }}")
+        outer.addWidget(scroll, 1)
+        v = outer
         foot = QFrame()
         foot.setObjectName("railFoot")
         f = QVBoxLayout(foot)

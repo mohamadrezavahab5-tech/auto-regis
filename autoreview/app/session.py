@@ -213,6 +213,28 @@ class Session(QObject):
         self._watch(run_id)
         return run_id
 
+    def autopilot_run(self):
+        """Autopilot (owner 2026-10-02): review the requests nobody reviewed yet, one batch at a time, whenever fresh NBO data
+        arrives; the next batch starts when one finishes. -> what happened, for the status line."""
+        rules = self.rules()
+        if not rules.get("automation", {}).get("autopilot", True):
+            return "off"
+        if self.runner and self.runner.is_active():
+            return "busy"
+        db = self.db()
+        try:
+            have_crm = reference.meta(db, "crm") is not None
+        finally:
+            db.close()
+        if not have_crm:
+            return "no_crm"                              # duplicates need BOTH approved sets; never review half-blind
+        rows = (self.queue_rows("online") + self.queue_rows("both"))[: rules["backlog"]["batch_size"]]
+        if not rows:
+            return 0
+        self.start_run(rows, "auto", label="خلبان خودکار")
+        log.info("autopilot started a batch of %d new requests", len(rows))
+        return len(rows)
+
     def _watch(self, run_id):
         runner = self.runner
 
@@ -223,6 +245,8 @@ class Session(QObject):
         run_bg(wait, self._finished)
 
     def _finished(self, run_id):
+        if self.run_kind == "auto" and self.runner and self.runner.progress.state == "finished":
+            QTimer.singleShot(5000, self.autopilot_run)          # next batch, until nothing new is left
         self.refresh_workflow(run_id)
         self.data_changed.emit()
         self.run_finished.emit(run_id)

@@ -57,8 +57,14 @@ class AutomaticSources(QObject):
         def finish(error=None):
             self.nbo_active = False; self.next_nbo = time.monotonic() + (120 if error else nbo_wait)
             s._busy('nbo',False)
-            self.update('NBO: ورود/OTP یا اتصال نیاز به بررسی دارد' if error else 'NBO خودکار به‌روز شد')
-            if not error: s.sync_workflow()
+            if error:
+                self.update('NBO: ورود/OTP یا اتصال نیاز به بررسی دارد')
+                return
+            s.sync_workflow()
+            started = s.autopilot_run()
+            self.update({"off": "NBO خودکار به‌روز شد (خلبان خودکار خاموش است)", "busy": "NBO به‌روز شد؛ یک بررسی در جریان است",
+                         "no_crm": "NBO به‌روز شد؛ خلبان خودکار منتظر داده‌ی CRM است", 0: "NBO به‌روز شد؛ درخواست جدیدی نبود"}.get(
+                started, f"NBO به‌روز شد؛ خلبان خودکار {started} درخواست جدید را بررسی می‌کند"))
         def exported(data, error):
             if error: finish(error); return
             s.import_nbo_bytes(data, lambda _n: finish(), lambda _e: finish('import'))

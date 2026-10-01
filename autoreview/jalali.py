@@ -24,6 +24,51 @@ def g2j(gy: int, gm: int, gd: int):
     return jy, 7 + (days - 186) // 30, 1 + (days - 186) % 30
 
 
+def j2g(jy: int, jm: int, jd: int):
+    """Jalali -> Gregorian (the inverse of g2j; same arithmetic as the widely used jalaali algorithm)."""
+    jy += 1595
+    days = -355668 + 365 * jy + (jy // 33) * 8 + ((jy % 33) + 3) // 4 + jd + ((jm - 1) * 31 if jm < 7 else (jm - 7) * 30 + 186)
+    gy = 400 * (days // 146097)
+    days %= 146097
+    if days > 36524:
+        days -= 1
+        gy += 100 * (days // 36524)
+        days %= 36524
+        if days >= 365:
+            days += 1
+    gy += 4 * (days // 1461)
+    days %= 1461
+    if days > 365:
+        gy += (days - 1) // 365
+        days = (days - 1) % 365
+    gd = days + 1
+    leap = (gy % 4 == 0 and gy % 100 != 0) or gy % 400 == 0
+    for gm, length in enumerate((31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31), 1):
+        if gd <= length:
+            return gy, gm, gd
+        gd -= length
+    return gy, 12, 31
+
+
+_LATIN = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+
+def parse_jdate(text):
+    """'۱۴۰۵/۰۷/۰۹' or '1405-7-9' -> datetime.date, or None when it is not a Jalali date."""
+    import re
+    from datetime import date
+    m = re.match(r"^\s*(\d{4})\D+(\d{1,2})\D+(\d{1,2})", str(text or "").translate(_LATIN))
+    if not m:
+        return None
+    jy, jm, jd = (int(x) for x in m.groups())
+    if not (1 <= jm <= 12 and 1 <= jd <= 31):
+        return None
+    try:
+        return date(*j2g(jy, jm, jd))
+    except ValueError:
+        return None
+
+
 def fa_digits(value) -> str:
     return str(value).translate(_FA_DIGITS)
 

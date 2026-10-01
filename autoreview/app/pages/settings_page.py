@@ -207,6 +207,13 @@ class SettingsPage(ScrollPage):
             r6.addSpacing(16)
         r6.addStretch(1)
         wf.lay.addLayout(r6)
+        r9 = QHBoxLayout()
+        self.s_autopilot = Switch()
+        self.s_autopilot.setChecked(self._cur("automation.autopilot") is not False)
+        r9.addWidget(self.s_autopilot)
+        r9.addWidget(label("خلبان خودکار: بعد از هر دریافت NBO، درخواست‌های جدید خودشان بررسی شوند", "muted"))
+        r9.addStretch(1)
+        wf.lay.addLayout(r9)
         r7 = QHBoxLayout()
         self.s_tray = Switch()
         self.s_tray.setChecked(self._cur("automation.keep_in_tray") is not False)
@@ -298,7 +305,7 @@ class SettingsPage(ScrollPage):
             "runtime.http_timeout_seconds": self.timeout.value(), "runtime.request_deadline_seconds": self.deadline.value(),
             "workflow.engine_verdict_counts": self.s_engine.isChecked(),
             "automation.nbo_minutes": self.nbo_every.value(), "automation.crm_minutes": self.crm_every.value(),
-            "automation.keep_in_tray": self.s_tray.isChecked(),
+            "automation.keep_in_tray": self.s_tray.isChecked(), "automation.autopilot": self.s_autopilot.isChecked(),
         }
         return {"rules": rules, "category_map": {"mismatch_allowed": self.s_mismatch.isChecked()}}
 
