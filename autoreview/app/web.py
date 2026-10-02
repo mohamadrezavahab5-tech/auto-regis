@@ -28,8 +28,10 @@ CRM_BASE = "http://crm.snapppay.ir/CRM-SnappPay-DB/"
 CRM_REGISTRATIONS = CRM_BASE + "main.aspx?etn=new_merchantregistration&pagetype=entitylist"
 EXPORT_PATH = "/api/chandler/api/v1/backoffice/registrations/export"
 LIST_PATH = "/api/chandler/api/v1/backoffice/registrations"
+# The statuses NBO's own export contains (live export 2026-09-30). 'DRAFT' is not a filter NBO's export accepts: asking for
+# it made the whole export answer HTTP 400 (seen live 2026-10-02).
 ALL_NBO_STATUSES = ("PENDING", "COMMERCIAL_IN_PROGRESS", "COMMERCIAL_APPROVED", "ACTIVATING", "COMPLETED", "REQUIRED_EDITING",
-                    "CANCELLED", "PENDING_ACTIVATION", "DRAFT")
+                    "CANCELLED", "PENDING_ACTIVATION")
 
 LOGGED_IN_JS = "(function(){try{var t=localStorage.getItem('token');return !!t && t!=='null';}catch(e){return false;}})()"
 

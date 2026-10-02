@@ -152,6 +152,24 @@ class Session(QObject):
         self._busy("nbo", True)
         return run_bg(work, lambda n: self._after("nbo", on_done, n), lambda e: self._failed("nbo", on_fail, e))
 
+    def import_nbo_parts(self, parts, on_done=None, on_fail=None):
+        """Several NBO exports (one per status) -> ONE reference, replaced atomically like a single full export."""
+        def work(progress):
+            rows = []
+            for i, data in enumerate(parts):
+                target = exports_dir() / f"nbo_export_{datetime.now():%Y%m%d_%H%M%S}_{i}.xlsx"
+                target.write_bytes(data)
+                rows += imports.read_export(target, "nbo")
+            db = self.db()
+            try:
+                n = reference.import_nbo(db, rows, "auto (per status)")
+            finally:
+                db.close()
+            log.info("NBO reference loaded from %d per-status exports: %d rows", len(parts), n)
+            return n
+        self._busy("nbo", True)
+        return run_bg(work, lambda n: self._after("nbo", on_done, n), lambda e: self._failed("nbo", on_fail, e))
+
     def refresh_crm(self, full=False, on_done=None, on_fail=None, on_progress=None):
         def work(progress):
             db = self.db()
