@@ -2,9 +2,9 @@
 
 Charts are painted directly (not QtCharts): Persian right-to-left labels, the app's fonts and colours, and short grow-in
 animations that replay only when the numbers change."""
-from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation
+from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QAbstractButton, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+from PySide6.QtWidgets import (QAbstractButton, QApplication, QLayout, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                                QSizePolicy, QVBoxLayout, QWidget)
 
 from ..jalali import fa_digits
@@ -255,15 +255,73 @@ class SegmentBar(_Animated):
         p.end()
 
 
+class FlowLayout(QLayout):
+    """Items in rows that wrap when the width runs out, right to left in an RTL window. A plain row never wraps: its
+    minimum width is the sum of its items, which pushed whole pages wider than the window (dashboard legends, live
+    2026-10-02 - cards cut off at the window edge)."""
+
+    def __init__(self, parent=None, spacing=16, line_spacing=8):
+        super().__init__(parent)
+        self._items, self._h, self._v = [], spacing, line_spacing
+        self.setContentsMargins(0, 0, 0, 0)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, i):
+        return self._items[i] if 0 <= i < len(self._items) else None
+
+    def takeAt(self, i):
+        return self._items.pop(i) if 0 <= i < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._place(QRect(0, 0, width, 0), apply=False)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._place(rect, apply=True)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        return size
+
+    def _place(self, rect, apply):
+        owner = self.parentWidget()
+        rtl = (owner.layoutDirection() if owner else QApplication.layoutDirection()) == Qt.LayoutDirection.RightToLeft
+        x, y, line = rect.x(), rect.y(), 0
+        for item in self._items:
+            hint = item.sizeHint()
+            if x > rect.x() and x + hint.width() > rect.right() + 1:
+                x, y, line = rect.x(), y + line + self._v, 0
+            if apply:
+                left = rect.right() + 1 - (x - rect.x()) - hint.width() if rtl else x
+                item.setGeometry(QRect(QPoint(left, y), hint))
+            x += hint.width() + self._h
+            line = max(line, hint.height())
+        return y + line - rect.y()
+
+
 class Legend(QWidget):
     """Colour dot + label + count chips that wrap onto the next line when narrow."""
 
     def __init__(self, parent=None, show_counts=True):
         super().__init__(parent)
         self.show_counts = show_counts
-        self.lay = QHBoxLayout(self)
-        self.lay.setContentsMargins(0, 0, 0, 0)
-        self.lay.setSpacing(16)
+        self.lay = FlowLayout(self)
 
     def set_items(self, items):                             # [(label, count, color)]
         while self.lay.count():
@@ -283,7 +341,7 @@ class Legend(QWidget):
             if self.show_counts:
                 h.addWidget(label(num(count), "h3"))
             self.lay.addWidget(box)
-        self.lay.addStretch(1)
+        self.updateGeometry()
 
 
 class Ring(_Animated):

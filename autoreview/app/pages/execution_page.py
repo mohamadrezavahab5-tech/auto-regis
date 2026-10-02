@@ -181,7 +181,7 @@ class ExecutionPage(ScrollPage):
         self.b_rehearse_all.setEnabled(not busy and bool(todo))
         self.b_stop_all.setEnabled(busy)
         self.batch_line.setText(self.control.batch_text() or ("" if not live else "در حال اعمال، یکی‌یکی…"))
-        self.readiness.setText("دستی: هر کس با حساب NBO خودش، روی یک درخواست. خودکار: فقط مدیر، با سوییچ بالا. "
+        self.readiness.setText("یکی‌یکی: درخواست را از فهرست پایین انتخاب کن و «اعمال در NBO». همه با هم: «اعمال همه» در بالا (فقط مدیر). "
                                "اپ همان مراحل اسکریپت قدیمی را در صفحه‌ی NBO می‌زند (Assign to me ← Change Status ← گزینه ← دلیل)، "
                                "ولی دکمه‌ی غیرفعال را به‌زور نمی‌زند، دلیل را دقیقاً از فهرست خود NBO انتخاب می‌کند و اگر صفحه مال همان "
                                "درخواست نباشد کاری نمی‌کند.")
