@@ -99,6 +99,9 @@ class ExecutionControl(QObject):
         if not rehearsal:
             db = self.session.db()
             try:
+                now_status = db.execute("SELECT status FROM ref_nbo WHERE smr = ?", (case['smr'],)).fetchone()
+                if not now_status or now_status[0] not in ('PENDING', 'COMMERCIAL_IN_PROGRESS'):
+                    raise ValueError('در آخرین داده‌ی NBO این درخواست دیگر در انتظار نیست؛ کاری انجام نشد')
                 problem = execution.eligibility(case)
                 if problem:
                     raise ValueError(problem)

@@ -158,7 +158,8 @@
     "crm_minutes": 5,
     "keep_in_tray": true,
     "_note": "How often the open app refreshes NBO (full export) and CRM (changes only) by itself, with the person's own sessions. autopilot: after each automatic NBO refresh, review every request nobody reviewed yet (batch after batch).",
-    "autopilot": true
+    "autopilot": true,
+    "nbo_full_hours": 6
   },
   "execution": {
     "auto_actions": [
