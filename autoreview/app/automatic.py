@@ -3,8 +3,10 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from .. import crm_sync, settings, sheets
+from .. import crm_sync, logs, settings, sheets
 from .web import ALL_NBO_STATUSES
+
+log = logs.get("auto")
 
 
 class AutomaticSources(QObject):
@@ -65,9 +67,21 @@ class AutomaticSources(QObject):
             self.update({"off": "NBO خودکار به‌روز شد (خلبان خودکار خاموش است)", "busy": "NBO به‌روز شد؛ یک بررسی در جریان است",
                          "no_crm": "NBO به‌روز شد؛ خلبان خودکار منتظر داده‌ی CRM است", 0: "NBO به‌روز شد؛ درخواست جدیدی نبود"}.get(
                 started, f"NBO به‌روز شد؛ خلبان خودکار {started} درخواست جدید را بررسی می‌کند"))
+        started_at = time.monotonic()
+        log.info("automatic NBO export started (statuses: all)")
+
         def exported(data, error):
-            if error: finish(error); return
-            s.import_nbo_bytes(data, lambda _n: finish(), lambda _e: finish('import'))
+            took = time.monotonic() - started_at
+            if error:
+                log.warning("automatic NBO export failed after %.0fs: %s", took, error)
+                finish(error)
+                return
+            log.info("automatic NBO export received %d KB in %.0fs", len(data) // 1024, took)
+
+            def import_failed(e):
+                log.warning("automatic NBO export could not be imported: %s", e)
+                finish('import')
+            s.import_nbo_bytes(data, lambda _n: finish(), import_failed)
         self.client.export(ALL_NBO_STATUSES, exported)
 
     def stop(self):
