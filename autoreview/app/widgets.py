@@ -2,12 +2,31 @@
 
 Charts are painted directly (not QtCharts): Persian right-to-left labels, the app's fonts and colours, and short grow-in
 animations that replay only when the numbers change."""
-from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation
+from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QAbstractButton, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                                QSizePolicy, QVBoxLayout, QWidget)
 
 from ..jalali import fa_digits
+
+
+class WheelGuard(QObject):
+    """App-wide: a number box or a list box changes its value with the mouse wheel only after it was clicked; otherwise
+    the wheel scrolls the page (live 2026-10-02: scrolling Settings turned the 'services' minimum from 10 to 0 without
+    anyone touching it - one click on Save would have kept it)."""
+    def eventFilter(self, obj, event):
+        from PySide6.QtWidgets import QAbstractScrollArea, QAbstractSpinBox, QApplication, QComboBox
+        kind = event.type()
+        if kind == QEvent.Type.Polish and isinstance(obj, (QAbstractSpinBox, QComboBox)):
+            obj.setFocusPolicy(Qt.FocusPolicy.StrongFocus)        # the wheel itself never gives them focus
+        elif kind == QEvent.Type.Wheel and isinstance(obj, (QAbstractSpinBox, QComboBox)) and not obj.hasFocus():
+            area = obj.parentWidget()
+            while area is not None and not isinstance(area, QAbstractScrollArea):
+                area = area.parentWidget()
+            if area is not None:
+                QApplication.sendEvent(area.verticalScrollBar(), event)   # scroll the page instead
+            return True
+        return False
 from . import icons, theme
 from .theme import C
 

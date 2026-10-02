@@ -176,6 +176,9 @@ def main():
     app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
     app.setWindowIcon(icons.app_icon())
     theme.apply(app)
+    from .widgets import WheelGuard
+    app._wheel_guard = WheelGuard(app)                  # kept alive with the app
+    app.installEventFilter(app._wheel_guard)
 
     # one instance per Windows user
     key = f"{APP_ID}-{getpass.getuser()}"

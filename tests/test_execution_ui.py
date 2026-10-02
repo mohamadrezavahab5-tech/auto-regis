@@ -50,3 +50,26 @@ def test_colleague_cannot_change_execution_mode():
     assert not page.switch.isEnabled()
     control.stop()
     page.close()
+
+
+def test_the_wheel_does_not_change_a_number_box_nobody_clicked():
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtWidgets import QApplication, QScrollArea, QSpinBox, QVBoxLayout, QWidget
+    from autoreview.app.widgets import WheelGuard
+    app = QApplication.instance() or QApplication([])
+    guard = WheelGuard(app)
+    app.installEventFilter(guard)
+    try:
+        from PySide6.QtWidgets import QLineEdit
+        area = QScrollArea(); inner = QWidget(); lay = QVBoxLayout(inner); box = QSpinBox(); box.setValue(10)
+        other = QLineEdit(); lay.addWidget(other); lay.addWidget(box); area.setWidget(inner); area.show()
+        other.setFocus(); app.processEvents()
+        assert not box.hasFocus()                                 # like a settings page: the person is elsewhere
+        ev = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, -120), Qt.MouseButton.NoButton,
+                         Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+        QApplication.sendEvent(box, ev)
+        assert box.value() == 10                                  # not focused: the page scrolls, the value stays
+        assert box.focusPolicy() == Qt.FocusPolicy.StrongFocus
+    finally:
+        app.removeEventFilter(guard)
