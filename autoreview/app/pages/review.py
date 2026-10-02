@@ -55,14 +55,14 @@ class ReviewPage(ScrollPage):
         # ---- queue
         q = Card()
         q.header("صف بررسی", "از جدیدترین درخواست شروع می‌شود؛ بررسی‌شده‌ها دوباره بررسی نمی‌شوند مگر خودت بخواهی")
+        self.q_all = QRadioButton()
         self.q_online = QRadioButton()
         self.q_both = QRadioButton()
-        self.q_online.setChecked(True)
+        self.q_all.setChecked(True)
         grp = QButtonGroup(self)
-        grp.addButton(self.q_online)
-        grp.addButton(self.q_both)
-        q.lay.addWidget(self.q_online)
-        q.lay.addWidget(self.q_both)
+        for rb in (self.q_all, self.q_online, self.q_both):
+            grp.addButton(rb)
+            q.lay.addWidget(rb)
         opts = QHBoxLayout()
         opts.setSpacing(14)
         self.only_new = Switch()
@@ -92,7 +92,7 @@ class ReviewPage(ScrollPage):
             ctl.addWidget(b)
         ctl.addStretch(1)
         q.lay.addLayout(ctl)
-        for w in (self.q_online, self.q_both, self.only_new):
+        for w in (self.q_all, self.q_online, self.q_both, self.only_new):
             w.toggled.connect(lambda *_: self._update_plan())
         self.size.valueChanged.connect(lambda *_: self._update_plan())
         self.body.addWidget(q)
@@ -150,7 +150,8 @@ class ReviewPage(ScrollPage):
                 nbo_ok, crm_ok = reference.approved_sets(db, s.rules())
                 return {"board": s.board(), "nbo_ok": len(nbo_ok), "crm_ok": len(crm_ok),
                         "online": len(s.queue_rows("online", True)), "online_all": len(s.queue_rows("online", False)),
-                        "both": len(s.queue_rows("both", True)), "both_all": len(s.queue_rows("both", False))}
+                        "both": len(s.queue_rows("both", True)), "both_all": len(s.queue_rows("both", False)),
+                        "all": len(s.queue_rows("all", True)), "all_all": len(s.queue_rows("all", False))}
             finally:
                 db.close()
         run_bg(work, self._show)
@@ -176,6 +177,8 @@ class ReviewPage(ScrollPage):
         self.ref_text.setText(f"مرجع تکراری‌ها: تاییدشده‌های NBO {num(d['nbo_ok'])} • تاییدشده‌های CRM {num(d['crm_ok'])}")
         self.q_online.setText(f"Online — بررسی و تصمیم در شیت من   ({num(d['online'])} بررسی‌نشده از {num(d['online_all'])})")
         self.q_both.setText(f"Online + Instore — منتظر نظر هر دو تیم در شیت من   ({num(d['both'])} بررسی‌نشده از {num(d['both_all'])})")
+        self.q_all.setText(f"هر دو با هم — اول Online + Instore (تیم Instore منتظرشان است)، بعد Online   "
+                           f"({num(d['all'])} بررسی‌نشده از {num(d['all_all'])})")
         self._counts = d
         self._update_plan()
 
@@ -183,7 +186,7 @@ class ReviewPage(ScrollPage):
         d = getattr(self, "_counts", None)
         if not d:
             return
-        kind = "online" if self.q_online.isChecked() else "both"
+        kind = "all" if self.q_all.isChecked() else "online" if self.q_online.isChecked() else "both"
         avail = d[kind] if self.only_new.isChecked() else d[kind + "_all"]
         n = min(self.size.value(), avail)
         self.plan.setText(f"این نوبت: {num(n)} درخواست" + ("" if avail else " — چیزی برای بررسی نمانده"))
@@ -248,7 +251,7 @@ class ReviewPage(ScrollPage):
     # ---- running
     def start(self):
         s = self.session
-        kind = "online" if self.q_online.isChecked() else "both"
+        kind = "all" if self.q_all.isChecked() else "online" if self.q_online.isChecked() else "both"
         board = s.board()
         if not board["nbo_meta"] or not board["crm_meta"]:
             QMessageBox.warning(self, "منبع ناقص", "اول هر دو منبع را بارگذاری کن: خروجی NBO و داده‌ی CRM.\n"
@@ -262,7 +265,7 @@ class ReviewPage(ScrollPage):
         if not rows:
             QMessageBox.information(self, "صف خالی", "در این صف درخواستی برای بررسی نمانده است.")
             return
-        label_text = "آنلاین" if kind == "online" else "Online-Instore"
+        label_text = {"all": "Online و Online-Instore", "online": "آنلاین"}.get(kind, "Online-Instore")
         try:
             s.start_run(rows, kind, label=f"{label_text} — {num(len(rows))}")
         except Exception as e:
@@ -335,5 +338,5 @@ class ReviewPage(ScrollPage):
         toast(self.window(), f"بررسی تمام شد: تایید {num(c.get('APPROVE', 0))} • اصلاح {num(c.get('EDIT', 0))} • لغو {num(c.get('CANCEL', 0))} • "
                              f"دستی {num(c.get('MANUAL', 0))}")
         self.on_show()
-        if self.session.run_kind == "both":
+        if self.session.run_kind in ("both", "all"):
             self.shell.go("workflow")                           # the Online verdicts now wait for Instore there

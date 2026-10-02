@@ -15,12 +15,14 @@ class Book:
         self.requests=[]
         self.fail=False
         self.protections=[]
+        self.props={}
 
     def handle(self, req):
         from urllib.parse import unquote
         if req.method=='GET' and '/values/' not in req.url.path:
             return httpx.Response(200,json={'spreadsheetId':'x'*30,'properties':{'title':'test'},
-                'sheets':[{'properties':{'sheetId':self.ids[n],'title':n,'gridProperties':{'rowCount':1000,'columnCount':len(v[0])}},
+                'sheets':[{'properties':{'sheetId':self.ids[n],'title':n,'gridProperties':{'rowCount':1000,'columnCount':len(v[0])},
+                                         **self.props.get(self.ids[n],{})},
                            'protectedRanges':[p for p in self.protections if p['range']['sheetId']==self.ids[n]]} for n,v in self.tabs.items()]})
         if req.method=='GET':
             name=unquote(req.url.path.split('/values/')[1]).split('!')[0].strip("'")
@@ -36,6 +38,9 @@ class Book:
             if 'deleteProtectedRange' in request:
                 gone=request['deleteProtectedRange']['protectedRangeId']
                 self.protections=[p for p in self.protections if p['protectedRangeId']!=gone]
+            props=request.get('updateSheetProperties',{}).get('properties')
+            if props:
+                self.props.setdefault(props['sheetId'],{}).update({k:v for k,v in props.items() if k!='sheetId'})
             add=request.get('addSheet')
             if add:
                 name=add['properties']['title']; self.tabs[name]=[['']*26]; self.ids[name]=max(self.ids.values())+1
@@ -128,7 +133,7 @@ def full_book():
 def test_missing_tabs_are_created_with_dropdowns_and_existing_ones_left_alone():
     b=Book()
     with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
-        assert set(c.ensure_tabs(['دلیل الف']))=={gs.OI_TAB,gs.EXEC_TAB,gs.UPD_TAB}
+        assert set(c.ensure_tabs(['دلیل الف']))=={gs.OI_TAB,gs.EXEC_TAB,gs.UPD_TAB,gs.LEGAL_TAB}
         assert c.ensure_tabs([])==[]
     assert b.tabs[gs.OI_TAB][0][:len(gs.OI_HEAD)]==gs.OI_HEAD
     rules=[r['setDataValidation'] for r in b.requests if 'setDataValidation' in r]
@@ -248,3 +253,40 @@ def test_the_sheet_is_locked_except_the_instore_cells():
         assert c.lock(['online@snapppay.ir']) is False and b.writes==writes  # nothing to change: nothing sent
         assert c.lock(['online@snapppay.ir','new@snapppay.ir']) is True
         assert len([p for p in b.protections if p['description'].startswith('AutoReview')])==len(ours)
+
+
+def test_legal_tab_lists_crm_company_requests_and_never_writes_the_team_columns():
+    b=full_book()
+    rows=[dict(caseid=f'MRG-{i}',status='در دست بررسی تیم فروش',site='a.ir',brand='ب',created_on='2026-10-01',modified_on='m1') for i in range(3)]
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        assert c.write_legal(rows)==3
+        b.tabs[gs.LEGAL_TAB][2][7]='تایید'                       # the Legal checker's verdict
+        assert c.write_legal(rows)==0                           # nothing changed: nothing written
+        rows[1]=dict(rows[1],status='لغو درخواست',modified_on='m2')
+        assert c.write_legal(rows)==1
+        assert c.write_legal(rows+[dict(rows[0],caseid='MRG-9')],limit=1)==1
+    tab=b.tabs[gs.LEGAL_TAB]
+    assert [r[0] for r in tab[1:5]]==['MRG-0','MRG-1','MRG-2','MRG-9']
+    assert tab[2][4]=='لغو درخواست' and tab[2][7]=='تایید'
+
+
+def test_legal_rows_come_from_crm_company_requests_in_the_chosen_statuses():
+    from autoreview import reference
+    db=store.connect(); reference.ensure(db)
+    rows=[dict(caseid='MRG-1',status='در دست بررسی تیم فروش',person_company='حقوقی',created_on='2'),
+          dict(caseid='MRG-2',status='در دست بررسی تیم فروش',person_company='حقیقی',created_on='1'),
+          dict(caseid='MRG-3',status='لغو درخواست',person_company='حقوقی',created_on='3')]
+    reference.upsert_crm(db,[dict(dict.fromkeys(('site','brand','store_type','modified_on'),''),**r) for r in rows],'test',full=True)
+    got=reference.legal_rows(db,{'legal':{'crm_statuses':['در دست بررسی تیم فروش']}})
+    assert [r['caseid'] for r in got]==['MRG-1']
+
+
+def test_people_see_three_tabs_the_rest_is_hidden_not_deleted():
+    b=full_book(); b.tabs['My notes']=[['x']]; b.ids['My notes']=98; b.tabs['Guide']=[['x']]; b.ids['Guide']=97
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        assert c.tidy()>0
+        assert c.tidy()==0                                       # already tidy: nothing sent
+    hidden={n for n,i in b.ids.items() if b.props.get(i,{}).get('hidden')}
+    assert hidden=={'Decisions','Audit','Execution','Updates','Results','Manual queue','Guide'}
+    assert [b.props[b.ids[n]]['index'] for n in (gs.OI_TAB,'Workflow',gs.LEGAL_TAB)]==[0,1,2]
+    assert set(b.tabs)>=hidden                                   # nothing deleted

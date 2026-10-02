@@ -111,11 +111,18 @@ class Session(QObject):
             db.close()
 
     def queue_rows(self, kind, only_unreviewed=True):
-        """Rows for a run: kind 'online' (direct NBO backlog) or 'both' (Online-Instore sheet flow)."""
+        """Rows for a run: kind 'online' (direct NBO backlog), 'both' (Online-Instore sheet flow) or 'all' - both queues
+        together, Online + Instore first: the Instore team cannot start on a request before its Online verdict (owner
+        2026-10-02: 590 of them waited while the autopilot kept taking the Online-only queue first)."""
         db = self.db()
         try:
             rules = self.rules()
-            rows = reference.backlog_rows(db, rules)[0] if kind == "online" else reference.both_channel_rows(db, rules)
+            if kind == "all":
+                both = reference.both_channel_rows(db, rules)
+                seen = {r["smr"] for r in both}
+                rows = both + [r for r in reference.backlog_rows(db, rules)[0] if r["smr"] not in seen]
+            else:
+                rows = reference.backlog_rows(db, rules)[0] if kind == "online" else reference.both_channel_rows(db, rules)
             if only_unreviewed:
                 latest = store.latest_states(db)
                 rows = [r for r in rows if r["smr"] not in latest]
@@ -249,7 +256,7 @@ class Session(QObject):
             db.close()
         if not have_crm:
             return "no_crm"                              # duplicates need BOTH approved sets; never review half-blind
-        rows = (self.queue_rows("online") + self.queue_rows("both"))[: rules["backlog"]["batch_size"]]
+        rows = self.queue_rows("all")[: rules["backlog"]["batch_size"]]
         if not rows:
             return 0
         self.start_run(rows, "auto", label="خلبان خودکار")

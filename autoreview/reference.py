@@ -189,6 +189,19 @@ def search(db, query: str, limit=300):
     return out[:limit]
 
 
+def legal_rows(db, rules):
+    """CRM registrations of legal persons (company contracts) in the CRM statuses rules['legal']['crm_statuses'] - oldest
+    first, so the Legal tab keeps its order as new ones arrive."""
+    cfg = rules.get("legal", {})
+    statuses = list(cfg.get("crm_statuses") or [])
+    if not statuses or not cfg.get("enabled", True):
+        return []
+    marks = ",".join("?" * len(statuses))
+    cur = db.execute(f"SELECT caseid, status, site, brand, created_on, modified_on FROM ref_crm WHERE person_company = ? "
+                     f"AND status IN ({marks}) ORDER BY created_on, caseid", [cfg.get("person_company", "حقوقی"), *statuses])
+    return [dict(zip(("caseid", "status", "site", "brand", "created_on", "modified_on"), r)) for r in cur]
+
+
 def backlog_rows(db, rules, include_optional=None):
     """Today's backlog from the NBO reference: online-only, individual, pending (newest first, the owner's order)."""
     from . import backlog

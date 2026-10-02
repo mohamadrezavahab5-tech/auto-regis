@@ -35,8 +35,14 @@ EXEC_TAB = 'Execution'
 EXEC_HEAD = ['کد درخواست','نسخه پرونده','نتیجه اجرا','زمان','توضیح']
 UPD_TAB = 'Updates'                     # releases the owner publishes; every app updates itself from here (updates.py)
 UPD_HEAD = ['نسخه','لینک دانلود','SHA-256','توضیحات','تاریخ انتشار','منتشرکننده']
+# Legal (company) registrations from CRM (owner 2026-10-02): the app only lists them; a person checks them by hand in
+# columns 7-9, which the app never writes.
+LEGAL_TAB = 'Legal'
+LEGAL_HEAD = ['کد درخواست CRM','تاریخ ایجاد','نام تجاری','وب‌سایت','وضعیت CRM','آخرین تغییر در CRM','اضافه شده در',
+              'نتیجه بررسی Legal','توضیح','بررسی‌کننده']
+LEGAL_APP_COLS = 7
 TABS = {'Workflow': WORKFLOW_HEAD, OI_TAB: OI_HEAD, 'Decisions': COMMAND_HEAD, EXEC_TAB: EXEC_HEAD, 'Audit': EVENT_HEAD,
-        'Results': RESULT_HEAD, 'Manual queue': MANUAL_HEAD, UPD_TAB: UPD_HEAD}
+        'Results': RESULT_HEAD, 'Manual queue': MANUAL_HEAD, UPD_TAB: UPD_HEAD, LEGAL_TAB: LEGAL_HEAD}
 
 
 def col_letter(n):
@@ -252,6 +258,7 @@ class Client:
         if last is None or time.monotonic() - last > 1800:
             created = self.ensure_tabs(reason_labels)
             self.lock(editors)
+            self.tidy()
             _CHECKED[self.sheet_id] = time.monotonic()
             return created
         return []
@@ -312,6 +319,30 @@ class Client:
                     (sid, {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 1, 'startColumnIndex': first, 'endColumnIndex': last})]
         return out
 
+    # Owner 2026-10-02: "are all these tabs needed? user friendly - Online works only in the app, the sheet is the record".
+    # People see three tabs; the app's bookkeeping tabs (and the old template's) are hidden, never deleted - their data
+    # stays, and they can be shown again from the sheet's tab list.
+    VISIBLE = (OI_TAB, 'Workflow', LEGAL_TAB)
+    HIDDEN = frozenset(TABS) - set(VISIBLE) | {'Daily summary', 'Reasons', 'Guide'}
+
+    def tidy(self):
+        """The people's tabs first and visible, the bookkeeping tabs hidden. -> number of tabs changed."""
+        props = {s['properties']['title']: s['properties'] for s in self.metadata()['sheets']}
+        req = []
+        for index, title in enumerate(t for t in self.VISIBLE if t in props):
+            p = props[title]
+            if p.get('hidden') or p.get('index') != index:
+                req.append({'updateSheetProperties': {'properties': {'sheetId': p['sheetId'], 'hidden': False, 'index': index},
+                                                      'fields': 'hidden,index'}})
+        for title in self.HIDDEN & set(props):
+            if not props[title].get('hidden'):
+                req.append({'updateSheetProperties': {'properties': {'sheetId': props[title]['sheetId'], 'hidden': True},
+                                                      'fields': 'hidden'}})
+        if req:
+            self.request('POST', ':batchUpdate', json={'requests': req})
+            self.meta = None
+        return len(req)
+
     def lock(self, editors=()):
         """Owner 2026-10-02: about 20 Instore colleagues work in this sheet; they may only fill their own columns of
         Online + Instore, everything else is locked. Real protections (not warnings) that only the sheet's owner, the app's
@@ -370,6 +401,28 @@ class Client:
             req.append(self.update(OI_TAB, i + 1, right, 12))
         self.batch(req)
         return len(req) // 2
+
+    # ---- Legal tab --------------------------------------------------------------------------------------------------------
+    def write_legal(self, rows, limit=500):
+        """rows: reference.legal_rows(). New requests are added at the bottom, known ones get their CRM status / change time
+        refreshed; the Legal team's columns are never written, no row is ever removed. At most `limit` rows per call (the
+        first upload of a few thousand finishes over a few rounds). -> rows written."""
+        current = self.read(LEGAL_TAB, LEGAL_HEAD)
+        where = {str(r[0]).strip(): i for i, r in enumerate(current) if str(r[0]).strip()}
+        req, end, stamp = [], len(current), now()
+        for row in rows:
+            if len(req) >= limit:
+                break
+            values = [row['caseid'], row['created_on'], row['brand'], row['site'], row['status'], row['modified_on']]
+            i = where.get(row['caseid'])
+            if i is None:
+                i, end = end, end + 1
+                where[row['caseid']] = i
+                req.append(self.update(LEGAL_TAB, i + 1, values + [stamp]))
+            elif [str(v) for v in current[i][:6]] != [str(v) for v in values]:
+                req.append(self.update(LEGAL_TAB, i + 1, values))
+        self.batch(req)
+        return len(req)
 
     # ---- NBO execution receipts -----------------------------------------------------------------------------------------
     def upsert_execution(self, records):

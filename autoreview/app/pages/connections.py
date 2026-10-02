@@ -318,6 +318,7 @@ class ConnectionsPage(ScrollPage):
                 info = google.ping()
                 created = google.ensure_tabs(list(labels['edit'].values()) + list(labels['cancel'].values()))
                 google.lock(cfg.get('sheet_editors') or ())
+                google.tidy()
             return info, created
 
         def ok(res):

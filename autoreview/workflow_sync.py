@@ -60,6 +60,8 @@ def sync_direct(db, google):
     if receipts:
         google.ack(receipts)
     google.upsert_execution(execution.records(db, limit=500))
+    from . import reference, settings
+    google.write_legal(reference.legal_rows(db, settings.load_rules()))
     return {'remaining': workflow.pending_count(db), 'commands': len(receipts),
             'rejected': sum(r['status'] == 'rejected' for r in receipts)}
 

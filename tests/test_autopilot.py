@@ -33,7 +33,7 @@ def test_autopilot_waits_for_crm_then_reviews_only_new_requests(monkeypatch):
     finally:
         db.close()
     assert s.autopilot_run() == 2
-    assert started == [("auto", ["SMR-1", "SMR-2"])]
+    assert started == [("auto", ["SMR-2", "SMR-1"])]           # Online + Instore first: the Instore team waits for it
 
 
 def test_autopilot_switch_off(monkeypatch):

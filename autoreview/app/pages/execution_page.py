@@ -93,11 +93,7 @@ class ExecutionPage(ScrollPage):
         ledger.lay.addWidget(self.table)
         self.body.addWidget(ledger)
 
-        crm = Card(soft=True)
-        crm.header("تأیید در CRM — مرحله‌ی بعد", "فیلد new_merchantstatus = 100000005 «درخواست تایید شده است»")
-        crm.lay.addWidget(label("فیلد و مقدار ثبت شده؛ اجرای خودکار CRM خاموش است تا دسترسی تأیید CRM بگیری و مسیر رسمی‌اش "
-                                "بررسی شود. تأیید NBO به معنی تأیید CRM نیست.", "muted", wrap=True))
-        self.body.addWidget(crm)
+        # no CRM approval card: CRM is only read (export); its legal requests go to the sheet's Legal tab (owner 2026-10-02)
         self.body.addStretch(1)
         self.control.changed.connect(self._render_if_visible)
 

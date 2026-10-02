@@ -154,12 +154,12 @@
     "_note": "Owner 2026-10-01: an engine APPROVE/EDIT/CANCEL counts as the Online team's verdict (Online only: approve; Online + Instore: wait for Instore). MANUAL always waits for a person; a person can replace any verdict. false = a person confirms every case."
   },
   "automation": {
-    "nbo_minutes": 15,
+    "nbo_minutes": 10,
     "crm_minutes": 5,
     "keep_in_tray": true,
     "_note": "How often the open app refreshes NBO (full export) and CRM (changes only) by itself, with the person's own sessions. autopilot: after each automatic NBO refresh, review every request nobody reviewed yet (batch after batch).",
     "autopilot": true,
-    "nbo_full_hours": 6
+    "nbo_full_hours": 3
   },
   "execution": {
     "auto_actions": [
@@ -170,5 +170,13 @@
   "appearance": {
     "theme": "light",
     "_note": "light | dark - the whole app; applied when the app starts."
+  },
+  "legal": {
+    "enabled": true,
+    "person_company": "حقوقی",
+    "crm_statuses": [
+      "در دست بررسی تیم فروش"
+    ],
+    "_note": "Owner 2026-10-02: CRM requests of legal persons go to the Legal tab of the owner's sheet; a person checks them by hand. Which CRM statuses count as 'to be checked' is the owner's call - change the list here."
   }
 }
