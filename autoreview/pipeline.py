@@ -148,7 +148,10 @@ class Runner:
     def _clients(self, timeout, limits):
         if self.client_factory:
             return self.client_factory(), self.client_factory()
-        return (httpx.AsyncClient(timeout=timeout, limits=limits, headers=sitec.HEADERS),
+        # Merchant sites: certificate errors are not checked, like the old engine's browser (ignore_https_errors) -
+        # only the 'https' rule in facts decides about https. Enamad keeps full verification.
+        old_https = self.rules.get("checks", {}).get("https", {}).get("mode", "action_test_4") == "action_test_4"
+        return (httpx.AsyncClient(timeout=timeout, limits=limits, headers=sitec.HEADERS, verify=not old_https),
                 httpx.AsyncClient(timeout=timeout, limits=httpx.Limits(max_connections=4)))
 
     async def _run(self, rows, approved_nbo, approved_crm, pending_all, run_id, source_file, label):

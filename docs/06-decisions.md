@@ -44,3 +44,10 @@
     final click. Automatic: live mode, owner only, never survives a restart, approvals only unless edit/cancel are switched
     on, one at a time, stops at the first problem and after the very first real change. Unlike the old code it never
     force-clicks a disabled button, never picks a "similar" reason and never acts on a page that is not this request.
+14. 2026-10-02 owner: "https as in the old code". Action Test 4 had has_ssl(href): the website link on NBO's detail page
+    starts with https://. NBO links a scheme-less address as https (the old engine approved 'ajdadilight.com' and 12 more
+    in action-test4.xlsx), so: typed http:// = EDIT 'URL wrong'; no scheme = https; certificate errors are not checked
+    (its browser ignored them); only the address as linked is opened (no fallback to http). rules.json checks.https.mode
+    = served brings back "the site must end up on https". Same day: product lists served as sitemap.xml?path=products /
+    ?section=products are now read (such shops were all 'product count unknown'); names that the strict comparison
+    cannot tell apart are decided by Action Test 4's names_match, its "same" only.

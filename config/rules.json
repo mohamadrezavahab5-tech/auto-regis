@@ -120,7 +120,9 @@
       "enabled": false
     },
     "https": {
-      "enabled": true
+      "enabled": true,
+      "mode": "action_test_4",
+      "_mode_note": "action_test_4 (owner 2026-10-02, as the old code): the address registered in NBO decides - typed http:// = EDIT 'URL wrong', no scheme = https; certificate errors are not checked; no fallback to http. served: the site must end up on https after redirects."
     }
   },
   "runtime": {

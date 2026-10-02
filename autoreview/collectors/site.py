@@ -10,7 +10,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import parse_qsl, unquote, urljoin, urlparse
 
 import httpx
 
@@ -104,14 +104,15 @@ def origin_of(url: str) -> str:
     return f"{u.scheme}://{u.netloc}"
 
 
-async def fetch_home(site: str, fetch: Fetch):
-    """-> (home Fetched, tried [(url, error)]). A scheme-less address is tried as https first, then as http when the
-    https connection itself fails (no TLS on the server, broken certificate)."""
+async def fetch_home(site: str, fetch: Fetch, http_fallback: bool = True):
+    """-> (home Fetched, tried [(url, error)]). A scheme-less address is tried as https first; with http_fallback also as
+    http when the https connection itself fails (no TLS on the server, broken certificate). Action Test 4 opened only
+    the address as NBO links it (scheme-less = https) - no fallback."""
     s = str(site or "").strip()
     first = base_url(s)
     home = await fetch(first)
     tried = [(first, home.error)]
-    if not home.ok and not has_scheme(s) and home.error in ("connect", "ssl"):
+    if http_fallback and not home.ok and not has_scheme(s) and home.error in ("connect", "ssl"):
         alt = "http://" + s
         h2 = await fetch(alt)
         tried.append((alt, h2.error))
@@ -195,16 +196,25 @@ async def has_contact(home: Fetched, fetch: Fetch) -> Optional[bool]:
 
 # ---- sitemap / product count -------------------------------------------------------------------------------------------
 _LOC = re.compile(r"<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*</loc>", re.I)
-_NOT_PRODUCT = re.compile(r"products?[_-]?(?:cat|tag|brand|categor|attribute|attr|type|feed|variation|collection)", re.I)
+_NOT_PRODUCT = re.compile(r"products?[_/-]?(?:cat|tag|brand|categor|attribute|attr|type|feed|variation|collection)", re.I)
 _PRODUCT_FILE = re.compile(r"(?:^|[/_.\-])(?:products?|محصول(?:ات)?)(?=$|[/_.\-\d])", re.I)
 _PRODUCT_PAGE = re.compile(r"/(?:products?|محصول|product-page)/[^/?#]+", re.I)
 STANDARD_SITEMAPS = ("/sitemap_index.xml", "/sitemap.xml", "/wp-sitemap.xml", "/product-sitemap.xml", "/sitemap-index.xml")
 
 
 def is_product_sitemap(url: str) -> bool:
-    """By the PATH of the sitemap file only (a shop domain like 'insoshop.ir' says nothing about its sitemaps)."""
-    path = unquote(urlparse(url).path).lower()
-    return not _NOT_PRODUCT.search(path) and bool(_PRODUCT_FILE.search(path))
+    """By the path of the sitemap file, or by its query - several Iranian shop platforms serve the product list as
+    'sitemap.xml?path=products' or 'sitemap.xml?section=products&page=2' (live 2026-10-02: such shops were all 'product
+    count unknown'). The domain says nothing ('insoshop.ir'), and 'products/brands', 'product_cat' ... are not products."""
+    parts = urlparse(url)
+    path = unquote(parts.path).lower()
+    if not _NOT_PRODUCT.search(path) and _PRODUCT_FILE.search(path):
+        return True
+    for _key, value in parse_qsl(parts.query):
+        value = value.lower().strip()
+        if value and not _NOT_PRODUCT.search(value) and _PRODUCT_FILE.search("/" + value):
+            return True
+    return False
 
 
 def sitemap_locs(xml: str) -> list:

@@ -213,3 +213,14 @@ def test_export_has_three_tabs_and_never_writes_formulas(tmp_path):
     assert wb.sheetnames[:3] == ["نتایج", "صف دستی", "خلاصه"] and wb["صف دستی"].max_row == 2
     cell = wb["نتایج"]["B2"]
     assert cell.data_type == "s" and cell.value.startswith("=HYPERLINK")              # stored as text, not as a formula
+
+
+def test_https_as_the_old_code_the_address_registered_in_nbo_decides(isolated_profile):
+    r = Runner(isolated_profile / "t.db", reasons=copy.deepcopy(load_reasons()), client_factory=factory())
+    rows = [row("A", "http://shop.ir"), row("B", "shop2.ir"), row("C", "https://shop3.ir")]
+    r.start(rows, approved_nbo=NBO_OK, approved_crm=CRM_OK, run_id="t9")
+    r.join(60)
+    got = results(isolated_profile, "t9")
+    assert got["A"]["action"] == "EDIT" and got["A"]["reason_codes"] == ["INVALID_URL"]     # typed http:// = 'URL wrong'
+    assert got["B"]["action"] == "APPROVE", got["B"]["notes"]                               # no scheme = https (NBO links it so)
+    assert got["C"]["action"] == "APPROVE", got["C"]["notes"]

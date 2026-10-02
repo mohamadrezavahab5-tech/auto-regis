@@ -168,3 +168,26 @@ def test_real_fetch_caps_size_and_classifies_errors():
     assert big_f.ok and big_f.truncated and len(big_f.text) == 1000
     assert gone.error == "http_410" and reachable(gone) is False
     assert nohost.error == "dns" and reachable(nohost) is False
+
+
+def test_product_lists_served_by_query_are_product_sitemaps():
+    index = ("<sitemapindex><sitemap><loc>https://s.ir/sitemap.xml?path=products</loc></sitemap>"
+             "<sitemap><loc>https://s.ir/sitemap.xml?path=products%2Fbrands</loc></sitemap>"
+             "<sitemap><loc>https://s.ir/sitemap.xml?path=posts</loc></sitemap></sitemapindex>")
+    products = "<urlset>" + "".join(f"<url><loc>https://s.ir/p/{i}</loc></url>" for i in range(70)) + "</urlset>"
+    brands = "<urlset>" + "".join(f"<url><loc>https://s.ir/brand/{i}</loc></url>" for i in range(9)) + "</urlset>"
+    r = run(count_products("https://s.ir", fake({"https://s.ir/sitemap.xml": index, "https://s.ir/sitemap.xml?path=products": products,
+                                                  "https://s.ir/sitemap.xml?path=products%2Fbrands": brands})))
+    assert r["product_count"] == 70 and r["complete"] is True
+    assert is_product_sitemap("https://s.ir/sitemap.xml?section=products&page=2")
+    assert not is_product_sitemap("https://s.ir/sitemap.xml?path=products%2Fcategories")
+    assert not is_product_sitemap("https://s.ir/sitemap.xml?page=2")
+
+
+def test_old_rule_opens_only_the_address_as_linked_no_http_fallback():
+    pages = {"http://s.ir": f"<html><body>{TEXT}</body></html>"}
+    errors = {"https://s.ir": "connect"}
+    home, tried = run(fetch_home("s.ir", fake(pages, errors), http_fallback=False))
+    assert not home.ok and tried == [("https://s.ir", "connect")]
+    home, _ = run(fetch_home("s.ir", fake(pages, errors)))                          # the 'served' mode still falls back
+    assert home.ok and home.url == "http://s.ir"

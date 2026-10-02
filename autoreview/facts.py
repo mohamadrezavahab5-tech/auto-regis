@@ -135,7 +135,8 @@ async def collect(row: dict, rules: dict, fetch, http, enamad_gate: asyncio.Sema
 
     # Action Test 4 order: the enamad verdict stands even when the site itself does not open.
     enamad_task = asyncio.ensure_future(enamad_part())
-    home, tried = await sitec.fetch_home(website, fetch)
+    old_https = checks.get("https", {}).get("mode", "action_test_4") == "action_test_4"
+    home, tried = await sitec.fetch_home(website, fetch, http_fallback=not old_https)
     ev["home"] = {"ok": home.ok, "status": home.status, "error": home.error, "url": home.url, "tried": tried}
     if home.ok:
         facts.website_reachable = True
@@ -144,7 +145,13 @@ async def collect(row: dict, rules: dict, fetch, http, enamad_gate: asyncio.Sema
     elif home.error in INACTIVE_HTTP:                   # opened with an error page (old engine: 'site inactive' -> CANCEL)
         facts.website_reachable, facts.site_active = True, False
     if facts.website_reachable:
-        facts.ssl_ok = str(home.url).lower().startswith("https://")
+        if old_https:
+            # Action Test 4 (owner 2026-10-02 "https as in the old code"): has_ssl(href) - the address as NBO links it
+            # starts with https:// (NBO links a scheme-less address as https: the old engine approved such requests).
+            # Where the site lands after redirects does not matter; a merchant who typed http:// gets 'URL wrong'.
+            facts.ssl_ok = sitec.base_url(website).lower().startswith("https://")
+        else:
+            facts.ssl_ok = str(home.url).lower().startswith("https://")
 
     stop = facts.website_reachable is not True or facts.site_active is False
     if not stop:
@@ -174,7 +181,7 @@ async def collect(row: dict, rules: dict, fetch, http, enamad_gate: asyncio.Sema
     counts = [(prod["product_count"], prod["complete"], prod["basis"])]
     if api["product_count"] is not None:
         counts.append((api["product_count"], True, api["basis"]))
-    best = max((c for c in counts if c[0] is not None), key=lambda c: c[0], default=(None, True, ""))
+    best = max((c for c in counts if c[0] is not None), key=lambda c: c[0], default=(None, prod["complete"], prod["basis"]))
     facts.product_count, facts.product_count_complete = best[0], best[1]
     prod = dict(prod, samples=list(dict.fromkeys(list(prod.get("samples", [])) + api["samples"])))
     ev["products"] = {"has_sitemap": prod["has_sitemap"], "product_count": best[0], "complete": best[1], "basis": best[2],
