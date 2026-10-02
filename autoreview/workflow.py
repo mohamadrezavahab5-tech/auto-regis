@@ -147,7 +147,7 @@ def _fingerprint(row):
     return hashlib.sha256(json.dumps({k: row.get(k) for k in FIELDS}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def refresh(db, rows, eligible_ids, source_loaded_at=None, approved_statuses=()):
+def refresh(db, rows, eligible_ids, source_loaded_at=None, approved_statuses=(), complete=True):
     """Called with a COMPLETE local NBO reference, never a partial batch.
 
     - unchanged request, new NBO status: verdicts stay; leaving the queue makes it DONE_APPROVED (NBO approved it, by the
@@ -184,7 +184,7 @@ def refresh(db, rows, eligible_ids, source_loaded_at=None, approved_statuses=())
                         revision=old['revision'] if old else 0, source_loaded_at=loaded)
             _save(db, case, 'WORKFLOW_SOURCE_CHANGED' if old else 'WORKFLOW_IMPORTED',
                   detail={'approvals_reset': bool(old)})
-        for old in cases(db):
+        for old in cases(db) if complete else ():     # a partial NBO refresh proves nothing about absent requests
             if old['smr'] not in seen and old['active']:
                 old.update(active=False, outcome=None, online=None, instore=None)
                 _save(db, old, 'WORKFLOW_SOURCE_REMOVED')

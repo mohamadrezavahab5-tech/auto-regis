@@ -97,3 +97,29 @@ def test_an_old_database_gets_the_new_columns():
                      "brand_fa TEXT, edit_reason TEXT, cancel_reason TEXT)")
     reference.ensure(db)
     assert {"owner_key", "iban_key"} <= {r[1] for r in db.execute("PRAGMA table_info(ref_nbo)")}
+
+
+def test_a_partial_nbo_refresh_replaces_only_the_fetched_statuses():
+    from autoreview import store
+    db = store.connect()
+    reference.ensure(db)
+    base = dict(has_online="true", has_instore="false", created_at="1405/07/09")
+    reference.import_nbo(db, [dict(base, smr="SMR-1", status="PENDING", site="a.ir"),
+                              dict(base, smr="SMR-2", status="CANCELLED", site="b.ir")], "full")
+    # this round only PENDING came back: SMR-1 was approved meanwhile (not fetched), SMR-3 is new
+    reference.import_nbo(db, [dict(base, smr="SMR-3", status="PENDING", site="c.ir")], "auto", only_statuses=["PENDING"])
+    rows = {r["smr"]: r["status"] for r in reference.all_nbo_rows(db)}
+    assert rows == {"SMR-2": "CANCELLED", "SMR-3": "PENDING"}
+    assert "(partial)" in reference.meta(db, "nbo")["origin"]
+
+
+def test_a_partial_refresh_never_marks_absent_requests_removed():
+    from autoreview import store, workflow
+    db = store.connect()
+    workflow.ensure(db)
+    row = dict(smr="SMR-1", site="a.ir", status="PENDING", has_online="true", has_instore="false")
+    workflow.refresh(db, [row], {"SMR-1"})
+    workflow.refresh(db, [], set(), complete=False)
+    assert workflow.get(db, "SMR-1")["active"]
+    workflow.refresh(db, [], set())
+    assert workflow.get(db, "SMR-1")["state"] == "OUT_OF_SCOPE"

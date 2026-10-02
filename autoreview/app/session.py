@@ -152,8 +152,9 @@ class Session(QObject):
         self._busy("nbo", True)
         return run_bg(work, lambda n: self._after("nbo", on_done, n), lambda e: self._failed("nbo", on_fail, e))
 
-    def import_nbo_parts(self, parts, on_done=None, on_fail=None):
-        """Several NBO exports (one per status) -> ONE reference, replaced atomically like a single full export."""
+    def import_nbo_parts(self, parts, on_done=None, on_fail=None, only_statuses=None):
+        """Several NBO exports (one per status) -> ONE reference. All statuses fetched: replaced like a full export;
+        some missing: only the fetched statuses are replaced (only_statuses), the rest keep their last rows."""
         def work(progress):
             rows = []
             for i, data in enumerate(parts):
@@ -162,7 +163,7 @@ class Session(QObject):
                 rows += imports.read_export(target, "nbo")
             db = self.db()
             try:
-                n = reference.import_nbo(db, rows, "auto (per status)")
+                n = reference.import_nbo(db, rows, "auto (per status)", only_statuses)
             finally:
                 db.close()
             log.info("NBO reference loaded from %d per-status exports: %d rows", len(parts), n)
@@ -285,7 +286,7 @@ class Session(QObject):
             if meta:
                 eligible = reference.backlog_rows(db, rules)[0] + reference.both_channel_rows(db, rules)
                 workflow.refresh(db, reference.all_nbo_rows(db), {r['smr'] for r in eligible}, meta['loaded_at'],
-                                 rules['approved_statuses']['nbo'])
+                                 rules['approved_statuses']['nbo'], complete="(partial)" not in (meta.get('origin') or ''))
             if run_id:
                 for result in store.results_of(db, run_id):
                     workflow.suggest(db, result['smr'], result, engine_counts)

@@ -81,8 +81,10 @@ def is_stale(m, hours=STALE_HOURS) -> bool:
 
 
 # ---- loading -------------------------------------------------------------------------------------------------------------
-def import_nbo(db, rows, origin):
-    """A full NBO export REPLACES the NBO reference (same as the old 'clear + rewrite' of the NBO tab)."""
+def import_nbo(db, rows, origin, only_statuses=None):
+    """A full NBO export REPLACES the NBO reference (same as the old 'clear + rewrite' of the NBO tab).
+    only_statuses: a partial refresh (some statuses could not be exported this time) - only rows that HAD one of these
+    statuses are replaced; every other row keeps its last known value."""
     ensure(db)
     def value(r, f):
         if f == "site_key":
@@ -94,9 +96,13 @@ def import_nbo(db, rows, origin):
         return r.get(f) or ""
     data = [tuple(value(r, f) for f in NBO_FIELDS) for r in rows]
     with db:
-        db.execute("DELETE FROM ref_nbo")
+        if only_statuses:
+            db.executemany("DELETE FROM ref_nbo WHERE status = ?", [(s,) for s in only_statuses])
+        else:
+            db.execute("DELETE FROM ref_nbo")
         db.executemany(f"INSERT OR REPLACE INTO ref_nbo ({', '.join(NBO_FIELDS)}) VALUES ({', '.join('?' * len(NBO_FIELDS))})", data)
-        _set_meta(db, "nbo", origin, len(data))
+        total = db.execute("SELECT COUNT(*) FROM ref_nbo").fetchone()[0]
+        _set_meta(db, "nbo", origin + (" (partial)" if only_statuses else ""), total)
     return len(data)
 
 

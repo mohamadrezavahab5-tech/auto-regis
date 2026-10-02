@@ -68,43 +68,48 @@ class AutomaticSources(QObject):
                          "no_crm": "NBO به‌روز شد؛ خلبان خودکار منتظر داده‌ی CRM است", 0: "NBO به‌روز شد؛ درخواست جدیدی نبود"}.get(
                 started, f"NBO به‌روز شد؛ خلبان خودکار {started} درخواست جدید را بررسی می‌کند"))
         started_at = time.monotonic()
-        log.info("automatic NBO export started (statuses: all)")
+        # One status at a time (live 2026-10-02: the whole 30,000-row export timed out at NBO's gateway, HTTP 504).
+        # The work queue first, so it is fresh even if a big historical status fails this round.
+        order = ["PENDING", "COMMERCIAL_IN_PROGRESS"] + [x for x in ALL_NBO_STATUSES if x not in ("PENDING", "COMMERCIAL_IN_PROGRESS")]
+        log.info("automatic NBO export started (%d statuses, one at a time)", len(order))
 
-        def exported(data, error):
-            took = time.monotonic() - started_at
-            if error and error.startswith("http_4") and error != "http_401":
-                log.warning("automatic NBO export refused (%s) - trying one status at a time", error)
-                return per_status(list(ALL_NBO_STATUSES), [], [])
-            if error:
-                log.warning("automatic NBO export failed after %.0fs: %s", took, error)
-                finish(error)
-                return
-            log.info("automatic NBO export received %d KB in %.0fs", len(data) // 1024, took)
-
-            def import_failed(e):
-                log.warning("automatic NBO export could not be imported: %s", e)
-                finish('import')
-            s.import_nbo_bytes(data, lambda _n: finish(), import_failed)
-        def per_status(todo, parts, refused):
-            """NBO refused the combined request: export each status alone, skip (and log) any it refuses, merge the rest."""
+        def per_status(todo, parts, done_statuses, refused, retried):
             if not todo:
+                took = time.monotonic() - started_at
                 if refused:
-                    log.warning("NBO refused these statuses: %s", ", ".join(refused))
+                    log.warning("NBO export: no data this round for %s", ", ".join(refused))
                 if not parts:
-                    finish("http_400")
+                    finish("export")
                     return
-                s.import_nbo_parts(parts, lambda _n: finish(), lambda e: (log.warning("per-status import failed: %s", e), finish('import')))
+                partial = None if not refused else done_statuses
+                log.info("automatic NBO export: %d of %d statuses in %.0fs%s", len(done_statuses), len(order), took,
+                         " (others keep their last rows)" if partial else "")
+
+                def import_failed(e):
+                    log.warning("automatic NBO export could not be imported: %s", e)
+                    finish('import')
+                s.import_nbo_parts(parts, lambda _n: finish(), import_failed, only_statuses=partial)
                 return
-            status = todo.pop(0)
+            status = todo[0]
 
             def got(data, error):
+                if error and error in ("http_401", "login"):
+                    log.warning("automatic NBO export: not signed in to NBO")
+                    finish("login")
+                    return
+                if error and status not in retried and (error == "timeout" or error.startswith("http_5")):
+                    retried.add(status)                     # NBO was slow once: one more try for this status
+                    log.info("NBO export of %s: %s, trying once more", status, error)
+                    self.client.export([status], got)
+                    return
                 if error:
                     refused.append(f"{status} ({error})")
                 else:
                     parts.append(data)
-                per_status(todo, parts, refused)
+                    done_statuses.append(status)
+                per_status(todo[1:], parts, done_statuses, refused, retried)
             self.client.export([status], got)
-        self.client.export(ALL_NBO_STATUSES, exported)
+        per_status(order, [], [], [], set())
 
     def stop(self):
         self.enabled = False
