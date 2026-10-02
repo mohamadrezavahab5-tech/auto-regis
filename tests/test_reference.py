@@ -109,7 +109,7 @@ def test_a_partial_nbo_refresh_replaces_only_the_fetched_statuses():
     # this round only PENDING came back: SMR-1 was approved meanwhile (not fetched), SMR-3 is new
     reference.import_nbo(db, [dict(base, smr="SMR-3", status="PENDING", site="c.ir")], "auto", only_statuses=["PENDING"])
     rows = {r["smr"]: r["status"] for r in reference.all_nbo_rows(db)}
-    assert rows == {"SMR-2": "CANCELLED", "SMR-3": "PENDING"}
+    assert rows == {"SMR-1": reference.LEFT_QUEUE, "SMR-2": "CANCELLED", "SMR-3": "PENDING"}   # kept, not deleted
     assert "(partial)" in reference.meta(db, "nbo")["origin"]
 
 
@@ -123,3 +123,22 @@ def test_a_partial_refresh_never_marks_absent_requests_removed():
     assert workflow.get(db, "SMR-1")["active"]
     workflow.refresh(db, [], set())
     assert workflow.get(db, "SMR-1")["state"] == "OUT_OF_SCOPE"
+
+
+def test_a_request_that_left_the_queue_is_kept_until_the_full_export_tells_its_outcome():
+    from autoreview import store, workflow
+    from autoreview.pipeline import sibling_decision
+    db = store.connect(); reference.ensure(db); workflow.ensure(db)
+    row = lambda smr, status, site: dict(smr=smr, status=status, site=site, ownership="INDIVIDUAL", has_online="true",
+                                         has_instore="false", created_at="1405/07/09")
+    reference.import_nbo(db, [row("SMR-1", "PENDING", "a.ir"), row("SMR-2", "COMPLETED", "b.ir")], "full")
+    workflow.refresh(db, reference.all_nbo_rows(db), {"SMR-1"})
+    # SMR-1 was approved in NBO: the queue-only export no longer has it
+    reference.import_nbo(db, [row("SMR-3", "PENDING", "c.ir")], "auto", only_statuses=["PENDING", "COMMERCIAL_IN_PROGRESS"])
+    status = dict(db.execute("SELECT smr, status FROM ref_nbo"))
+    assert status == {"SMR-1": reference.LEFT_QUEUE, "SMR-2": "COMPLETED", "SMR-3": "PENDING"}
+    assert [r["smr"] for r in reference.left_queue_rows(db)] == ["SMR-1"]
+    workflow.refresh(db, reference.all_nbo_rows(db), {"SMR-3"}, complete=False)
+    assert workflow.get(db, "SMR-1")["active"] and workflow.get(db, "SMR-1")["outcome"] is None   # not guessed 'closed'
+    note = sibling_decision(["SMR-1"], {"SMR-1"}).notes[0]
+    assert "just decided" in note

@@ -81,6 +81,13 @@ def is_stale(m, hours=STALE_HOURS) -> bool:
 
 
 # ---- loading -------------------------------------------------------------------------------------------------------------
+# A partial refresh fetches only the work queue (Pending, Commercial in progress). A request that was in it and is not any
+# more was decided in NBO - approved, sent for editing or cancelled - but which one is only known after the next full
+# export. Until then it keeps its row with this status instead of vanishing: deleting it hid a just-approved site from the
+# duplicate check for hours (bug hunt 2026-10-02).
+LEFT_QUEUE = "LEFT_QUEUE"
+
+
 def import_nbo(db, rows, origin, only_statuses=None):
     """A full NBO export REPLACES the NBO reference (same as the old 'clear + rewrite' of the NBO tab).
     only_statuses: a partial refresh (some statuses could not be exported this time) - only rows that HAD one of these
@@ -97,7 +104,7 @@ def import_nbo(db, rows, origin, only_statuses=None):
     data = [tuple(value(r, f) for f in NBO_FIELDS) for r in rows]
     with db:
         if only_statuses:
-            db.executemany("DELETE FROM ref_nbo WHERE status = ?", [(s,) for s in only_statuses])
+            db.executemany("UPDATE ref_nbo SET status = ? WHERE status = ?", [(LEFT_QUEUE, s) for s in only_statuses])
         else:
             db.execute("DELETE FROM ref_nbo")
         db.executemany(f"INSERT OR REPLACE INTO ref_nbo ({', '.join(NBO_FIELDS)}) VALUES ({', '.join('?' * len(NBO_FIELDS))})", data)
@@ -187,6 +194,11 @@ def search(db, query: str, limit=300):
     out += [dict(zip(CRM_FIELDS, r), source="CRM") for r in db.execute(
         f"SELECT {', '.join(CRM_FIELDS)} FROM ref_crm WHERE site LIKE ? OR brand LIKE ? ORDER BY created_on DESC LIMIT ?", (like, like, limit))]
     return out[:limit]
+
+
+def left_queue_rows(db):
+    return [dict(smr=smr, site=site, status=LEFT_QUEUE) for smr, site in
+            db.execute("SELECT smr, site FROM ref_nbo WHERE status = ?", (LEFT_QUEUE,))]
 
 
 def legal_rows(db, rules):

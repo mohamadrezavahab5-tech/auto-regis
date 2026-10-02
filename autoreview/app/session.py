@@ -228,6 +228,7 @@ class Session(QObject):
         db = self.db()
         try:
             pending_all = reference.backlog_rows(db, self.rules())[0] + reference.both_channel_rows(db, self.rules())
+            pending_all += reference.left_queue_rows(db)        # a same-site request NBO just decided: a person checks
         finally:
             db.close()
         renderer = self.renderer

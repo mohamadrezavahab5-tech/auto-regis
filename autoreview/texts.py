@@ -89,6 +89,8 @@ _FIXED = [
     (r"the same website is already approved(.*)", r"همین سایت قبلاً تایید شده است\1"),
     (r"duplicate found but the NBO cancel reason is not unambiguous(.*)", r"تکراری است ولی کد دلیل لغو قطعی نیست\1"),
     (r"another pending request has the same website \((.*)\)", r"درخواست در انتظارِ دیگری با همین سایت هست (\1)"),
+    (r"a request with the same website was just decided in NBO, its outcome is not loaded yet \((.*)\)",
+     r"درخواست دیگری با همین سایت تازه در NBO تعیین تکلیف شده و نتیجه‌اش هنوز دریافت نشده (\1)"),
     (r"timed out: the checks took longer than (\d+) s", r"بررسی بیش از \1 ثانیه طول کشید و متوقف شد"),
     (r"internal error: (.*)", r"خطای داخلی: \1"),
 ]

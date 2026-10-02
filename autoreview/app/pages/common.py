@@ -11,6 +11,7 @@ NBO_STATUS_FA = {
     "PENDING": "Pending", "COMMERCIAL_IN_PROGRESS": "Commercial in progress", "COMMERCIAL_APPROVED": "Commercial approved",
     "ACTIVATING": "Activating", "PENDING_ACTIVATION": "Pending activation", "COMPLETED": "Completed",
     "REQUIRED_EDITING": "Required editing", "CANCELLED": "Cancelled", "DRAFT": "Draft",
+    "LEFT_QUEUE": "Left the queue (outcome after the next full NBO export)",
 }
 STATE_COLORS = {k: v[0] for k, v in theme.STATE.items()}
 STATE_COLORS["DUPLICATE"] = theme.C["duplicate"]

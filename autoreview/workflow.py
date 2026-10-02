@@ -160,6 +160,8 @@ def refresh(db, rows, eligible_ids, source_loaded_at=None, approved_statuses=(),
         for row in rows:
             smr = row['smr']
             seen.add(smr)
+            if row.get('status') == 'LEFT_QUEUE':          # reference.LEFT_QUEUE: decided in NBO, outcome not known yet
+                continue
             old = get(db, smr)
             active = smr in eligible_ids
             if not active and old is None:

@@ -57,9 +57,13 @@ def unknown_of(decision):
     return last[len("UNKNOWN "):] if decision.action == rulesmod.MANUAL and last.startswith("UNKNOWN ") else None
 
 
-def sibling_decision(siblings):
-    return rulesmod.Decision(rulesmod.MANUAL, notes=[f"another pending request has the same website ({', '.join(siblings[:3])})"],
-                             trace=["PENDING_SIBLING"])
+def sibling_decision(siblings, left=frozenset()):
+    just_decided = [s for s in siblings if s in left]
+    if just_decided:
+        note = f"a request with the same website was just decided in NBO, its outcome is not loaded yet ({', '.join(just_decided[:3])})"
+    else:
+        note = f"another pending request has the same website ({', '.join(siblings[:3])})"
+    return rulesmod.Decision(rulesmod.MANUAL, notes=[note], trace=["PENDING_SIBLING"])
 
 
 class Runner:
@@ -157,6 +161,7 @@ class Runner:
         dupes = {d["id"]: d for d in duplicates.find_duplicates(
             [{"id": r["smr"], "site": r.get("site")} for r in rows], approved_nbo, approved_crm)}
         siblings = duplicates.pending_siblings([{"id": r["smr"], "site": r.get("site")} for r in pending_all])
+        left = {r["smr"] for r in pending_all if r.get("status") == "LEFT_QUEUE"}
         rt = self.rules.get("runtime", {})
         workers = max(1, int(rt.get("concurrency", 6)))
         enamad_gate = asyncio.Semaphore(max(1, int(rt.get("enamad_concurrency", 2))))
@@ -176,7 +181,7 @@ class Runner:
                 if dup.get("is_duplicate"):
                     return duplicate_decision(self.reasons, dup), {"duplicate_of": dup["related"], "in_nbo": dup["in_nbo"], "in_crm": dup["in_crm"]}
                 if row["smr"] in siblings:
-                    return sibling_decision(siblings[row["smr"]]), {"pending_siblings": siblings[row["smr"]]}
+                    return sibling_decision(siblings[row["smr"]], left), {"pending_siblings": siblings[row["smr"]]}
                 f, ev = await factsmod.collect(row, self.rules, fetch, enamad_client, enamad_gate, self.category_map,
                                                float(rt.get("pause_between_enamad_seconds", 0)))
                 decision = rulesmod.evaluate(f, self.rules, self.reasons)
