@@ -1,8 +1,8 @@
 """The 'گزارش' tab of the owner's sheet (owner 2026-10-02: "a report page in the sheet, with numbers and charts").
 
 Every number comes from the app's own data - the same the app shows - and follows its logic: "needs action now" is the
-workflow state of the open requests; a decision is one engine review (a request reviewed twice counts twice), and an
-internal error is not a decision. The layout is fixed, so the charts the sheet draws once keep reading the right cells."""
+workflow state of the open requests; a request counts once per period, by its latest engine verdict in it (re-reviews
+had turned 603 manual requests into 1,000 - live 2026-10-03), and an internal error is not a decision. The layout is fixed, so the charts the sheet draws once keep reading the right cells."""
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -41,30 +41,36 @@ def report(db, legal_pending=None, now=None):
         states[st] = states.get(st, 0) + 1
 
     since = (now - timedelta(days=31)).isoformat(timespec="seconds")
-    rows = db.execute(f"SELECT action, decided_at, reason_codes, notes FROM results WHERE decided_at >= ? AND {_NOT_ERROR}",
-                      (since,)).fetchall()
-    periods = {"today": dict.fromkeys(ACTIONS, 0), "7": dict.fromkeys(ACTIONS, 0), "30": dict.fromkeys(ACTIONS, 0)}
-    daily = {today - timedelta(days=i): dict.fromkeys(ACTIONS, 0) for i in range(DAYS)}
-    reasons, causes = {}, {}
-    for action, decided, codes, notes in rows:
-        day = _local_day(decided)
-        age = (today - day).days
+    rows = db.execute(f"SELECT smr, action, decided_at, reason_codes, notes FROM results WHERE decided_at >= ? AND {_NOT_ERROR} "
+                      "ORDER BY decided_at", (since,)).fetchall()
+    latest = {"today": {}, "7": {}, "30": {}}                # period -> {smr: (action, codes, notes)}, the newest wins
+    per_day = {}                                             # (day, smr) -> action
+    for smr, action, decided, codes, notes in rows:
         if action not in ACTIONS:
             continue
-        if age == 0:
-            periods["today"][action] += 1
-        if age < 7:
-            periods["7"][action] += 1
-        if age < 30:
-            periods["30"][action] += 1
-            if action in ("EDIT", "CANCEL"):
-                for code in json.loads(codes or "[]"):
-                    reasons[code] = reasons.get(code, 0) + 1
-            if action == "MANUAL":
-                key = cause_key((json.loads(notes or "[]") or ["?"])[0])
-                causes[key] = causes.get(key, 0) + 1
+        day = _local_day(decided)
+        age = (today - day).days
+        for key, days in (("today", 1), ("7", 7), ("30", 30)):
+            if age < days:
+                latest[key][smr] = (action, codes, notes)
+        if age < DAYS:
+            per_day[(day, smr)] = action
+    periods = {k: dict.fromkeys(ACTIONS, 0) for k in latest}
+    for key, by_smr in latest.items():
+        for action, _codes, _notes in by_smr.values():
+            periods[key][action] += 1
+    daily = {today - timedelta(days=i): dict.fromkeys(ACTIONS, 0) for i in range(DAYS)}
+    for (day, _smr), action in per_day.items():
         if day in daily:
             daily[day][action] += 1
+    reasons, causes = {}, {}
+    for action, codes, notes in latest["30"].values():
+        if action in ("EDIT", "CANCEL"):
+            for code in json.loads(codes or "[]"):
+                reasons[code] = reasons.get(code, 0) + 1
+        elif action == "MANUAL":
+            key = cause_key((json.loads(notes or "[]") or ["?"])[0])
+            causes[key] = causes.get(key, 0) + 1
 
     applied = {"today": 0, "7": 0, "30": 0}
     for (updated,) in db.execute("SELECT updated_at FROM nbo_execution WHERE state = 'SENT' AND updated_at >= ?", (since,)):
