@@ -24,7 +24,9 @@ ERRORS = {
     "not_found": "این کد درخواست در فهرست NBO پیدا نشد",
     "no_details": "لینک Details این درخواست پیدا نشد",
     "detail_mismatch": "صفحه‌ی باز شده مال همین درخواست نبود؛ کاری انجام نشد",
-    "needs_assign": "دکمه‌ی Change Status فعال نیست (درخواست باید به تو Assign شود)",
+    "needs_assign": "تمرین تا Assign درست بود: درخواست هنوز به این حساب Assign نشده و دکمه‌ی «Assign to me» پیدا شد و فعال است "
+                    "(اجرای واقعی همین دکمه را می‌زند؛ پنجره‌ی Change Status فقط روی درخواستِ Assign‌شده تمرین می‌شود)",
+    "assign_missing": "دکمه‌ی Change Status فعال نیست و دکمه‌ی «Assign to me» هم پیدا نشد (شاید به کس دیگری Assign شده)",
     "change_status_disabled": "NBO اجازه‌ی تغییر وضعیت نداد (دکمه‌ی Change Status غیرفعال ماند)",
     "option_missing": "این گزینه در پنجره‌ی تغییر وضعیت NBO نبود؛ کاری انجام نشد",
     "reason_missing": "کادر دلیل در پنجره‌ی NBO پیدا نشد؛ کاری انجام نشد",
@@ -97,7 +99,11 @@ def detail_js(smr: str, action: str, reason_label: str, rehearsal: bool, allow_a
     await sleep(500); main = buttons(document, 'Change Status')[0];
   }}
   if (!main) return {{error: 'change_status_disabled'}};
-  if (main.disabled) return {{error: {json.dumps(allow_assign)} ? 'change_status_disabled' : 'needs_assign'}};
+  if (main.disabled) {{
+    if ({json.dumps(allow_assign)}) return {{error: 'change_status_disabled'}};
+    const assign = buttons(document, 'Assign to me')[0];          // rehearsal: is the step the real run needs there?
+    return {{error: assign && !assign.disabled ? 'needs_assign' : 'assign_missing'}};
+  }}
   main.click();
   let dialog = null, option = null;
   for (const more = until(10000); more() && !option; ) {{
@@ -196,7 +202,10 @@ class NboActor(QObject):
         def finish(result):
             self.busy = False
             code = result.get("error")
-            out = {"ok": not code, "sent": bool(result.get("sent")), "rehearsed": bool(result.get("rehearsed")),
+            # a rehearsal on a request not yet assigned to this account ends at Assign (it never assigns): when the button
+            # the real run will press is there and enabled, everything up to that point worked
+            partial = rehearsal and code == "needs_assign"
+            out = {"ok": not code or partial, "sent": bool(result.get("sent")), "rehearsed": bool(result.get("rehearsed")) or partial,
                    "error": code or "", "message": ERRORS.get(code, "" if not code else
                                                              ("ثبت نهایی زده شد ولی بسته شدن پنجره دیده نشد؛ در NBO نگاه کن"
                                                               if code == "sent_unconfirmed" else str(result.get("message") or code)))}

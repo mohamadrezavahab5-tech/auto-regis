@@ -78,7 +78,8 @@ def test_a_reason_nbo_does_not_offer_stops_before_anything_is_sent(actor):
 def test_rehearsal_never_assigns_or_submits(actor):
     a, _ = actor
     res = run(a, "SMR-1001", "APPROVE", "", rehearsal=True)
-    assert not res["ok"] and res["error"] == "needs_assign", res     # Change Status stays disabled without Assign to me
+    # Change Status stays disabled without Assign to me: the rehearsal stops there, reports the Assign button is ready
+    assert res["ok"] and res["rehearsed"] and res["error"] == "needs_assign" and "Assign to me" in res["message"], res
     assert not stored(a, "assigned") and not stored(a, "result")
 
 

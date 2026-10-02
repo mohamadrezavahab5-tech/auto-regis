@@ -122,7 +122,7 @@ class ExecutionControl(QObject):
             try:
                 if rehearsal:
                     if res['ok']:
-                        execution.record(db, case, 'REHEARSED', 'همه‌ی مراحل تا قبل از ثبت نهایی درست بود')
+                        execution.record(db, case, 'REHEARSED', res.get('message') or 'همه‌ی مراحل تا قبل از ثبت نهایی درست بود')
                 elif res['ok'] and res['sent']:
                     execution.record(db, case, 'SENT', ACTION_FA[tgt[0]] + (f" — {reason}" if reason else ''))
                 else:
