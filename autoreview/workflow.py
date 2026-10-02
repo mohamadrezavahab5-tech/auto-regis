@@ -28,6 +28,7 @@ STATES = {
 }
 OPEN_STATES = ('WAIT_ONLINE', 'MANUAL', 'WAIT_INSTORE', 'CONFLICT', 'EDIT', 'CANCEL', 'READY')
 DONE_STATES = ('DONE_APPROVED', 'DONE_CLOSED')
+NBO_OPEN = ('PENDING', 'COMMERCIAL_IN_PROGRESS')          # NBO has not decided yet, whoever holds the request
 ACTIONS = ('APPROVE', 'EDIT', 'CANCEL', 'MANUAL', 'REOPEN')
 FIELDS = ('site', 'category', 'ownership', 'has_online', 'has_instore', 'account_holder', 'owner_name', 'owner_family')
 ENGINE = 'AutoReview'
@@ -169,9 +170,11 @@ def refresh(db, rows, eligible_ids, source_loaded_at=None, approved_statuses=(),
                 continue
             status = row.get('status', '') or ''
             fingerprint = _fingerprint(row)
-            outcome = None if active else ('approved' if status in approved else 'closed')
+            # Out of the app's queue is not decided: a request someone took in NBO (Commercial in progress) is still open
+            # there - it had been counted 'closed in NBO' and as the engine being wrong (live 2026-10-03: 15 of 70).
+            outcome = None if active or status in NBO_OPEN else ('approved' if status in approved else 'closed')
             if old and old['fingerprint'] == fingerprint and not (active and not old['active']):
-                if old.get('source_status') == status and old['active'] == active:
+                if old.get('source_status') == status and old['active'] == active and old.get('outcome') == outcome:
                     if source_loaded_at and old.get('source_loaded_at') != source_loaded_at:
                         old['source_loaded_at'] = source_loaded_at
                         db.execute('UPDATE workflow_cases SET body=? WHERE smr=?', (json.dumps(old, ensure_ascii=False), smr))

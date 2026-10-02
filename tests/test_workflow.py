@@ -78,6 +78,15 @@ def test_changed_source_resets_approvals_and_disappeared_case_is_inactive(db):
     with pytest.raises(ValueError): decide(db)
 
 
+def test_a_request_taken_in_nbo_is_not_closed(db):
+    row = imported(db)
+    row['status'] = 'COMMERCIAL_IN_PROGRESS'                 # someone picked it up in NBO: out of the app's queue, not decided
+    workflow.refresh(db, [row], set(), approved_statuses=('COMMERCIAL_APPROVED',))
+    assert workflow.get(db, row['smr'])['state'] == 'OUT_OF_SCOPE'
+    row['status'] = 'REQUIRED_EDITING'
+    workflow.refresh(db, [row], set(), approved_statuses=('COMMERCIAL_APPROVED',))
+    assert workflow.get(db, row['smr'])['state'] == 'DONE_CLOSED'
+
 def test_identical_reference_does_not_generate_events(db):
     row=imported(db)
     before=workflow.pending(db)
