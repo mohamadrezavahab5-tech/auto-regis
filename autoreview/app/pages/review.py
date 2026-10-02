@@ -308,11 +308,12 @@ class ReviewPage(ScrollPage):
         if not rows:
             QMessageBox.information(self, "دوباره بررسی", "درخواست بازی با نتیجه‌ی «بررسی دستی» نمانده است.")
             return
-        if QMessageBox.question(self, "دوباره بررسی", f"{num(len(rows))} درخواست باز با نتیجه‌ی «بررسی دستی» دوباره با قوانین "
-                                "فعلی بررسی شوند؟ (هر نوبت حداکثر به اندازه‌ی «تعداد در این نوبت»)") != QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, "دوباره بررسی", f"{num(len(rows))} درخواست باز (در انتظار در NBO) با نتیجه‌ی «بررسی دستی» "
+                                "دوباره با قوانین فعلی بررسی شوند؟ درخواست‌های تأییدشده و بسته‌شده دست نمی‌خورند.") \
+                != QMessageBox.StandardButton.Yes:
             return
         try:
-            s.start_run(rows[: self.size.value()], "all", label=f"دوباره بررسی دستی‌ها — {num(min(len(rows), self.size.value()))}")
+            s.start_run(rows, "all", label=f"دوباره بررسی دستی‌ها — {num(len(rows))}")
         except Exception as e:
             QMessageBox.warning(self, "دوباره بررسی", str(e))
             return
