@@ -174,9 +174,7 @@
   "legal": {
     "enabled": true,
     "person_company": "حقوقی",
-    "crm_statuses": [
-      "در دست بررسی تیم فروش"
-    ],
-    "_note": "Owner 2026-10-02: CRM requests of legal persons go to the Legal tab of the owner's sheet; a person checks them by hand. Which CRM statuses count as 'to be checked' is the owner's call - change the list here."
+    "crm_statuses": "all",
+    "_note": "Owner 2026-10-02: every CRM request of a legal person goes to the Legal tab of the owner's sheet, in every CRM status ('all'); a person checks them by hand. A list of statuses here limits it."
   }
 }

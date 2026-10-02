@@ -279,6 +279,7 @@ def test_legal_rows_come_from_crm_company_requests_in_the_chosen_statuses():
     reference.upsert_crm(db,[dict(dict.fromkeys(('site','brand','store_type','modified_on'),''),**r) for r in rows],'test',full=True)
     got=reference.legal_rows(db,{'legal':{'crm_statuses':['در دست بررسی تیم فروش']}})
     assert [r['caseid'] for r in got]==['MRG-1']
+    assert [r['caseid'] for r in reference.legal_rows(db,{'legal':{'crm_statuses':'all'}})]==['MRG-1','MRG-3']
 
 
 def test_people_see_three_tabs_the_rest_is_hidden_not_deleted():

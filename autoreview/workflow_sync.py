@@ -1,4 +1,6 @@
 """Own-sheet sync, triggered by the UI timer; retries remain in SQLite across restarts."""
+import time
+
 from . import sheets, workflow
 
 
@@ -35,6 +37,9 @@ def sync(db, cfg=None, client=None):
             'rejected': sum(r['status'] == 'rejected' for r in receipts)}
 
 
+_LEGAL_NEXT = 0.0
+
+
 def sync_direct(db, google):
     """The owner's PC (service-account key) is the single writer of the owner's sheet. Each step is idempotent, so a failure
     half-way is simply finished by the next round 30 seconds later."""
@@ -60,8 +65,11 @@ def sync_direct(db, google):
     if receipts:
         google.ack(receipts)
     google.upsert_execution(execution.records(db, limit=500))
-    from . import reference, settings
-    google.write_legal(reference.legal_rows(db, settings.load_rules()))
+    global _LEGAL_NEXT
+    if time.monotonic() >= _LEGAL_NEXT:              # ~25,000 rows: every 5 minutes, not every 30-second round
+        from . import reference, settings
+        written = google.write_legal(reference.legal_rows(db, settings.load_rules()))
+        _LEGAL_NEXT = time.monotonic() + (30 if written >= 500 else 300)   # a first upload continues next round
     return {'remaining': workflow.pending_count(db), 'commands': len(receipts),
             'rejected': sum(r['status'] == 'rejected' for r in receipts)}
 

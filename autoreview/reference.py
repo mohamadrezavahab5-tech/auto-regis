@@ -190,15 +190,21 @@ def search(db, query: str, limit=300):
 
 
 def legal_rows(db, rules):
-    """CRM registrations of legal persons (company contracts) in the CRM statuses rules['legal']['crm_statuses'] - oldest
-    first, so the Legal tab keeps its order as new ones arrive."""
+    """CRM registrations of legal persons (company contracts) - every CRM status (owner 2026-10-02: "all of them"), or only
+    those in rules['legal']['crm_statuses'] when that is a list. Oldest first, so the Legal tab keeps its order as new ones
+    arrive."""
     cfg = rules.get("legal", {})
-    statuses = list(cfg.get("crm_statuses") or [])
-    if not statuses or not cfg.get("enabled", True):
+    if not cfg.get("enabled", True):
         return []
-    marks = ",".join("?" * len(statuses))
-    cur = db.execute(f"SELECT caseid, status, site, brand, created_on, modified_on FROM ref_crm WHERE person_company = ? "
-                     f"AND status IN ({marks}) ORDER BY created_on, caseid", [cfg.get("person_company", "حقوقی"), *statuses])
+    statuses = cfg.get("crm_statuses", "all")
+    where, args = "person_company = ?", [cfg.get("person_company", "حقوقی")]
+    if statuses != "all":
+        if not statuses:
+            return []
+        where += f" AND status IN ({','.join('?' * len(statuses))})"
+        args += list(statuses)
+    cur = db.execute(f"SELECT caseid, status, site, brand, created_on, modified_on FROM ref_crm WHERE {where} "
+                     "ORDER BY created_on, caseid", args)
     return [dict(zip(("caseid", "status", "site", "brand", "created_on", "modified_on"), r)) for r in cur]
 
 
