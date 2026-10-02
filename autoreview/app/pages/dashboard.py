@@ -164,7 +164,7 @@ class DashboardPage(ScrollPage):
         self.body.addLayout(grid)
         self.body.addStretch(1)
 
-        session.data_changed.connect(self.on_show)
+        session.data_changed.connect(self._reload_if_visible)
         session.run_changed.connect(self._run_tick)
         self._last_tick = 0
 
@@ -174,7 +174,26 @@ class DashboardPage(ScrollPage):
             self._last_tick = now
             self.on_show()
 
+    def _reload_if_visible(self):
+        if self.isVisible():
+            self.on_show()
+
     def on_show(self):
+        """One load at a time (see Session._cached: piled-up loads froze the app)."""
+        if getattr(self, "_loading", False):
+            self._again = True
+            return
+        self._loading, self._again = True, False
+
+        def done(d):
+            self._loading = False
+            self._show(d)
+            if self._again:
+                self._reload_if_visible()
+
+        def failed(_e):
+            self._loading = False
+
         def work(_p):
             s = self.session
             board = s.board()
@@ -190,7 +209,7 @@ class DashboardPage(ScrollPage):
                         "reasons": store.reason_counts(db, days=30, limit=8), "manual": store.manual_causes(db, days=30, limit=8)}
             finally:
                 db.close()
-        run_bg(work, self._show)
+        run_bg(work, done, failed)
 
     def _show(self, d):
         f = d["flow"]

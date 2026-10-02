@@ -128,7 +128,7 @@ class ReviewPage(ScrollPage):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._live)
         self._timer.start(1000)
-        session.data_changed.connect(self.on_show)
+        session.data_changed.connect(self._reload_if_visible)
         session.run_finished.connect(self._finished)
         self._sync_buttons()
 
@@ -146,19 +146,31 @@ class ReviewPage(ScrollPage):
         return row
 
     # ---- data
+    def _reload_if_visible(self):
+        if self.isVisible():
+            self.on_show()
+
     def on_show(self):
+        """One load at a time: a change while one is running loads once more after it, never in parallel."""
+        if getattr(self, "_loading", False):
+            self._again = True
+            return
+        self._loading, self._again = True, False
+
         def work(_p):
             s = self.session
-            db = s.db()
-            try:
-                nbo_ok, crm_ok = reference.approved_sets(db, s.rules())
-                return {"board": s.board(), "nbo_ok": len(nbo_ok), "crm_ok": len(crm_ok),
-                        "online": len(s.queue_rows("online", True)), "online_all": len(s.queue_rows("online", False)),
-                        "both": len(s.queue_rows("both", True)), "both_all": len(s.queue_rows("both", False)),
-                        "all": len(s.queue_rows("all", True)), "all_all": len(s.queue_rows("all", False))}
-            finally:
-                db.close()
-        run_bg(work, self._show)
+            nbo_ok, crm_ok = s.approved_sets()
+            return {"board": s.board(), "nbo_ok": len(nbo_ok), "crm_ok": len(crm_ok), **s.queue_counts()}
+
+        def done(d):
+            self._loading = False
+            self._show(d)
+            if self._again:
+                self._reload_if_visible()
+
+        def failed(_e):
+            self._loading = False
+        run_bg(work, done, failed)
 
     def _show(self, d):
         b = d["board"]
@@ -286,7 +298,13 @@ class ReviewPage(ScrollPage):
         if not board["nbo_meta"] or not board["crm_meta"]:
             QMessageBox.warning(self, "منبع ناقص", "اول هر دو منبع را بارگذاری کن: خروجی NBO و داده‌ی CRM.")
             return
-        rows = s.manual_again_rows()
+        self.b_again.setEnabled(False)
+        run_bg(lambda _p: s.manual_again_rows(), self._manual_again_ready,
+               lambda e: (self.b_again.setEnabled(True), QMessageBox.warning(self, "دوباره بررسی", str(e))))
+
+    def _manual_again_ready(self, rows):
+        s = self.session
+        self.b_again.setEnabled(True)
         if not rows:
             QMessageBox.information(self, "دوباره بررسی", "درخواست بازی با نتیجه‌ی «بررسی دستی» نمانده است.")
             return

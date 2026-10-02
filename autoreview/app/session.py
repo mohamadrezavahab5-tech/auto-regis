@@ -2,6 +2,7 @@
 
 Pages never block the window: every slow step (CRM, NBO, Google, the review itself) runs on a worker thread and reports
 back through Qt signals."""
+import json
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -67,6 +68,8 @@ class Session(QObject):
         self.renderer = None              # set by the window (hidden browser for second looks)
         self.busy = set()
         self._refresh_lock = threading.Lock()
+        self._cache_lock = threading.Lock()
+        self._cache = {}
         db = self.db()
         reference.ensure(db)
         workflow.ensure(db)
@@ -96,12 +99,36 @@ class Session(QObject):
         self.busy_changed.emit(key, on)
 
     # ---- the board: how much is done / left
+    # ---- the NBO reference, read once per load ------------------------------------------------------------------------------
+    # Every page asked for the queues by reading the whole reference again (~68,000 rows, ~0.4 s each). The review page alone
+    # did it eight times per refresh and refreshed on every data change, visible or not; the jobs piled up faster than they
+    # finished and starved the window thread ('Not Responding', live 2026-10-02, seen with py-spy). The queues and the
+    # approved sets are now built once per reference load (and rules), under a lock, and shared.
+    def _cached(self, name, key, build):
+        with self._cache_lock:
+            hit = self._cache.get(name)
+            if hit and hit[0] == key:
+                return hit[1]
+            value = build()
+            self._cache[name] = (key, value)
+            return value
+
+    def _reference_key(self, db, *sources):
+        metas = tuple((reference.meta(db, s) or {}).get("loaded_at") for s in sources)
+        return metas + (json.dumps(self.rules(), sort_keys=True, default=str),)
+
+    def _queues(self, db):
+        """-> (online backlog, skipped, Online + Instore) for the current NBO reference."""
+        def build():
+            rules = self.rules()
+            backlog, skipped = reference.backlog_rows(db, rules)
+            return backlog, skipped, reference.both_channel_rows(db, rules)
+        return self._cached("queues", self._reference_key(db, "nbo"), build)
+
     def board(self):
         db = self.db()
         try:
-            rules = self.rules()
-            backlog, skipped = reference.backlog_rows(db, rules)
-            both = reference.both_channel_rows(db, rules)
+            backlog, skipped, both = self._queues(db)
             latest, manual_done = store.latest_states(db), store.manual_done_set(db)
             return {"backlog": workboard.summarize(backlog, latest, manual_done),
                     "both": workboard.summarize(both, latest, manual_done),
@@ -129,19 +156,34 @@ class Session(QObject):
         2026-10-02: 590 of them waited while the autopilot kept taking the Online-only queue first)."""
         db = self.db()
         try:
-            rules = self.rules()
+            backlog, _skipped, both = self._queues(db)
             if kind == "all":
-                both = reference.both_channel_rows(db, rules)
                 seen = {r["smr"] for r in both}
-                rows = both + [r for r in reference.backlog_rows(db, rules)[0] if r["smr"] not in seen]
+                rows = both + [r for r in backlog if r["smr"] not in seen]
             else:
-                rows = reference.backlog_rows(db, rules)[0] if kind == "online" else reference.both_channel_rows(db, rules)
+                rows = list(backlog if kind == "online" else both)
             if only_unreviewed:
                 latest = store.latest_states(db)
                 rows = [r for r in rows if r["smr"] not in latest]
-            return rows
+            return [dict(r) for r in rows]                 # callers may change a row; the shared cache stays as it is
         finally:
             db.close()
+
+    def queue_counts(self):
+        """{kind: unreviewed, kind_all: every} for online / both / all - one pass, for the review page."""
+        db = self.db()
+        try:
+            backlog, _skipped, both = self._queues(db)
+            latest = store.latest_states(db)
+        finally:
+            db.close()
+        seen = {r["smr"] for r in both}
+        everything = both + [r for r in backlog if r["smr"] not in seen]
+        out = {}
+        for kind, rows in (("online", backlog), ("both", both), ("all", everything)):
+            out[kind + "_all"] = len(rows)
+            out[kind] = sum(r["smr"] not in latest for r in rows)
+        return out
 
     # ---- reference data
     def import_nbo_file(self, path, on_done=None, on_fail=None):
@@ -230,7 +272,8 @@ class Session(QObject):
     def approved_sets(self):
         db = self.db()
         try:
-            return reference.approved_sets(db, self.rules())
+            return self._cached("approved", self._reference_key(db, "nbo", "crm"),
+                                lambda: reference.approved_sets(db, self.rules()))
         finally:
             db.close()
 
@@ -240,7 +283,8 @@ class Session(QObject):
         nbo_ok, crm_ok = self.approved_sets()
         db = self.db()
         try:
-            pending_all = reference.backlog_rows(db, self.rules())[0] + reference.both_channel_rows(db, self.rules())
+            backlog, _skipped, both = self._queues(db)
+            pending_all = backlog + both
             pending_all += reference.left_queue_rows(db)        # a same-site request NBO just decided: a person checks
         finally:
             db.close()
