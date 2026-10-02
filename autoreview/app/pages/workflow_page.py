@@ -106,8 +106,8 @@ class FlowFilter(QSortFilterProxyModel):
 
 
 class WorkflowPage(QWidget):
-    title = "گردش کار"
-    subtitle = "نظر تیم Online و Instore برای هر درخواست، و اینکه NBO در نهایت چه کرد — هم‌زمان در شیت خودت"
+    title = "نظر تیم‌ها"
+    subtitle = "مرحله‌ی 3 از 5: نظر Online و Instore برای هر درخواست و اینکه نوبت کیست؛ و NBO در نهایت چه کرد — هم‌زمان با شیت"
 
     def __init__(self, session, shell):
         super().__init__()

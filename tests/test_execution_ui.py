@@ -73,3 +73,25 @@ def test_the_wheel_does_not_change_a_number_box_nobody_clicked():
         assert box.focusPolicy() == Qt.FocusPolicy.StrongFocus
     finally:
         app.removeEventFilter(guard)
+
+
+def test_rehearse_all_goes_through_every_ready_request_and_sums_up(monkeypatch):
+    from PySide6.QtCore import QEventLoop, QTimer
+    QApplication.instance() or QApplication([])
+    session = Session()
+    control = ExecutionControl(session)
+    cases = [dict(smr=f'SMR-{i}', revision=1) for i in range(3)]
+    answers = iter([dict(ok=True, error=''), dict(ok=True, error='needs_assign'), dict(ok=False, error='not_found', message='نبود')])
+    seen = []
+    monkeypatch.setattr(control, 'ready_cases', lambda allowed=None: list(cases))
+    monkeypatch.setattr(control, 'apply', lambda case, done, rehearsal=False, parent=None: (seen.append((case['smr'], rehearsal)),
+                                                                                             done(next(answers))))
+    assert control.rehearse_all() == 3
+    assert control.rehearse_all() == 'busy'                           # one at a time
+    loop = QEventLoop()
+    control.notice.connect(lambda _t: loop.quit())
+    QTimer.singleShot(20_000, loop.quit)
+    loop.exec()
+    assert seen == [('SMR-0', True), ('SMR-1', True), ('SMR-2', True)] and control.batch is None
+    assert 'تا آخر درست: 1' in control.last_batch and 'تا Assign درست: 1' in control.last_batch and 'خطا: 1' in control.last_batch
+    control.stop()

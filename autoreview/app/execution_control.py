@@ -25,6 +25,8 @@ class ExecutionControl(QObject):
         self.mode = execution.Mode()
         self.actor = NboActor(self)
         self.readiness = ''
+        self.batch = None                     # a running "rehearse all": {todo, done, ok, assign, failed, stop}
+        self.last_batch = ''
         self._refreshing = self._again = False
         self.summary = 'آزمایشی — اپ خودش چیزی در NBO تغییر نمی‌دهد'
         self.last_stop = ''
@@ -162,11 +164,11 @@ class ExecutionControl(QObject):
         dlg.show()
         return dlg
 
-    # ---- automatic
-    def _auto_tick(self):
-        if not self.mode.live or self.actor.busy:
-            return
-        allowed = self.auto_actions()
+    # ---- everything at once (owner 2026-10-02: "there is no clear place to apply all / automatically")
+    def ready_cases(self, allowed=None):
+        """Requests 'apply all' would take, oldest first: a verdict NBO can act on, of a kind switched on, eligible now
+        (pending in fresh NBO data, synced), and not already tried in this revision."""
+        allowed = self.auto_actions() if allowed is None else set(allowed)
         db = self.session.db()
         try:
             todo = []
@@ -178,7 +180,74 @@ class ExecutionControl(QObject):
                      if r['state'] in ('SENDING', 'SENT', 'UNCERTAIN', 'BLOCKED', 'VERIFIED')}
         finally:
             db.close()
-        todo = [c for c in sorted(todo, key=lambda c: c.get('updated_at') or '') if (c['smr'], c['revision']) not in tried]
+        return [c for c in sorted(todo, key=lambda c: c.get('updated_at') or '') if (c['smr'], c['revision']) not in tried]
+
+    def rehearse_all(self):
+        """Every ready request through NBO's screens up to (not including) Assign / the final click, one after another -
+        nothing changes in NBO. -> how many are queued, or 'busy'."""
+        if self.batch or self.actor.busy or self.mode.live:
+            return 'busy'
+        todo = self.ready_cases()
+        if not todo:
+            return 0
+        self.batch = dict(todo=todo, done=0, ok=0, assign=0, failed=[], stop=False)
+        self.last_batch = ''
+        self.changed.emit()
+        QTimer.singleShot(0, self._next_rehearsal)
+        return len(todo)
+
+    def batch_text(self):
+        b = self.batch
+        if not b:
+            return self.last_batch
+        return (f"در حال تمرین: {fa_digits(b['done'])} از {fa_digits(len(b['todo']))} — تا آخر درست: {fa_digits(b['ok'])}، "
+                f"تا Assign درست: {fa_digits(b['assign'])}، خطا: {fa_digits(len(b['failed']))}")
+
+    def _next_rehearsal(self):
+        b = self.batch
+        if not b:
+            return
+        if b['stop'] or b['done'] >= len(b['todo']):
+            failed = '؛ '.join(f"{smr}: {msg}" for smr, msg in b['failed'][:5])
+            self.last_batch = (f"تمرین {'متوقف شد' if b['stop'] else 'تمام شد'}: {fa_digits(b['done'])} درخواست — "
+                               f"تا آخر درست: {fa_digits(b['ok'])}، تا Assign درست: {fa_digits(b['assign'])}، "
+                               f"خطا: {fa_digits(len(b['failed']))}" + (f" ({failed})" if failed else ''))
+            self.batch = None
+            self.notice.emit(self.last_batch)
+            self.changed.emit()
+            return
+        case = b['todo'][b['done']]
+
+        def done(res):
+            b['done'] += 1
+            if res.get('ok') and res.get('error') == 'needs_assign':
+                b['assign'] += 1
+            elif res.get('ok'):
+                b['ok'] += 1
+            else:
+                b['failed'].append((case['smr'], res.get('message') or res.get('error')))
+            self.changed.emit()
+            QTimer.singleShot(1500, self._next_rehearsal)
+        self.apply(case, done, rehearsal=True)
+
+    def apply_all(self):
+        """'Apply all' = live mode: the automatic loop below takes the ready requests one by one (owner only)."""
+        if self.batch:
+            raise ValueError('اول «تمرین همه» تمام شود یا متوقفش کن')
+        self.set_live(True)
+
+    def stop_all(self):
+        if self.batch:
+            self.batch['stop'] = True
+        if self.mode.live:
+            self._stop_live('اعمال همه متوقف شد (با دکمه‌ی توقف)')
+        self.changed.emit()
+
+    # ---- automatic
+    def _auto_tick(self):
+        if not self.mode.live or self.actor.busy:
+            return
+        todo = self.ready_cases()
         if not todo:
             return
         case = todo[0]

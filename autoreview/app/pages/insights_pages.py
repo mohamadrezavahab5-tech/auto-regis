@@ -55,7 +55,7 @@ class ControlRoomPage(ScrollPage):
         grid = QGridLayout()
         grid.setSpacing(14)
         old = Card()
-        b_flow = button("گردش کار", None, "list-check")
+        b_flow = button("نظر تیم‌ها", None, "list-check")
         b_flow.clicked.connect(lambda: shell.go("workflow"))
         old.header("بیشترین انتظار", "درخواست‌های باز، از تاریخ ثبت در NBO", b_flow)
         self.oldest = BarList(C["warn"])

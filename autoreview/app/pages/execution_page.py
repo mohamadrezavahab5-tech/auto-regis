@@ -14,18 +14,40 @@ from .common import ScrollPage
 
 
 class ExecutionPage(ScrollPage):
-    title = "کنترل اجرا"
-    subtitle = "آماده‌ی تأیید در NBO، تأییدشده‌ها، و حالت آزمایشی / واقعی"
+    title = "اعمال در NBO"
+    subtitle = "مرحله‌ی 5 از 5: تأیید / اصلاح / لغو در خود NBO — همه با هم یا یکی‌یکی، با تمرین قبلش"
 
     def __init__(self, session, shell):
         super().__init__()
         self.session, self.shell, self.control = session, shell, shell.execution
 
+        # one clear place for "all at once" (owner 2026-10-02): rehearse them all, apply them all, stop
+        allc = Card()
+        self.b_rehearse_all = button("تمرین همه (بدون تغییر در NBO)", None, "play")
+        self.b_rehearse_all.clicked.connect(self._rehearse_all)
+        self.b_apply_all = button("اعمال همه در NBO", "primary", "check")
+        self.b_apply_all.clicked.connect(self._apply_all)
+        self.b_stop_all = button("توقف", "danger", "stop", icon_color=C["danger"])
+        self.b_stop_all.clicked.connect(self.control.stop_all)
+        allc.header("همه با هم", "آماده‌ها به ترتیب، قدیمی‌ترها اول — فقط نوع‌هایی که پایین‌تر روشن است",
+                    [self.b_stop_all, self.b_rehearse_all, self.b_apply_all])
+        self.all_count = label("", "h2")
+        allc.lay.addWidget(self.all_count)
+        self.batch_line = label("", "h3", wrap=True)
+        allc.lay.addWidget(self.batch_line)
+        allc.lay.addWidget(label("«اعمال همه» با حساب NBO که داخل اپ وارد شده، یکی‌یکی همان مراحل NBO را می‌زند "
+                                 "(Assign to me ← Change Status ← گزینه ← دلیل)، با اولین خطا می‌ایستد، و بعد از اولین تغییر "
+                                 "واقعی هم می‌ایستد تا در NBO نگاهش کنی؛ دوباره بزنی بقیه را ادامه می‌دهد. فقط مدیر. "
+                                 "«تمرین همه» همه‌ی مراحل را تا قبل از Assign و ثبت نهایی می‌رود و چیزی را در NBO عوض نمی‌کند.",
+                                 "caption", wrap=True))
+        self.body.addWidget(allc)
+
         mode = Card()
-        mode.header("حالت اجرا", "فقط آنلاین: تأیید Online کافی است • آنلاین + حضوری: تأیید هر دو تیم لازم است")
+        mode.header("چه چیزهایی اعمال شود", "فقط آنلاین: تأیید Online کافی است • آنلاین + حضوری: تأیید هر دو تیم لازم است")
         r = QHBoxLayout()
-        self.switch = Switch()
+        self.switch = Switch()                      # live mode; driven by «اعمال همه» / «توقف» above, kept for its state
         self.switch.toggled.connect(self._toggled)
+        self.switch.setVisible(False)
         r.addWidget(self.switch)
         self.mode_text = label("", "h3")
         r.addWidget(self.mode_text)
@@ -34,7 +56,7 @@ class ExecutionPage(ScrollPage):
         self.readiness = label("", "muted", wrap=True)
         mode.lay.addWidget(self.readiness)
         auto = QHBoxLayout()
-        auto.addWidget(label("در حالت واقعی، خودکار انجام شود:", "muted"))
+        auto.addWidget(label("در «اعمال همه» این نوع‌ها انجام شود:", "muted"))
         self.auto_switches = {}
         for key, text in (("APPROVE", "تأیید"), ("EDIT", "نیاز به اصلاح"), ("CANCEL", "لغو")):
             sw = Switch()
@@ -47,8 +69,7 @@ class ExecutionPage(ScrollPage):
         mode.lay.addLayout(auto)
         self.stopped = label("", "h3", wrap=True)
         mode.lay.addWidget(self.stopped)
-        mode.lay.addWidget(label("حالت واقعی با هر بار باز کردن برنامه دوباره آزمایشی می‌شود و فقط مدیر (mohammadreza.vahab) روشنش می‌کند. "
-                                 "یکی‌یکی جلو می‌رود، با اولین مشکل می‌ایستد، و بعد از اولین تغییر واقعی هم خودش می‌ایستد تا در NBO نگاهش کنی.",
+        mode.lay.addWidget(label("«اعمال همه» با هر بار باز کردن برنامه خاموش است و فقط مدیر (mohammadreza.vahab) روشنش می‌کند.",
                                  "caption", wrap=True))
         self.body.addWidget(mode)
 
@@ -105,6 +126,34 @@ class ExecutionPage(ScrollPage):
         self.control.refresh()
         self.render()
 
+    def _rehearse_all(self):
+        n = self.control.rehearse_all()
+        if n == 'busy':
+            QMessageBox.information(self, "تمرین همه", "یک اجرای دیگر در جریان است؛ اول تمام شود یا «توقف» را بزن.")
+        elif not n:
+            QMessageBox.information(self, "تمرین همه", "الان درخواستی آماده‌ی اعمال نیست.")
+        self.render()
+
+    def _apply_all(self):
+        todo = self.control.ready_cases()
+        if not todo:
+            QMessageBox.information(self, "اعمال همه", "الان درخواستی آماده‌ی اعمال نیست.")
+            return
+        kinds = {}
+        for c in todo:
+            kinds[execution.target(c)[0]] = kinds.get(execution.target(c)[0], 0) + 1
+        parts = "، ".join(f"{n} {ACTION_FA[k]}" for k, n in kinds.items())
+        if QMessageBox.question(self, "اعمال همه در NBO",
+                                f"{len(todo)} درخواست ({parts}) با حساب NBO که داخل اپ وارد شده، یکی‌یکی در NBO ثبت می‌شود.\n"
+                                "با اولین خطا می‌ایستد و بعد از اولین تغییر واقعی هم می‌ایستد تا در NBO نگاهش کنی. شروع کنم؟") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.control.apply_all()
+        except (PermissionError, ValueError) as e:
+            QMessageBox.information(self, "اعمال همه", str(e))
+        self.render()
+
     def _toggled(self, on):
         try:
             self.control.set_live(on)
@@ -118,7 +167,20 @@ class ExecutionPage(ScrollPage):
         self.switch.setChecked(live)
         self.switch.setEnabled(self.control.owner())
         self.switch.blockSignals(False)
-        self.mode_text.setText("واقعی — تأیید خودکار در NBO" if live else "آزمایشی — اپ چیزی در NBO تغییر نمی‌دهد")
+        self.mode_text.setText("«اعمال همه» در جریان است — اپ خودش در NBO ثبت می‌کند" if live
+                               else "آزمایشی — تا «اعمال همه» را نزنی، اپ چیزی در NBO تغییر نمی‌دهد")
+        todo = self.control.ready_cases()
+        kinds = {}
+        for c in todo:
+            kinds[execution.target(c)[0]] = kinds.get(execution.target(c)[0], 0) + 1
+        self.all_count.setText(f"{len(todo)} آماده‌ی اعمال" + (" — " + "، ".join(f"{n} {ACTION_FA[k]}" for k, n in kinds.items())
+                                                              if kinds else ""))
+        busy = bool(self.control.batch) or live
+        owner = self.control.owner()
+        self.b_apply_all.setEnabled(owner and not busy and bool(todo))
+        self.b_rehearse_all.setEnabled(not busy and bool(todo))
+        self.b_stop_all.setEnabled(busy)
+        self.batch_line.setText(self.control.batch_text() or ("" if not live else "در حال اعمال، یکی‌یکی…"))
         self.readiness.setText("دستی: هر کس با حساب NBO خودش، روی یک درخواست. خودکار: فقط مدیر، با سوییچ بالا. "
                                "اپ همان مراحل اسکریپت قدیمی را در صفحه‌ی NBO می‌زند (Assign to me ← Change Status ← گزینه ← دلیل)، "
                                "ولی دکمه‌ی غیرفعال را به‌زور نمی‌زند، دلیل را دقیقاً از فهرست خود NBO انتخاب می‌کند و اگر صفحه مال همان "

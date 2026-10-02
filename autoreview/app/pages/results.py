@@ -79,8 +79,8 @@ class Filter(QSortFilterProxyModel):
 
 
 class ResultsPage(QWidget):
-    title = "نتایج"
-    subtitle = "همه‌ی اجراها و تصمیم‌ها — و دلیل دقیق هر کدام"
+    title = "نتیجه‌ی بررسی‌ها"
+    subtitle = "مرحله‌ی 2 از 5: تصمیم موتور برای هر درخواست، با دلیل و شواهد — خروجی Excel و ارسال به شیت"
 
     def __init__(self, session, shell):
         super().__init__()
@@ -101,7 +101,7 @@ class ResultsPage(QWidget):
         b_xlsx.clicked.connect(self.export_xlsx)
         b_sheet = button("ارسال به شیت من", None, "send")
         b_sheet.clicked.connect(self.send_sheet)
-        b_flow = button("گردش کار دو تیم", None, "list-check")
+        b_flow = button("نظر تیم‌ها", None, "list-check")
         b_flow.clicked.connect(lambda: self.shell.go("workflow"))
         for b in (b_xlsx, b_sheet, b_flow):
             top.addWidget(b)

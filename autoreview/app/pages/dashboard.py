@@ -87,9 +87,9 @@ class DashboardPage(ScrollPage):
 
         # the two-team workflow: every state, open and finished
         flow = Card()
-        b_flow = button("گردش کار", None, "list-check")
+        b_flow = button("نظر تیم‌ها", None, "list-check")
         b_flow.clicked.connect(lambda: shell.go("workflow"))
-        b_exec = button("آماده‌ی تأیید در NBO", "primary", "check")
+        b_exec = button("اعمال در NBO", "primary", "check")
         b_exec.clicked.connect(lambda: shell.go("execution"))
         flow.header("گردش کار دو تیم", "از نظر تیم Online تا تأیید در NBO — هم‌زمان در شیت خودت", right=[b_flow, b_exec])
         self.flow_text = label("", "h2")

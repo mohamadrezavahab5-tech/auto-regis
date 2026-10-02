@@ -44,8 +44,8 @@ class DesktopView(QWebEngineView):
             self.setZoomFactor(max(0.5, min(1.0, width / self.DESKTOP_WIDTH)))
 
 class TriagePage(QWidget):
-    title = "بررسی سریع"
-    subtitle = "درخواست‌های منتظر یک نفر، پشت سر هم — سایت زنده کنارش، با یک کلید تصمیم بگیر"
+    title = "بررسی دستی"
+    subtitle = "مرحله‌ی 4 از 5: درخواست‌هایی که موتور مطمئن نبود، پشت سر هم با سایت زنده کنارش — با یک کلید تصمیم بگیر"
 
     def __init__(self, session, shell):
         super().__init__()

@@ -18,13 +18,15 @@ from .theme import C
 from .web import NboClient, PageRenderer
 from .widgets import Pill, label, ltr, toast
 
+# The work, step by step, in the order it happens (owner 2026-10-02: "it is not clear how Workflow and Review differ";
+# "there is no clear place to apply all / automatically"). The page titles say the same step.
 NAV = [
-    ("WORKSPACE", [("dashboard", "داشبورد", "dashboard"), ("control", "اتاق کنترل", "clock"), ("accuracy", "دقت موتور", "check"),
-             ("review", "بررسی", "review"), ("results", "نتایج", "results"),
-             ("workflow", "گردش کار", "list-check"), ("triage", "بررسی سریع", "play"), ("execution", "کنترل اجرا", "shield"),
-             ("search", "جستجو در مرجع", "search")]),
-    ("SYSTEMS", [("nbo", "NBO", "nbo"), ("crm", "CRM", "crm")]),
-    ("ADMIN", [("connections", "اتصال‌ها", "plug"), ("users", "کاربران", "user"), ("logs", "لاگ‌ها", "logs"), ("settings", "تنظیمات", "settings")]),
+    ("خلاصه", [("dashboard", "داشبورد", "dashboard"), ("control", "اتاق کنترل", "clock"), ("accuracy", "دقت موتور", "check")]),
+    ("روال کار — به ترتیب", [("review", "1  بررسی خودکار", "review"), ("results", "2  نتیجه‌ی بررسی‌ها", "results"),
+                             ("workflow", "3  نظر تیم‌ها", "list-check"), ("triage", "4  بررسی دستی", "play"),
+                             ("execution", "5  اعمال در NBO", "shield")]),
+    ("ابزار", [("search", "جستجو در مرجع", "search"), ("nbo", "NBO", "nbo"), ("crm", "CRM", "crm")]),
+    ("مدیریت", [("connections", "اتصال‌ها", "plug"), ("users", "کاربران", "user"), ("logs", "لاگ‌ها", "logs"), ("settings", "تنظیمات", "settings")]),
 ]
 
 

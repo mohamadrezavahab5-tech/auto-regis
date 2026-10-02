@@ -22,8 +22,8 @@ STATE_FA = {"running": "در حال اجرا", "paused": "متوقف موقت", 
 
 
 class ReviewPage(ScrollPage):
-    title = "بررسی"
-    subtitle = "داده‌ها را به‌روز کن، صف را انتخاب کن و بررسی را اجرا کن"
+    title = "بررسی خودکار"
+    subtitle = "مرحله‌ی 1 از 5: موتور درخواست‌های در انتظار NBO را با قوانین بررسی می‌کند — خودش بعد از هر دریافت NBO، یا اینجا با دست"
 
     def __init__(self, session, shell):
         super().__init__()
