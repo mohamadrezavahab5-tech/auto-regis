@@ -42,7 +42,7 @@ class LoginWindow(QWidget):
         sv.setContentsMargins(40, 48, 40, 40)
         sv.setSpacing(14)
         logo = QLabel()
-        logo.setPixmap(icons.logo_pixmap(64))
+        logo.setPixmap(icons.wordmark_pixmap(72, "#FFFFFF"))           # SnappPay's wordmark on the navy panel
         sv.addWidget(logo)
         sv.addWidget(label("AutoReview", "brand"))
         t = label("بررسی خودکار ثبت‌نام‌های آنلاین — اینماد، سایت، تکراری‌ها و قواعد تیم، با دلیل دقیق NBO برای هر تصمیم.", "railFootText", wrap=True)
@@ -52,7 +52,7 @@ class LoginWindow(QWidget):
                      "داده‌ها و ورودها فقط روی همین کامپیوتر می‌مانند."):
             row = QHBoxLayout()
             ic = QLabel()
-            ic.setPixmap(icons.pixmap("check", "#3FD9B5", 16))
+            ic.setPixmap(icons.pixmap("check", "#7DBBFD", 16))
             row.addWidget(ic)
             row.addWidget(label(line, "railFootText", wrap=True), 1)
             sv.addLayout(row)

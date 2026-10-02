@@ -36,7 +36,7 @@ class Shell(QMainWindow):
         self.session = session
         from .execution_control import ExecutionControl
         self.execution = ExecutionControl(session, self)
-        self.setWindowTitle("AutoReview")
+        self.setWindowTitle("AutoReview — SnappPay")
         self.setWindowIcon(icons.app_icon())
         self.resize(1360, 860)
         self.setMinimumSize(1100, 700)
@@ -122,8 +122,10 @@ class Shell(QMainWindow):
         v.setContentsMargins(14, 18, 14, 16)
         v.setSpacing(4)
         brand = QHBoxLayout()
+        brand.setSpacing(10)
         logo = QLabel()
-        logo.setPixmap(icons.logo_pixmap(38))
+        logo.setPixmap(icons.wordmark_pixmap(46, "#FFFFFF"))      # SnappPay's wordmark, white on the navy rail
+        logo.setToolTip("SnappPay")
         brand.addWidget(logo)
         col = QVBoxLayout()
         col.setSpacing(0)

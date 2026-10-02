@@ -111,10 +111,11 @@ def _rgb(hex_colour):
 
 
 # ---- look (owner 2026-10-02: "pretty and clean") -------------------------------------------------------------------------
-STYLE_MARK, STYLE_VERSION = 'autoreview_style', '1'
-INK, HEAD, TEAM, BAND, SECTION, TABLE_HEAD = '#1B2A24', '#1B4D3E', '#1F4E8C', '#F4F7F5', '#E8F1EC', '#DDE8E2'
-TURN, CONFLICT_BG, MUTED = '#FFF3D0', '#FDE2E1', '#8A8F8C'
-ACTION_COLOURS = {'APPROVE': '#2E7D5B', 'EDIT': '#D99A00', 'CANCEL': '#C8453B', 'MANUAL': '#6E59A5'}
+# version 2: SnappPay's colours (blue #007DFA, navy) like the app; a new version restyles every sheet once
+STYLE_MARK, STYLE_VERSION = 'autoreview_style', '2'
+INK, HEAD, TEAM, BAND, SECTION, TABLE_HEAD = '#101828', '#0B1A33', '#0F7C8C', '#F5F8FC', '#E6F2FF', '#D6E8FF'
+TURN, CONFLICT_BG, MUTED = '#FFF3D0', '#FDE2E1', '#8A94A6'
+ACTION_COLOURS = {'APPROVE': '#1C9553', 'EDIT': '#D99A00', 'CANCEL': '#C93A3A', 'MANUAL': '#6E59A5'}
 # column widths in pixels; None = hidden helper column. The team's own columns get a blue header.
 TABLE_LOOK = {
     OI_TAB: dict(widths=[130, 190, 150, 110, 120, 260, 120, 110, 130, 220, 220, 120, 270, None, None], team=(7, 12),

@@ -1,40 +1,42 @@
 """One visual language for every page: palette, type scale, shapes. Pages only use object names / properties from here.
 
-Palette: a deep petrol rail and a cool green-grey canvas (SnappPay is a fintech brand in the green family); decision colours
-are fixed app-wide - approve green, edit amber, cancel red, manual indigo - and appear identically in tiles, chips, charts
-and the Excel/Sheet output."""
+Palette (owner 2026-10-02: "the look of SnappPay - logo, everything"): SnappPay's own blue #007DFA (the colour of the
+logo on snapppay.ir) on a cool grey canvas, with a navy rail. Decision colours are fixed app-wide - approve green, edit
+amber, cancel red, manual violet - and appear identically in tiles, chips, charts and the Excel/Sheet output; 'info'
+(Instore's turn) is teal, so it never reads as the brand blue of 'ready'."""
 from PySide6.QtCore import QLocale
 from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication
 
+BRAND = "#007DFA"                       # SnappPay blue (snapppay.ir logo)
 LIGHT = {
-    "canvas": "#EEF2F1", "surface": "#FFFFFF", "surface2": "#F6F8F7", "border": "#DCE4E1", "border2": "#C5D1CC",
-    "text": "#12201D", "text2": "#52625C", "text3": "#83928C",
-    "accent": "#0D9C82", "accent_hover": "#0A876F", "accent_press": "#07705C", "accent_soft": "#DFF3EE", "accent_text": "#086A57",
-    "accent_top": "#12AE91", "on_accent": "#FFFFFF", "disabled_accent": "#A9D8CD", "disabled_on_accent": "#F4FBF9",
-    "rail": "#0E292D", "rail2": "#123338", "rail_text": "#C3D8D2", "rail_muted": "#7B9C95", "rail_active": "#1D454A", "rail_hover": "#173A3F",
+    "canvas": "#F2F5FA", "surface": "#FFFFFF", "surface2": "#F7F9FC", "border": "#E1E7F0", "border2": "#CBD5E3",
+    "text": "#101828", "text2": "#4A5565", "text3": "#8A94A6",
+    "accent": BRAND, "accent_hover": "#006AD6", "accent_press": "#0057B0", "accent_soft": "#E6F2FF", "accent_text": "#0063C7",
+    "accent_top": "#2A93FB", "on_accent": "#FFFFFF", "disabled_accent": "#A9CFFA", "disabled_on_accent": "#F3F8FF",
+    "rail": "#0B1A33", "rail2": "#10223F", "rail_text": "#C7D3E6", "rail_muted": "#7E8EAA", "rail_active": "#18315A", "rail_hover": "#132849",
     "approve": "#1C9553", "approve_soft": "#E2F3E8", "edit": "#B27206", "edit_soft": "#FBEFD8",
-    "cancel": "#C93A3A", "cancel_soft": "#FAE3E2", "manual": "#535FC2", "manual_soft": "#E8E9FA",
-    "pending": "#9AA8A3", "pending_soft": "#EDF1EF", "done": "#8A92D8", "duplicate": "#8E3B9C",
-    "warn": "#A8620B", "warn_soft": "#FFF3DE", "danger": "#BF3737", "danger_soft": "#FBE7E6", "info": "#2E6BB8", "info_soft": "#E5EEF9",
+    "cancel": "#C93A3A", "cancel_soft": "#FAE3E2", "manual": "#6E59A5", "manual_soft": "#EEEAF7",
+    "pending": "#98A2B3", "pending_soft": "#EEF1F6", "done": "#8A92D8", "duplicate": "#8E3B9C",
+    "warn": "#A8620B", "warn_soft": "#FFF3DE", "danger": "#BF3737", "danger_soft": "#FBE7E6", "info": "#0F7C8C", "info_soft": "#E1F3F5",
     "banner_border": "#EFD9A8", "banner_text": "#6E4A00", "banner_icon": "#8A5A00",
-    "toast_bg": "#12201D", "toast_text": "#FFFFFF", "knob": "#FFFFFF",
-    "hero_from": "#0E292D", "hero_to": "#0D7F6B", "hero_text": "#FFFFFF", "hero_muted": "#A9D3C9",
+    "toast_bg": "#101828", "toast_text": "#FFFFFF", "knob": "#FFFFFF",
+    "hero_from": "#0B1A33", "hero_to": "#0067D8", "hero_text": "#FFFFFF", "hero_muted": "#B9D3F5",
 }
-# Dark: the same petrol family, lifted for contrast; decision colours keep their meaning, just brighter on a dark ground.
+# Dark: the same navy and blue, lifted for contrast; decision colours keep their meaning, just brighter on a dark ground.
 DARK = {
-    "canvas": "#0A1315", "surface": "#101C1F", "surface2": "#152428", "border": "#1F3237", "border2": "#2A434A",
-    "text": "#E5EEEB", "text2": "#A3B6B0", "text3": "#6E8781",
-    "accent": "#17B496", "accent_hover": "#1FC6A6", "accent_press": "#119279", "accent_soft": "#11302B", "accent_text": "#5ED6BC",
-    "accent_top": "#22C9A8", "on_accent": "#06201B", "disabled_accent": "#1E4A42", "disabled_on_accent": "#7FA79D",
-    "rail": "#060E10", "rail2": "#0B181B", "rail_text": "#B6CCC6", "rail_muted": "#5B7872", "rail_active": "#12302F", "rail_hover": "#0E2426",
+    "canvas": "#0A0F1A", "surface": "#111827", "surface2": "#162033", "border": "#1F2B40", "border2": "#2A3A55",
+    "text": "#E8EEF7", "text2": "#A7B3C6", "text3": "#6F7D94",
+    "accent": "#3D9BFB", "accent_hover": "#5AAAFC", "accent_press": "#2385F0", "accent_soft": "#0F2747", "accent_text": "#7DBBFD",
+    "accent_top": "#55A8FC", "on_accent": "#06162B", "disabled_accent": "#1D3A60", "disabled_on_accent": "#7F95B5",
+    "rail": "#060B14", "rail2": "#0B1322", "rail_text": "#BCC8DA", "rail_muted": "#5F6F88", "rail_active": "#13284A", "rail_hover": "#0F1F38",
     "approve": "#3CC27A", "approve_soft": "#12301F", "edit": "#E3A43C", "edit_soft": "#33280F",
-    "cancel": "#EE6E6E", "cancel_soft": "#3A1B1B", "manual": "#8F98F2", "manual_soft": "#1E2243",
-    "pending": "#6E8781", "pending_soft": "#1A2A2E", "done": "#8A92D8", "duplicate": "#C77BD6",
-    "warn": "#E7A43E", "warn_soft": "#33280F", "danger": "#F07272", "danger_soft": "#3A1B1B", "info": "#6CA9F2", "info_soft": "#132A40",
+    "cancel": "#EE6E6E", "cancel_soft": "#3A1B1B", "manual": "#A893E6", "manual_soft": "#231D3D",
+    "pending": "#6F7D94", "pending_soft": "#172133", "done": "#8A92D8", "duplicate": "#C77BD6",
+    "warn": "#E7A43E", "warn_soft": "#33280F", "danger": "#F07272", "danger_soft": "#3A1B1B", "info": "#4FC3D3", "info_soft": "#0F2C33",
     "banner_border": "#4A3A15", "banner_text": "#F1C977", "banner_icon": "#F1C977",
-    "toast_bg": "#E5EEEB", "toast_text": "#0A1315", "knob": "#E5EEEB",
-    "hero_from": "#0B2A2B", "hero_to": "#0F5E52", "hero_text": "#FFFFFF", "hero_muted": "#9FD0C4",
+    "toast_bg": "#E8EEF7", "toast_text": "#0A0F1A", "knob": "#E8EEF7",
+    "hero_from": "#0B1A33", "hero_to": "#0B4FA0", "hero_text": "#FFFFFF", "hero_muted": "#9DBBE3",
 }
 C = dict(LIGHT)
 MODE = "light"

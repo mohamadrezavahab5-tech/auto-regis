@@ -75,17 +75,56 @@ def icon(name: str, color: str = "#52625C", size: int = 18) -> QIcon:
     return QIcon(pixmap(name, color, size))
 
 
-def logo_image(px: int) -> QImage:
-    """The app mark at exactly px x px: a deep petrol rounded square carrying a mint shield-check (review that protects)."""
+# SnappPay's own marks (owner 2026-10-02: "the look of SnappPay - logo, everything"), as published on snapppay.ir:
+# the 'Snapp! Pay' wordmark (SVG, one colour #007DFA) and the '!' mark (192 px PNG).
+BRAND_BLUE = "#007DFA"
+
+
+def _brand_file(name):
+    from ..paths import assets_dir
+    return assets_dir() / "brand" / name
+
+
+def _tinted(img: QImage, colour: str) -> QImage:
+    """The same shape in one colour (alpha kept)."""
+    out = QImage(img.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    out.fill(Qt.GlobalColor.transparent)
+    p = QPainter(out)
+    p.drawImage(0, 0, img)
+    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    p.fillRect(out.rect(), QColor(colour))
+    p.end()
+    return out
+
+
+def wordmark_pixmap(height: int, colour: str = BRAND_BLUE) -> QPixmap:
+    """The 'Snapp! Pay' wordmark, height px tall (its file is square), in the brand blue or e.g. white on the navy rail."""
+    dpr = 2.0
+    px = int(height * dpr)
     img = QImage(px, px, QImage.Format.Format_ARGB32_Premultiplied)
     img.fill(Qt.GlobalColor.transparent)
     p = QPainter(img)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    QSvgRenderer(QByteArray(_brand_file("snapppay-logo.svg").read_bytes())).render(p, QRectF(0, 0, px, px))
+    p.end()
+    pm = QPixmap.fromImage(_tinted(img, colour) if colour.upper() != BRAND_BLUE else img)
+    pm.setDevicePixelRatio(dpr)
+    return pm
+
+
+def logo_image(px: int) -> QImage:
+    """The app mark at exactly px x px: SnappPay's '!' in white on a rounded square of the brand blue."""
+    img = QImage(px, px, QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(Qt.GlobalColor.transparent)
+    p = QPainter(img)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     path = QPainterPath()
     path.addRoundedRect(QRectF(0, 0, px, px), px * 0.24, px * 0.24)
-    p.fillPath(path, QColor("#0E292D"))
-    inner = QRectF(px * 0.18, px * 0.18, px * 0.64, px * 0.64)
-    QSvgRenderer(QByteArray(svg("shield", "#3FD9B5"))).render(p, inner)
+    p.fillPath(path, QColor(BRAND_BLUE))
+    mark = _tinted(QImage(str(_brand_file("snapppay-fav-192.png"))), "#FFFFFF")
+    inner = QRectF(px * 0.12, px * 0.12, px * 0.76, px * 0.76)
+    p.drawImage(inner, mark)
     p.end()
     return img
 
