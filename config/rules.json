@@ -165,5 +165,9 @@
       "APPROVE"
     ],
     "_note": "What live mode may do in NBO by itself, one request at a time: APPROVE (default) / EDIT / CANCEL. Applying by hand is always possible for any of them."
+  },
+  "appearance": {
+    "theme": "light",
+    "_note": "light | dark - the whole app; applied when the app starts."
   }
 }

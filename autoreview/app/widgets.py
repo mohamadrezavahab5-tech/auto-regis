@@ -52,7 +52,7 @@ def button(text="", kind=None, icon=None, tooltip=None, icon_color=None) -> QPus
     if kind:
         b.setProperty("kind", kind)
     if icon:
-        color = icon_color or ("#FFFFFF" if kind == "primary" else C["text2"])
+        color = icon_color or (C["on_accent"] if kind == "primary" else C["text2"])
         b.setIcon(icons.icon(icon, color, 16))
         b.setIconSize(QSize(16, 16))
     if tooltip:
@@ -527,7 +527,7 @@ class Switch(QAbstractButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = QRectF(1, 1, self.width() - 2, self.height() - 2)
-        on = QColor(C["accent"]) if self.isEnabled() else QColor("#A9D8CD")
+        on = QColor(C["accent"]) if self.isEnabled() else QColor(C["disabled_accent"])
         off = QColor(C["border2"])
         track = QColor(off.red() + (on.red() - off.red()) * self._pos, off.green() + (on.green() - off.green()) * self._pos,
                        off.blue() + (on.blue() - off.blue()) * self._pos)
@@ -541,7 +541,7 @@ class Switch(QAbstractButton):
         # RTL: "on" moves the knob to the left
         x = r.right() - 3 - d - (r.width() - d - 6) * self._pos
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#FFFFFF"))
+        p.setBrush(QColor(C["knob"]))
         p.drawEllipse(QRectF(x, r.top() + 3, d, d))
         p.end()
 
@@ -557,7 +557,7 @@ class Toast(QFrame):
     def __init__(self, parent, text, kind="ok", ms=3800):
         super().__init__(parent)
         color, ic = self.KINDS.get(kind, self.KINDS["info"])
-        self.setStyleSheet(f"QFrame {{ background: {C['text']}; border-radius: 12px; }} QLabel {{ color: #FFFFFF; }}")
+        self.setStyleSheet(f"QFrame {{ background: {C['toast_bg']}; border-radius: 12px; }} QLabel {{ color: {C['toast_text']}; }}")
         lay = QHBoxLayout(self)
         lay.setContentsMargins(14, 10, 16, 10)
         lay.setSpacing(10)

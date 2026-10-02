@@ -166,7 +166,7 @@ class TriagePage(QWidget):
         if samples:
             self.product_view.setUrl(QUrl(samples[0]))
         else:
-            self.product_view.setHtml("<p dir='rtl' style='font-family:Segoe UI;color:#83928C'>صفحه‌ی محصولی پیدا نشده بود.</p>")
+            self.product_view.setHtml(f"<p dir='rtl' style='font-family:Vazirmatn,Segoe UI;color:{C['text3']}'>صفحه‌ی محصولی پیدا نشده بود.</p>")
         self.tabs.setCurrentIndex(0)
         self.setFocus()
 

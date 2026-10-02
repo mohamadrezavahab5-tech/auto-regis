@@ -334,7 +334,10 @@ class SettingsPage(ScrollPage):
                 self, "قرارداد", "قاعده‌ی «Agreement» هنوز تعریف نشده؛ اگر روشن شود همه‌ی درخواست‌ها به بررسی دستی می‌روند. روشن بماند؟") \
                 != QMessageBox.StandardButton.Yes:
             return
-        rejected = settings.save_user(over)
+        current = settings.load_user()                 # keep what other pages saved (theme, automatic NBO actions ...)
+        for file, values in over.items():
+            current.setdefault(file, {}).update(values)
+        rejected = settings.save_user(current)
         self.session.refresh_workflow()                    # the engine-verdict switch applies to open cases right away
         self.session.data_changed.emit()
         toast(self.window(), "تنظیمات ذخیره شد" + (f" ({num(len(rejected))} مورد نامعتبر نادیده گرفته شد)" if rejected else ""))

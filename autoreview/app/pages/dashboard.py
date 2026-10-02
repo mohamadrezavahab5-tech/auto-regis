@@ -1,11 +1,11 @@
 """Dashboard: today's work (done / left / every state), the decision mix, the 14-day trend, why requests went to a person,
 and the count of every NBO and CRM status (what the old Main sheet's dashboard showed)."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
 
-from ... import jalali, store, workflow
+from ... import insights, jalali, store, workflow
 from ...texts import REASON_FA, cause_fa
 from ..session import run_bg
 from .. import theme
@@ -21,6 +21,41 @@ class DashboardPage(ScrollPage):
     def __init__(self, session, shell):
         super().__init__()
         self.session, self.shell = session, shell
+
+        # hero: the four numbers that matter most, on the brand gradient
+        hero = QFrame()
+        hero.setObjectName("hero")
+        hero.setStyleSheet(f"QFrame#hero {{ border-radius: 18px; background: qlineargradient(x1:1, y1:0, x2:0, y2:1, "
+                           f"stop:0 {C['hero_from']}, stop:1 {C['hero_to']}); }}"
+                           f"QFrame#hero QLabel {{ background: transparent; }}")
+        hl = QHBoxLayout(hero)
+        hl.setContentsMargins(26, 20, 26, 20)
+        hl.setSpacing(10)
+        intro = QVBoxLayout()
+        intro.setSpacing(4)
+        self.hero_title = label("", "h2")
+        self.hero_title.setStyleSheet(f"color: {C['hero_text']}; font-size: 19px; font-weight: 700;")
+        self.hero_sub = label("", "caption", wrap=True)
+        self.hero_sub.setStyleSheet(f"color: {C['hero_muted']};")
+        intro.addWidget(self.hero_title)
+        intro.addWidget(self.hero_sub)
+        intro.addStretch(1)
+        hl.addLayout(intro, 3)
+        self.hero_values = {}
+        for key, text in (("ready", "آماده‌ی تأیید در NBO"), ("undecided", "منتظر تصمیم"), ("today", "بررسی امروز"),
+                          ("accuracy", "هم‌نظری با موتور")):
+            box = QVBoxLayout()
+            box.setSpacing(0)
+            val = label("—", "bigNumber")
+            val.setStyleSheet(f"color: {C['hero_text']}; font-size: 34px; font-weight: 700;")
+            cap = label(text, "caption")
+            cap.setStyleSheet(f"color: {C['hero_muted']};")
+            box.addWidget(val)
+            box.addWidget(cap)
+            hl.addSpacing(18)
+            hl.addLayout(box, 2)
+            self.hero_values[key] = val
+        self.body.addWidget(hero)
 
         # today's work
         work = Card()
@@ -145,13 +180,29 @@ class DashboardPage(ScrollPage):
             board = s.board()
             db = s.db()
             try:
-                return {"board": board, "flow": workflow.counts(db), "week": store.totals(db, days=7), "days": store.daily_counts(db, 14),
+                cases = workflow.cases(db)
+                today = datetime.now().astimezone().date().isoformat()
+                reviewed_today = sum(1 for (at,) in db.execute("SELECT decided_at FROM results WHERE decided_at >= ?",
+                                                               ((datetime.now() - timedelta(days=1)).astimezone().isoformat(),))
+                                     if jalali_local_day(at) == today)
+                return {"board": board, "flow": workflow.counts(db), "accuracy": insights.accuracy(cases)["rate"],
+                        "today": reviewed_today, "week": store.totals(db, days=7), "days": store.daily_counts(db, 14),
                         "reasons": store.reason_counts(db, days=30, limit=8), "manual": store.manual_causes(db, days=30, limit=8)}
             finally:
                 db.close()
         run_bg(work, self._show)
 
     def _show(self, d):
+        f = d["flow"]
+        self.hero_values["ready"].setText(num(f.get("READY", 0)))
+        self.hero_values["undecided"].setText(num(sum(f.get(k, 0) for k in ("WAIT_ONLINE", "MANUAL", "CONFLICT", "WAIT_INSTORE"))))
+        self.hero_values["today"].setText(num(d["today"]))
+        self.hero_values["accuracy"].setText(f"{num(d['accuracy'])}%" if d["accuracy"] is not None else "—")
+        hour = datetime.now().hour
+        hello = "صبح بخیر" if 5 <= hour < 12 else ("عصر بخیر" if 12 <= hour < 18 else "شب بخیر")
+        name = (self.session.profile.get("display_name") or "").split(" ")[0]
+        self.hero_title.setText(f"{hello}{('، ' + name) if name else ''}")
+        self.hero_sub.setText(f"{jalali.long_date()} — خلاصه‌ی صف و کار امروز")
         b = d["board"]["backlog"]
         if b["total"]:
             self.ring.set_value(b["percent"], "بررسی‌شده")
@@ -206,3 +257,11 @@ class DashboardPage(ScrollPage):
         m_nbo, m_crm = d["board"]["nbo_meta"], d["board"]["crm_meta"]
         self.nbo_head.setText(f"{num(m_nbo['rows'])} درخواست — {jalali.ago(m_nbo['loaded_at'])}" if m_nbo else "بارگذاری نشده")
         self.crm_head.setText(f"{num(m_crm['rows'])} درخواست — {jalali.ago(m_crm['loaded_at'])}" if m_crm else "بارگذاری نشده")
+
+
+def jalali_local_day(at):
+    """ISO timestamp -> its local calendar day (YYYY-MM-DD), '' when unreadable."""
+    try:
+        return datetime.fromisoformat(str(at).replace("Z", "+00:00")).astimezone().date().isoformat()
+    except ValueError:
+        return ""

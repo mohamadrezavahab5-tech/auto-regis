@@ -13,7 +13,7 @@ NBO_STATUS_FA = {
     "REQUIRED_EDITING": "Required editing", "CANCELLED": "Cancelled", "DRAFT": "Draft",
 }
 STATE_COLORS = {k: v[0] for k, v in theme.STATE.items()}
-STATE_COLORS["DUPLICATE"] = "#8E3B9C"
+STATE_COLORS["DUPLICATE"] = theme.C["duplicate"]
 ACTION_COLORS = {k: v[0] for k, v in theme.ACTION.items()}
 
 

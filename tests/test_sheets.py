@@ -85,3 +85,19 @@ def test_the_teams_shared_sheets_are_unreachable_from_the_app():
         assert "openById" not in text
     assert not any(hasattr(sheets, n) for n in ("oi_write", "oi_describe", "oi_rows"))
     assert "oi" not in sheets.load()
+
+
+def test_saving_one_settings_page_keeps_what_other_pages_saved():
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from autoreview import settings
+    from autoreview.app.pages.settings_page import SettingsPage
+    QApplication.instance() or QApplication([])
+    settings.save_user({"rules": {"appearance.theme": "dark", "execution.auto_actions": ["APPROVE", "EDIT"]}})
+    page = SettingsPage(type("S", (), {"refresh_workflow": lambda self: None,
+                                        "data_changed": type("Sig", (), {"emit": lambda self: None})()})(), None)
+    page.on_show()
+    page.save()
+    rules = settings.load_user()["rules"]
+    assert rules["appearance.theme"] == "dark" and rules["execution.auto_actions"] == ["APPROVE", "EDIT"]

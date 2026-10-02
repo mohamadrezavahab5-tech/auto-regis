@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QMainW
 
 from .. import crm_sync, google_credentials, jalali, reference, settings, sheets, updates
 from ..version import __version__
-from . import icons
+from . import icons, theme
 from .session import run_bg
 from .theme import C
 from .web import NboClient, PageRenderer
@@ -52,7 +52,6 @@ class Shell(QMainWindow):
         v.setContentsMargins(26, 18, 26, 14)
         v.setSpacing(14)
         v.addWidget(self._topbar())
-        v.addWidget(self._banner())
         self.stack = QStackedWidget()
         v.addWidget(self.stack, 1)
         h.addWidget(content, 1)
@@ -208,25 +207,54 @@ class Shell(QMainWindow):
         col.addWidget(self.title)
         col.addWidget(self.subtitle)
         h.addLayout(col, 1)
+        self.mode_chip = QPushButton("")
+        self.mode_chip.setProperty("kind", "chip")
+        self.mode_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mode_chip.clicked.connect(lambda: self.go("execution"))
+        h.addWidget(self.mode_chip, 0, Qt.AlignmentFlag.AlignVCenter)
+        h.addSpacing(10)
         self.date = label("", "muted")
         h.addWidget(self.date)
+        h.addSpacing(6)
+        self.theme_button = QPushButton()
+        self.theme_button.setProperty("kind", "ghost")
+        self.theme_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_button.setIcon(icons.icon("sun" if theme.MODE == "dark" else "moon", C["text2"], 18))
+        self.theme_button.setIconSize(QSize(18, 18))
+        self.theme_button.setToolTip("حالت روشن" if theme.MODE == "dark" else "حالت تاریک")
+        self.theme_button.clicked.connect(self.toggle_theme)
+        h.addWidget(self.theme_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.execution.changed.connect(self._mode_chip)
+        self._mode_chip()
         return bar
 
-    def _banner(self):
-        b = QFrame()
-        b.setObjectName("banner")
-        h = QHBoxLayout(b)
-        h.setContentsMargins(14, 8, 14, 8)
-        ic = QLabel()
-        ic.setPixmap(icons.pixmap("shield", "#8A5A00", 18))
-        h.addWidget(ic)
-        self.mode_banner = label(self.execution.summary, "bannerText", wrap=True)
-        self.execution.changed.connect(lambda: self.mode_banner.setText(self.execution.summary))
-        h.addWidget(self.mode_banner, 1)
-        control_button = QPushButton("کنترل اجرا")
-        control_button.clicked.connect(lambda: self.go("execution"))
-        h.addWidget(control_button)
-        return b
+    def _mode_chip(self):
+        live = self.execution.mode.live
+        self.mode_chip.setText("● واقعی — اپ در NBO ثبت می‌کند" if live else "● آزمایشی")
+        fg, bg = (C["danger"], C["danger_soft"]) if live else (C["banner_text"], C["warn_soft"])
+        self.mode_chip.setStyleSheet(f"QPushButton {{ color: {fg}; background: {bg}; border: 1px solid {bg}; border-radius: 13px; "
+                                     f"padding: 4px 12px; font-weight: 600; }} QPushButton:hover {{ border-color: {fg}; }}")
+        self.mode_chip.setToolTip(self.execution.summary + " — برای کنترل اجرا کلیک کن")
+
+    def toggle_theme(self):
+        """Light <-> dark for the whole app; the palette is read when windows are built, so the app reopens itself."""
+        new = "light" if theme.MODE == "dark" else "dark"
+        over = settings.load_user()
+        over.setdefault("rules", {})["appearance.theme"] = new
+        settings.save_user(over)
+        if not getattr(sys, "frozen", False):
+            toast(self, "حالت جدید با باز کردن دوباره‌ی برنامه اعمال می‌شود")
+            return
+        r = self.session.runner
+        if r and r.is_active():
+            toast(self, "بعد از تمام شدن بررسی در جریان، برنامه را دوباره باز کن تا حالت جدید اعمال شود", "info")
+            return
+        exe = sys.executable
+        import subprocess
+        # start again a moment after this window has closed (one AutoReview per Windows user)
+        subprocess.Popen(["cmd", "/c", "ping", "127.0.0.1", "-n", "3", ">nul", "&", "start", "", exe],
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), close_fds=True)
+        self.quit_fully()
 
     def _status(self):
         sb = QStatusBar()
