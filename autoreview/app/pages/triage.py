@@ -87,13 +87,13 @@ class TriagePage(QWidget):
         bar.setProperty("card", "true")
         b = QHBoxLayout(bar)
         b.setContentsMargins(14, 10, 14, 10)
-        self.b_ok = button("تأیید  (۱)", "primary", "check")
+        self.b_ok = button("تأیید  (1)", "primary", "check")
         self.b_ok.clicked.connect(lambda: self.decide("APPROVE"))
-        self.b_edit = button("اصلاح  (۲)", None, "alert")
+        self.b_edit = button("اصلاح  (2)", None, "alert")
         self.b_edit.clicked.connect(lambda: self.ask_reason("EDIT"))
-        self.b_cancel = button("لغو  (۳)", "danger", "x")
+        self.b_cancel = button("لغو  (3)", "danger", "x")
         self.b_cancel.clicked.connect(lambda: self.ask_reason("CANCEL"))
-        self.b_skip = button("رد شدن  (۴)", None, "back")
+        self.b_skip = button("رد شدن  (4)", None, "back")
         self.b_skip.clicked.connect(lambda: self.move(1))
         self.reason = QComboBox()
         self.reason.setMinimumWidth(300)
@@ -186,7 +186,7 @@ class TriagePage(QWidget):
         head.lay.addWidget(label(ltr(html.escape(c.get("site") or "")), "muted", selectable=True))
         created = self.created.get(c["smr"])
         head.lay.addWidget(label(" • ".join(x for x in (
-            "آنلاین + حضوری" if c["channel"] == "both" else "فقط آنلاین", html.escape(c.get("category") or ""),
+            "Online + Instore" if c["channel"] == "both" else "Online", html.escape(c.get("category") or ""),
             f"ثبت در NBO: {jalali.fa_digits(created)}" if created else "") if x), "caption", wrap=True))
         b_open = button("باز کردن در مرورگر", None, "external")
         b_open.clicked.connect(lambda: QDesktopServices.openUrl(self.site_view.url()))

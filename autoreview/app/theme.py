@@ -32,7 +32,23 @@ WORKFLOW = {
     "READY": (C["accent_text"], C["accent_soft"]), "DONE_APPROVED": ACTION["APPROVE"], "DONE_CLOSED": (C["text3"], C["surface2"]),
     "OUT_OF_SCOPE": (C["text3"], C["surface2"]),
 }
-FAMILY = "Segoe UI"
+FAMILY = "Segoe UI"                    # replaced by Vazirmatn once load_fonts() found the bundled files
+
+
+def load_fonts() -> str:
+    """Vazirmatn (SIL Open Font License, assets/fonts/OFL.txt): made for Persian interfaces, with clean Latin letters and
+    digits. Bundled with the app, never installed into Windows. Falls back to Segoe UI if anything is missing."""
+    global FAMILY
+    from PySide6.QtGui import QFontDatabase
+    from ..paths import assets_dir
+    families = set()
+    for f in sorted((assets_dir() / "fonts").glob("Vazirmatn-*.ttf")):
+        fid = QFontDatabase.addApplicationFont(str(f))
+        if fid >= 0:
+            families.update(QFontDatabase.applicationFontFamilies(fid))
+    if "Vazirmatn" in families:
+        FAMILY = "Vazirmatn"
+    return FAMILY
 
 
 def font(size=13, weight=QFont.Weight.Normal) -> QFont:
@@ -59,12 +75,12 @@ QPushButton#railItem {{ background: transparent; color: {c['rail_text']}; border
 QPushButton#railItem:hover {{ background: {c['rail_hover']}; color: #FFFFFF; }}
 QPushButton#railItem:checked {{ background: {c['rail_active']}; color: #FFFFFF; font-weight: 600; }}
 QPushButton#railItem:focus {{ border: 1px solid {c['accent']}; }}
-QLabel#railSection {{ color: {c['rail_muted']}; font-size: 11px; padding: 10px 14px 4px 14px; }}
+QLabel#railSection {{ color: {c['rail_muted']}; font-size: 10px; font-weight: 600; padding: 12px 14px 4px 14px; }}
 QFrame#railFoot {{ background: {c['rail2']}; border-radius: 12px; }}
 QLabel#railFootText {{ color: {c['rail_text']}; font-size: 12px; }}
 
 QFrame#topbar {{ background: transparent; }}
-QLabel#pageTitle {{ font-size: 21px; font-weight: 700; color: {c['text']}; }}
+QLabel#pageTitle {{ font-size: 22px; font-weight: 700; color: {c['text']}; }}
 QLabel#pageSub {{ color: {c['text2']}; font-size: 12px; }}
 QLabel#h2 {{ font-size: 15px; font-weight: 600; color: {c['text']}; }}
 QLabel#h3 {{ font-size: 13px; font-weight: 600; color: {c['text']}; }}
@@ -73,7 +89,7 @@ QLabel#caption {{ color: {c['text3']}; font-size: 12px; }}
 QLabel#bigNumber {{ font-size: 30px; font-weight: 700; }}
 QLabel#mono {{ font-family: 'Consolas'; font-size: 12px; color: {c['text2']}; }}
 
-QFrame[card="true"] {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 14px; }}
+QFrame[card="true"] {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 16px; }}
 QFrame[card="soft"] {{ background: {c['surface2']}; border: 1px solid {c['border']}; border-radius: 12px; }}
 QFrame#banner {{ background: {c['warn_soft']}; border: 1px solid #EFD9A8; border-radius: 12px; }}
 QLabel#bannerText {{ color: #6E4A00; }}
@@ -84,8 +100,9 @@ QPushButton:hover {{ background: {c['surface2']}; border-color: {c['accent']}; }
 QPushButton:pressed {{ background: {c['accent_soft']}; }}
 QPushButton:focus {{ border: 2px solid {c['accent']}; padding: 6px 13px; }}
 QPushButton:disabled {{ color: {c['text3']}; background: {c['surface2']}; border-color: {c['border']}; }}
-QPushButton[kind="primary"] {{ background: {c['accent']}; color: #FFFFFF; border: none; font-weight: 600; padding: 8px 18px; }}
-QPushButton[kind="primary"]:hover {{ background: {c['accent_hover']}; }}
+QPushButton[kind="primary"] {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #12AE91, stop:1 {c['accent']}); color: #FFFFFF;
+    border: none; font-weight: 600; padding: 8px 18px; }}
+QPushButton[kind="primary"]:hover {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {c['accent']}, stop:1 {c['accent_hover']}); }}
 QPushButton[kind="primary"]:pressed {{ background: {c['accent_press']}; }}
 QPushButton[kind="primary"]:focus {{ border: 2px solid {c['text']}; padding: 6px 16px; }}
 QPushButton[kind="primary"]:disabled {{ background: #A9D8CD; color: #F4FBF9; }}
@@ -141,7 +158,8 @@ QLabel#pill {{ border-radius: 10px; padding: 2px 10px; font-size: 12px; }}
 
 
 def apply(app: QApplication) -> None:
-    QLocale.setDefault(QLocale(QLocale.Language.Persian, QLocale.Country.Iran))      # number boxes show ۱۵۰, not 150
+    QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))   # number boxes: English digits (owner 2026-10-02)
+    load_fonts()
     app.setStyle("Fusion")
     pal = QPalette()
     pal.setColor(QPalette.ColorRole.Window, QColor(C["canvas"]))

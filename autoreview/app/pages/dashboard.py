@@ -68,7 +68,7 @@ class DashboardPage(ScrollPage):
         # decision tiles (last 7 days)
         tiles = QHBoxLayout()
         tiles.setSpacing(14)
-        self.t_approve = StatTile("تایید (۷ روز)", ACTION_COLORS["APPROVE"], C["approve_soft"], "check")
+        self.t_approve = StatTile("تایید (7 روز)", ACTION_COLORS["APPROVE"], C["approve_soft"], "check")
         self.t_edit = StatTile("نیاز به اصلاح", ACTION_COLORS["EDIT"], C["edit_soft"], "alert")
         self.t_cancel = StatTile("لغو", ACTION_COLORS["CANCEL"], C["cancel_soft"], "x")
         self.t_manual = StatTile("بررسی دستی", ACTION_COLORS["MANUAL"], C["manual_soft"], "user")
@@ -80,7 +80,7 @@ class DashboardPage(ScrollPage):
         grid = QGridLayout()
         grid.setSpacing(14)
         trend = Card()
-        trend.header("روند ۱۴ روز اخیر", "تعداد تصمیم‌ها در هر روز")
+        trend.header("روند 14 روز اخیر", "تعداد تصمیم‌ها در هر روز")
         self.daily = DailyBars(("APPROVE", "EDIT", "CANCEL", "MANUAL"), ACTION_COLORS)
         trend.lay.addWidget(self.daily)
         lg = Legend(show_counts=False)
@@ -89,7 +89,7 @@ class DashboardPage(ScrollPage):
         trend.lay.addWidget(lg)
         grid.addWidget(trend, 0, 0)
         mix = Card()
-        mix.header("سهم تصمیم‌ها", "۷ روز اخیر")
+        mix.header("سهم تصمیم‌ها", "7 روز اخیر")
         mrow = QHBoxLayout()
         self.donut = Donut(170)
         mrow.addWidget(self.donut)
@@ -102,12 +102,12 @@ class DashboardPage(ScrollPage):
         grid.addWidget(mix, 0, 1)
 
         reasons = Card()
-        reasons.header("پرتکرارترین دلیل‌های اصلاح و لغو", "۳۰ روز اخیر، با متن خود NBO")
+        reasons.header("پرتکرارترین دلیل‌های اصلاح و لغو", "30 روز اخیر، با متن خود NBO")
         self.reasons = BarList(C["edit"])
         reasons.lay.addWidget(self.reasons)
         grid.addWidget(reasons, 1, 0)
         manual = Card()
-        manual.header("چرا به بررسی دستی رفت", "۳۰ روز اخیر — راهنمای اینکه کدام قاعده یا داده باید کامل شود")
+        manual.header("چرا به بررسی دستی رفت", "30 روز اخیر — راهنمای اینکه کدام قاعده یا داده باید کامل شود")
         self.manual = BarList(C["manual"])
         manual.lay.addWidget(self.manual)
         grid.addWidget(manual, 1, 1)
@@ -165,7 +165,7 @@ class DashboardPage(ScrollPage):
         self.bar.set_parts([(n, c) for _, n, c in items])
         self.legend.set_items(items)
         both = d["board"]["both"]
-        self.both_text.setText(f"صف آنلاین + حضوری: {num(both['reviewed'])} از {num(both['total'])} بررسی شده، {num(both['left'])} مانده.")
+        self.both_text.setText(f"صف Online + Instore: {num(both['reviewed'])} از {num(both['total'])} بررسی شده، {num(both['left'])} مانده.")
         f = d["flow"]
         order = ("WAIT_ONLINE", "MANUAL", "WAIT_INSTORE", "CONFLICT", "EDIT", "CANCEL", "READY", "DONE_APPROVED", "DONE_CLOSED")
         items = [(workflow.STATES[k].split("؛")[0], f.get(k, 0), theme.WORKFLOW[k][0]) for k in order]
@@ -193,7 +193,7 @@ class DashboardPage(ScrollPage):
                 it.widget().deleteLater()
         total = max(1, w["total"])
         for k, text in (("APPROVE", "تایید"), ("EDIT", "نیاز به اصلاح"), ("CANCEL", "لغو"), ("MANUAL", "بررسی دستی")):
-            pct = jalali.fa_digits(f"{100 * counts[k] / total:.0f}") + "٪"
+            pct = jalali.fa_digits(f"{100 * counts[k] / total:.0f}") + "%"
             row = label(f"<span style='color:{ACTION_COLORS[k]}; font-size:16px'>●</span>&nbsp; {text}: <b>{num(counts[k])}</b> "
                         f"<span style='color:{C['text3']}'>({pct})</span>")
             self.mix_legend.addWidget(row)

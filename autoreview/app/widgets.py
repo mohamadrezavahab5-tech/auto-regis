@@ -68,11 +68,14 @@ def hline() -> QFrame:
 
 
 def num(n, decimals=0) -> str:
-    """Persian digits, Persian thousands and decimal separators: 12345 -> '۱۲٬۳۴۵', 9.8 -> '۹٫۸'."""
+    """12345 -> '12,345', 9.8 -> '9.8' (Persian digits and separators only when jalali.DIGITS = 'persian')."""
+    from .. import jalali
     if n is None:
         return "—"
     s = f"{n:,.{decimals}f}" if decimals else f"{int(round(n)):,}"
-    return fa_digits(s.replace(",", "٬").replace(".", "٫"))
+    if jalali.DIGITS == "persian":
+        s = s.replace(",", "٬").replace(".", "٫")
+    return fa_digits(s)
 
 
 class Card(QFrame):
@@ -192,7 +195,7 @@ class StatTile(QFrame):
             self.value.setText("—")
             return
         if n == self._shown:
-            self.value.setText(num(int(n)))                 # a real 0 must read ۰, never the 'no data' dash
+            self.value.setText(num(int(n)))                 # a real 0 must read 0, never the 'no data' dash
             return
         self._anim.stop()
         self._anim.setStartValue(self._shown)
@@ -293,7 +296,7 @@ class Ring(_Animated):
         p.setPen(QColor(C["text"]))
         p.setFont(theme.font(24, QFont.Weight.Bold))
         p.drawText(QRectF(0, self.height() / 2 - 26, self.width(), 32), Qt.AlignmentFlag.AlignCenter,
-                   fa_digits(f"{self.value * self._p:.0f}") + "٪")
+                   fa_digits(f"{self.value * self._p:.0f}") + "%")
         if self.caption:
             p.setPen(QColor(C["text3"]))
             p.setFont(theme.font(11))

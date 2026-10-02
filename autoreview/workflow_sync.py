@@ -17,7 +17,7 @@ def sync(db, cfg=None, client=None):
         return sheets._post(url, dict(secret=cfg['secret'], action=action, **values), client)
     info = post('ping')
     if info.get('version', 0) < 3 or info.get('sheet_id') != cfg.get('own_sheet_id'):
-        raise sheets.SheetError('اسکریپت نسخه ۳ را در شیت اختصاصی نصب و دوباره Deploy کن')
+        raise sheets.SheetError('اسکریپت نسخه 3 را در شیت اختصاصی نصب و دوباره Deploy کن')
     # Publish current revisions before accepting human commands based on them.
     sent = workflow.pending(db)
     result = post('workflow_sync', **sent)

@@ -94,7 +94,7 @@ class ExecutionPage(ScrollPage):
         self.body.addWidget(ledger)
 
         crm = Card(soft=True)
-        crm.header("تأیید در CRM — مرحله‌ی بعد", "فیلد new_merchantstatus = ۱۰۰۰۰۰۰۰۵ «درخواست تایید شده است»")
+        crm.header("تأیید در CRM — مرحله‌ی بعد", "فیلد new_merchantstatus = 100000005 «درخواست تایید شده است»")
         crm.lay.addWidget(label("فیلد و مقدار ثبت شده؛ اجرای خودکار CRM خاموش است تا دسترسی تأیید CRM بگیری و مسیر رسمی‌اش "
                                 "بررسی شود. تأیید NBO به معنی تأیید CRM نیست.", "muted", wrap=True))
         self.body.addWidget(crm)
@@ -152,7 +152,7 @@ class ExecutionPage(ScrollPage):
         self.ready_list.clear()
         for c in actionable:
             act = ACTION_FA[execution.target(c)[0]]
-            item = QListWidgetItem(f"{act}   •   {ltr(c['smr'])}   •   {'آنلاین + حضوری' if c['channel'] == 'both' else 'فقط آنلاین'}   •   "
+            item = QListWidgetItem(f"{act}   •   {ltr(c['smr'])}   •   {'Online + Instore' if c['channel'] == 'both' else 'Online'}   •   "
                                    f"{ltr(c.get('site') or '')}   •   از {jalali.ago(c.get('updated_at'))}")
             item.setData(Qt.ItemDataRole.UserRole, c["smr"])
             self.ready_list.addItem(item)

@@ -39,6 +39,10 @@ def scripts_dir() -> Path:
     return _shipped("scripts")
 
 
+def assets_dir() -> Path:
+    return _shipped("assets")
+
+
 def user_dir() -> Path:
     env = os.environ.get("AUTOREVIEW_HOME")
     if env:

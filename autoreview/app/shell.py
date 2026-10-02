@@ -16,15 +16,15 @@ from . import icons
 from .session import run_bg
 from .theme import C
 from .web import NboClient, PageRenderer
-from .widgets import Pill, label, toast
+from .widgets import Pill, label, ltr, toast
 
 NAV = [
-    ("کار", [("dashboard", "داشبورد", "dashboard"), ("control", "اتاق کنترل", "clock"), ("accuracy", "دقت موتور", "check"),
+    ("WORKSPACE", [("dashboard", "داشبورد", "dashboard"), ("control", "اتاق کنترل", "clock"), ("accuracy", "دقت موتور", "check"),
              ("review", "بررسی", "review"), ("results", "نتایج", "results"),
              ("workflow", "گردش کار", "list-check"), ("triage", "بررسی سریع", "play"), ("execution", "کنترل اجرا", "shield"),
              ("search", "جستجو در مرجع", "search")]),
-    ("سامانه‌ها", [("nbo", "NBO", "nbo"), ("crm", "CRM", "crm")]),
-    ("مدیریت", [("connections", "اتصال‌ها", "plug"), ("users", "کاربران", "user"), ("logs", "لاگ‌ها", "logs"), ("settings", "تنظیمات", "settings")]),
+    ("SYSTEMS", [("nbo", "NBO", "nbo"), ("crm", "CRM", "crm")]),
+    ("ADMIN", [("connections", "اتصال‌ها", "plug"), ("users", "کاربران", "user"), ("logs", "لاگ‌ها", "logs"), ("settings", "تنظیمات", "settings")]),
 ]
 
 
@@ -129,7 +129,7 @@ class Shell(QMainWindow):
         col = QVBoxLayout()
         col.setSpacing(0)
         col.addWidget(label("AutoReview", "brand"))
-        col.addWidget(label("بررسی خودکار ثبت‌نام‌های آنلاین", "brandSub"))
+        col.addWidget(label("Online merchant review", "brandSub"))
         brand.addLayout(col, 1)
         v.addLayout(brand)
         v.addSpacing(14)
@@ -195,6 +195,12 @@ class Shell(QMainWindow):
         bar.setObjectName("topbar")
         h = QHBoxLayout(bar)
         h.setContentsMargins(0, 0, 0, 0)
+        self.page_icon = QLabel()
+        self.page_icon.setFixedSize(44, 44)
+        self.page_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.page_icon.setStyleSheet(f"background: {C['accent_soft']}; border-radius: 13px;")
+        h.addWidget(self.page_icon, 0, Qt.AlignmentFlag.AlignVCenter)
+        h.addSpacing(10)
         col = QVBoxLayout()
         col.setSpacing(2)
         self.title = label("", "pageTitle")
@@ -233,7 +239,7 @@ class Shell(QMainWindow):
         self.update_button.setVisible(False)
         self.update_button.clicked.connect(self.start_update)
         sb.addPermanentWidget(self.update_button)
-        sb.addPermanentWidget(label(f"نسخه {jalali.fa_digits(__version__)}", "caption"))
+        sb.addPermanentWidget(label(f"v{__version__}", "caption"))
 
     def _update_status(self):
         b = self.session
@@ -245,27 +251,27 @@ class Shell(QMainWindow):
 
         def show(pill, name, meta, busy):
             if busy:
-                pill.set(f"{name}: در حال دریافت…", C["info"], C["info_soft"])
+                pill.set(ltr(f"{name} · syncing…"), C["info"], C["info_soft"])
             elif not meta:
-                pill.set(f"{name}: بارگذاری نشده", C["danger"], C["danger_soft"])
+                pill.set(ltr(f"{name} · not loaded"), C["danger"], C["danger_soft"])
             else:
                 fresh = not reference.is_stale(meta)
-                pill.set(f"{name}: {jalali.ago(meta['loaded_at'])}", C["approve"] if fresh else C["warn"],
+                pill.set(ltr(f"{name} · {jalali.ago_en(meta['loaded_at'])}"), C["approve"] if fresh else C["warn"],
                          C["approve_soft"] if fresh else C["warn_soft"])
         show(self.pill_nbo, "NBO", m_nbo, "nbo" in b.busy)
         show(self.pill_crm, "CRM", m_crm, "crm" in b.busy)
         cfg = sheets.load()
         connected = cfg.get("webapp_url") or cfg.get("auth_mode") in ("service_account", "workspace")
         if "sheet" in b.busy or "workflow" in b.busy:
-            self.pill_sheet.set("شیت: در حال همگام‌سازی…", C["info"], C["info_soft"])
+            self.pill_sheet.set(ltr("Sheet · syncing…"), C["info"], C["info_soft"])
         elif not connected:
-            self.pill_sheet.set("شیت: وصل نشده", C["text2"], C["surface2"])
+            self.pill_sheet.set(ltr("Sheet · not connected"), C["text2"], C["surface2"])
         elif not cfg.get("workflow_sync"):
-            self.pill_sheet.set("شیت: وصل — همگام‌سازی خاموش", C["warn"], C["warn_soft"])
+            self.pill_sheet.set(ltr("Sheet · sync off"), C["warn"], C["warn_soft"])
         elif b.workflow_sync_status.startswith("همگام‌سازی ناموفق"):
-            self.pill_sheet.set("شیت: قطع — تلاش دوباره", C["danger"], C["danger_soft"])
+            self.pill_sheet.set(ltr("Sheet · offline, retrying"), C["danger"], C["danger_soft"])
         else:
-            self.pill_sheet.set("شیت: همگام", C["approve"], C["approve_soft"])
+            self.pill_sheet.set(ltr("Sheet · synced"), C["approve"], C["approve_soft"])
         self.pill_sheet.setToolTip(b.workflow_sync_status)
 
     def _tick(self):
@@ -281,6 +287,8 @@ class Shell(QMainWindow):
         self.buttons[key].setChecked(True)
         self.stack.setCurrentWidget(page)
         self.title.setText(page.title)
+        icon = next((ic for _s, items in NAV for k, _t, ic in items if k == key), "dashboard")
+        self.page_icon.setPixmap(icons.pixmap(icon, C["accent_text"], 22))
         self.subtitle.setText(page.subtitle)
         if hasattr(page, "on_show"):
             page.on_show()

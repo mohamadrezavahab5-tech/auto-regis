@@ -63,7 +63,7 @@ class FlowModel(QAbstractTableModel):
         c = index.column()
         st = r.get("state") or workflow.state(r)
         if role == Qt.ItemDataRole.DisplayRole:
-            return (ltr(r["smr"]), "آنلاین + حضوری" if r["channel"] == "both" else "فقط آنلاین", ltr(r.get("site") or ""),
+            return (ltr(r["smr"]), "Online + Instore" if r["channel"] == "both" else "Online", ltr(r.get("site") or ""),
                     verdict_text(r.get("online")), verdict_text(r.get("instore"), r["channel"] == "both"),
                     short(st), jalali.ago(r.get("updated_at")))[c]
         if role == Qt.ItemDataRole.EditRole:                       # sort key
@@ -174,7 +174,7 @@ class WorkflowPage(QWidget):
         hh = self.table.horizontalHeader()
         hh.setStretchLastSection(True)
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        for i, w in enumerate((118, 106, 140, 130, 122, 150)):
+        for i, w in enumerate((118, 132, 140, 130, 122, 150)):
             self.table.setColumnWidth(i, w)
         self.table.selectionModel().selectionChanged.connect(self._selected)
         split.addWidget(self.table)
@@ -234,13 +234,13 @@ class WorkflowPage(QWidget):
         cfg = sheets.load()
         pending = getattr(self, "_pending", 0)
         if "workflow" in s.busy:
-            self.sync_pill.set("شیت: در حال همگام‌سازی…", C["info"], C["info_soft"])
+            self.sync_pill.set(ltr("Sheet · syncing…"), C["info"], C["info_soft"])
         elif not cfg.get("workflow_sync"):
-            self.sync_pill.set("شیت: خاموش", C["text2"], C["surface2"])
+            self.sync_pill.set(ltr("Sheet · sync off"), C["text2"], C["surface2"])
         elif s.workflow_sync_status.startswith("همگام‌سازی ناموفق"):
-            self.sync_pill.set("شیت: قطع", C["danger"], C["danger_soft"])
+            self.sync_pill.set(ltr("Sheet · offline"), C["danger"], C["danger_soft"])
         else:
-            self.sync_pill.set("شیت: همگام", C["approve"], C["approve_soft"])
+            self.sync_pill.set(ltr("Sheet · synced"), C["approve"], C["approve_soft"])
         self.sync_text.setText(s.workflow_sync_status + (f" — {num(pending)} پرونده منتظر ارسال" if pending else ""))
 
     def _chip(self, key):
@@ -285,8 +285,8 @@ class WorkflowPage(QWidget):
         t.addWidget(Pill(short(st), fg, bg))
         head.lay.addLayout(t)
         head.lay.addWidget(label(ltr(html.escape(r.get("site") or "")), "muted", selectable=True))
-        head.lay.addWidget(label(("آنلاین + حضوری — تأیید هر دو تیم لازم است" if r["channel"] == "both"
-                                  else "فقط آنلاین — نظر تیم Online کافی است") +
+        head.lay.addWidget(label(("Online + Instore — تأیید هر دو تیم لازم است" if r["channel"] == "both"
+                                  else "Online — نظر تیم Online کافی است") +
                                  (f" • {html.escape(r.get('category') or '')}" if r.get("category") else ""), "caption", wrap=True))
         head.lay.addWidget(label(self._next_step(r, st), "h3", wrap=True))
         v.addWidget(head)

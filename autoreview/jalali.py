@@ -6,6 +6,7 @@ from datetime import datetime
 MONTHS = ("فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند")
 WEEKDAYS = ("دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه", "یکشنبه")      # index = date.weekday()
 _FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+_LATIN = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
 
 def g2j(gy: int, gm: int, gd: int):
@@ -50,9 +51,6 @@ def j2g(jy: int, jm: int, jd: int):
     return gy, 12, 31
 
 
-_LATIN = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
-
-
 def parse_jdate(text):
     """'۱۴۰۵/۰۷/۰۹' or '1405-7-9' -> datetime.date, or None when it is not a Jalali date."""
     import re
@@ -69,8 +67,15 @@ def parse_jdate(text):
         return None
 
 
+# Owner 2026-10-02: "where Persian is not needed, English" - numbers are shown with English digits (cleaner in tables and
+# big numbers, and the Persian zero '۰' read like a bullet). One switch for the whole app: 'latin' or 'persian'.
+DIGITS = "latin"
+
+
 def fa_digits(value) -> str:
-    return str(value).translate(_FA_DIGITS)
+    """Digits for display (the name is historical): English digits by default, Persian when DIGITS = 'persian'."""
+    s = str(value)
+    return s.translate(_FA_DIGITS) if DIGITS == "persian" else s.translate(_LATIN)
 
 
 def _local(dt) -> datetime:
@@ -120,3 +125,17 @@ def ago(dt, now=None) -> str:
         return f"{fa_digits(int(secs // 3600))} ساعت پیش"
     days = (now.date() - d.date()).days
     return "دیروز" if days == 1 else f"{fa_digits(days)} روز پیش"
+
+
+def ago_en(dt, now=None) -> str:
+    """Short relative age for status chips: 'just now' / '5m ago' / '3h ago' / '2d ago'."""
+    if not dt:
+        return "—"
+    secs = ((now or datetime.now()).astimezone() - _local(dt)).total_seconds()
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        return f"{int(secs // 60)}m ago"
+    if secs < 86400:
+        return f"{int(secs // 3600)}h ago"
+    return f"{int(secs // 86400)}d ago"

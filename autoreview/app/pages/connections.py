@@ -27,12 +27,12 @@ def col_letter(n: int) -> str:
     return s
 
 
-SHEET_STEPS = ("۱. شیت خودت را باز کن (همان «AutoReview - Results») و از منوی «Extensions» گزینه‌ی «Apps Script» را بزن.\n"
-               "۲. از اسکریپت قبلی نسخه پشتیبان بگیر؛ کد AutoReview را با «کپی کد اسکریپت» به نسخه جدید به‌روز کن و Save بزن.\n"
-               "۳. دکمه‌ی «Deploy» و بعد «New deployment» را بزن و نوع را «Web app» بگذار.\n"
-               "۴. در «Execute as» گزینه‌ی «Me» و در «Who has access» گزینه‌ی «Anyone» را انتخاب کن و «Deploy» را بزن.\n"
-               "۵. گوگل اجازه می‌خواهد: حساب خودت را انتخاب کن و «Allow» را بزن (اسکریپت مال خودت است).\n"
-               "۶. «Web app URL» را کپی کن، در کادر زیر بچسبان و «تست» را بزن.")
+SHEET_STEPS = ("1. شیت خودت را باز کن (همان «AutoReview - Results») و از منوی «Extensions» گزینه‌ی «Apps Script» را بزن.\n"
+               "2. از اسکریپت قبلی نسخه پشتیبان بگیر؛ کد AutoReview را با «کپی کد اسکریپت» به نسخه جدید به‌روز کن و Save بزن.\n"
+               "3. دکمه‌ی «Deploy» و بعد «New deployment» را بزن و نوع را «Web app» بگذار.\n"
+               "4. در «Execute as» گزینه‌ی «Me» و در «Who has access» گزینه‌ی «Anyone» را انتخاب کن و «Deploy» را بزن.\n"
+               "5. گوگل اجازه می‌خواهد: حساب خودت را انتخاب کن و «Allow» را بزن (اسکریپت مال خودت است).\n"
+               "6. «Web app URL» را کپی کن، در کادر زیر بچسبان و «تست» را بزن.")
 
 
 class ConnectionsPage(ScrollPage):
@@ -77,9 +77,9 @@ class ConnectionsPage(ScrollPage):
         ob.setContentsMargins(0, 0, 0, 0)
         ob.setSpacing(10)
         keyrow = QHBoxLayout()
-        b_key = button("۱. وارد کردن فایل کلید (Service Account)", "primary", "upload")
+        b_key = button("1. وارد کردن فایل کلید (Service Account)", "primary", "upload")
         b_key.clicked.connect(self.import_google_key)
-        b_keytest = button("۲. وصل شدن و آماده‌سازی تب‌ها", None, "check")
+        b_keytest = button("2. وصل شدن و آماده‌سازی تب‌ها", None, "check")
         b_keytest.clicked.connect(self.test_direct)
         keyrow.addWidget(b_key)
         keyrow.addWidget(b_keytest)
@@ -91,7 +91,7 @@ class ConnectionsPage(ScrollPage):
                            "(Workflow، Online + Instore، Decisions، Execution، Audit) را اگر نباشند خودش اضافه می‌کند و به تب‌های "
                            "دیگر شیت دست نمی‌زند.", "muted", wrap=True))
         sh.lay.addWidget(self.owner_box)
-        for attr, text, slot in (("workflow_switch", "اتصال دائمی: هر ۳۰ ثانیه گردش کار با شیت همگام شود (تا وقتی اپ باز است)", self._workflow_toggled),
+        for attr, text, slot in (("workflow_switch", "اتصال دائمی: هر 30 ثانیه گردش کار با شیت همگام شود (تا وقتی اپ باز است)", self._workflow_toggled),
                                  ("auto", "بعد از هر بررسی، نتایج کامل هم به تب Results شیتم اضافه شود", self._auto_toggled)):
             r = QHBoxLayout()
             sw = Switch()
@@ -254,7 +254,7 @@ class ConnectionsPage(ScrollPage):
             QMessageBox.warning(self,'اتصال همکار','کد دسترسی ذخیره نشد یا متعلق به این حساب نیست'); return
         def done(result):
             if result.get('version')!=4:
-                QMessageBox.warning(self,'اتصال همکار','نسخه سرویس باید ۴ باشد'); return
+                QMessageBox.warning(self,'اتصال همکار','نسخه سرویس باید 4 باشد'); return
             cfg.update(auth_mode='workspace',workflow_sync=True)
             sheets.save(cfg); self.workspace_token.clear()
             self.sheet_steps.set_steps([('فضای مشترک',True,workspace.ROLES.get(result['user']['role'],''))])
@@ -303,7 +303,7 @@ class ConnectionsPage(ScrollPage):
             sheets.save(cfg2)
             self.sheet_steps.set_steps([("اتصال به شیت", True, f"«{info.get('sheet', '')}»"),
                                         ("تب‌های گردش کار", True, ("اضافه شد: " + "، ".join(created)) if created else "همه آماده بودند"),
-                                        ("اتصال دائمی", True, "هر ۳۰ ثانیه، تا وقتی اپ باز است")])
+                                        ("اتصال دائمی", True, "هر 30 ثانیه، تا وقتی اپ باز است")])
             self.on_show()
             self.session.sync_workflow(force=True)
             self.shell._update_status()
@@ -325,7 +325,7 @@ class ConnectionsPage(ScrollPage):
         def ok(data):
             self.sheet_steps.set_steps([("اتصال به شیت", True, f"وصل شد: «{data.get('sheet', '')}»"),
                                         ("گردش کار شیت اختصاصی", data.get("version", 0) >= 3 and data.get("sheet_id") == cfg["own_sheet_id"],
-                                         "نسخه ۳" if data.get("version", 0) >= 3 else "اسکریپت قدیمی است؛ دوباره کپی و Deploy کن")])
+                                         "نسخه 3" if data.get("version", 0) >= 3 else "اسکریپت قدیمی است؛ دوباره کپی و Deploy کن")])
             self.auto.setEnabled(True)
             self.shell._update_status()
 

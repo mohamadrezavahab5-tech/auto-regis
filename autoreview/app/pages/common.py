@@ -6,10 +6,11 @@ from ...workboard import STATE_FA
 from .. import theme
 from ..theme import C
 
+# NBO's own status names, written the way NBO shows them (owner 2026-10-02: English where Persian is not needed)
 NBO_STATUS_FA = {
-    "PENDING": "در انتظار بررسی", "COMMERCIAL_IN_PROGRESS": "در حال بررسی تجاری", "COMMERCIAL_APPROVED": "تایید تجاری",
-    "ACTIVATING": "در حال فعال‌سازی", "PENDING_ACTIVATION": "در انتظار فعال‌سازی", "COMPLETED": "تکمیل‌شده",
-    "REQUIRED_EDITING": "نیاز به اصلاح", "CANCELLED": "لغوشده", "DRAFT": "پیش‌نویس",
+    "PENDING": "Pending", "COMMERCIAL_IN_PROGRESS": "Commercial in progress", "COMMERCIAL_APPROVED": "Commercial approved",
+    "ACTIVATING": "Activating", "PENDING_ACTIVATION": "Pending activation", "COMPLETED": "Completed",
+    "REQUIRED_EDITING": "Required editing", "CANCELLED": "Cancelled", "DRAFT": "Draft",
 }
 STATE_COLORS = {k: v[0] for k, v in theme.STATE.items()}
 STATE_COLORS["DUPLICATE"] = "#8E3B9C"

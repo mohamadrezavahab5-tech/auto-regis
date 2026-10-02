@@ -83,7 +83,7 @@ class LogsPage(QWidget):
         self.table.setRowCount(0)
         for it in reversed(items):
             self._add_row(it, at_end=True)
-        self.hint.setText(f"{num(len(items))} مورد (آخرین ۵٬۰۰۰ مورد در حافظه؛ همه در پوشه‌ی لاگ‌ها)")
+        self.hint.setText(f"{num(len(items))} مورد (آخرین 5,000 مورد در حافظه؛ همه در پوشه‌ی لاگ‌ها)")
 
     def _append(self, it):
         if self.isVisible() and self._match(it):

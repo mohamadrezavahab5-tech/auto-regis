@@ -23,7 +23,7 @@ $excludeApp = $notNeeded | ForEach-Object { '--exclude-module'; $_ }
 
 python -m PyInstaller --noconfirm --clean --windowed --name AutoReview `
   --icon "$root\build\autoreview.ico" --version-file "$root\build\version_app.txt" `
-  --add-data "$root\config;config" --add-data "$root\scripts;scripts" `
+  --add-data "$root\config;config" --add-data "$root\scripts;scripts" --add-data "$root\assets;assets" `
   --distpath "$root\build\app" --workpath "$root\build\work-app" --specpath "$root\build" `
   @excludeApp "$root\run_app.py"
 if ($LASTEXITCODE -ne 0) { throw "app build failed" }

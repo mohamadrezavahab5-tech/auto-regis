@@ -56,7 +56,7 @@ class LoginWindow(QWidget):
             row.addWidget(ic)
             row.addWidget(label(line, "railFootText", wrap=True), 1)
             sv.addLayout(row)
-        sv.addWidget(label(f"نسخه {__version__}", "brandSub"))
+        sv.addWidget(label(f"v{__version__}", "brandSub"))
         outer.addWidget(side)
 
         main = QWidget()

@@ -174,8 +174,8 @@ class ReviewPage(ScrollPage):
         show(self.nbo_pill, self.nbo_text, b["nbo_meta"], "nbo" in self.session.busy, "خروجی NBO")
         show(self.crm_pill, self.crm_text, b["crm_meta"], "crm" in self.session.busy, "داده‌ی CRM")
         self.ref_text.setText(f"مرجع تکراری‌ها: تاییدشده‌های NBO {num(d['nbo_ok'])} • تاییدشده‌های CRM {num(d['crm_ok'])}")
-        self.q_online.setText(f"فقط آنلاین — بررسی و تصمیم در شیت من   ({num(d['online'])} بررسی‌نشده از {num(d['online_all'])})")
-        self.q_both.setText(f"آنلاین + حضوری — منتظر نظر هر دو تیم در شیت من   ({num(d['both'])} بررسی‌نشده از {num(d['both_all'])})")
+        self.q_online.setText(f"Online — بررسی و تصمیم در شیت من   ({num(d['online'])} بررسی‌نشده از {num(d['online_all'])})")
+        self.q_both.setText(f"Online + Instore — منتظر نظر هر دو تیم در شیت من   ({num(d['both'])} بررسی‌نشده از {num(d['both_all'])})")
         self._counts = d
         self._update_plan()
 
@@ -255,7 +255,7 @@ class ReviewPage(ScrollPage):
                                 "تکراری‌ها در هر دو بررسی می‌شوند؛ بدون یکی، درخواست تکراری ممکن است تایید شود.")
             return
         stale = [n for n, m in (("NBO", board["nbo_meta"]), ("CRM", board["crm_meta"])) if reference.is_stale(m)]
-        if stale and QMessageBox.question(self, "داده‌ی قدیمی", f"داده‌ی {' و '.join(stale)} بیش از ۱۲ ساعت پیش گرفته شده. "
+        if stale and QMessageBox.question(self, "داده‌ی قدیمی", f"داده‌ی {' و '.join(stale)} بیش از 12 ساعت پیش گرفته شده. "
                                           "با همین داده بررسی کنم؟") != QMessageBox.StandardButton.Yes:
             return
         rows = s.queue_rows(kind, self.only_new.isChecked())[: self.size.value()]

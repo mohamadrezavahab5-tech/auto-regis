@@ -44,7 +44,7 @@ class ControlRoomPage(ScrollPage):
         self.body.addLayout(tiles)
 
         trend = Card()
-        trend.header("کار هر روز — ۱۴ روز اخیر", "بررسی‌های موتور، نظرهای آدم‌ها و نتیجه‌هایی که در NBO نشست")
+        trend.header("کار هر روز — 14 روز اخیر", "بررسی‌های موتور، نظرهای آدم‌ها و نتیجه‌هایی که در NBO نشست")
         self.daily = DailyBars(tuple(SERIES), SERIES)
         trend.lay.addWidget(self.daily)
         lg = Legend(show_counts=False)
@@ -64,7 +64,7 @@ class ControlRoomPage(ScrollPage):
         old.lay.addStretch(1)                     # side-by-side cards keep their content at the top
         grid.addWidget(old, 0, 0)
         ppl = Card()
-        ppl.header("چه کسی چقدر", "۷ روز اخیر — نظرهای ثبت‌شده و بررسی‌های موتور")
+        ppl.header("چه کسی چقدر", "7 روز اخیر — نظرهای ثبت‌شده و بررسی‌های موتور")
         self.people = BarList(C["manual"])
         self.people.empty_text = "هنوز کسی نظری ثبت نکرده"
         ppl.lay.addWidget(self.people)
@@ -198,7 +198,7 @@ class AccuracyPage(ScrollPage):
             self.headline.setText("هنوز کسی پیشنهاد موتور را بررسی نکرده")
             self.subline.setText("نظرهای تیم در «گردش کار» یا تب‌های شیت که ثبت شوند، این عدد ساخته می‌شود.")
         else:
-            self.headline.setText(f"تیم در {num(rate)}٪ موارد همان نظر موتور را داد")
+            self.headline.setText(f"تیم در {num(rate)}% موارد همان نظر موتور را داد")
             self.subline.setText(f"{num(a['agreed'])} از {num(a['compared'])} پیشنهادی که یک نفر بررسی کرد.")
         self.t_cmp.set_value(a["compared"])
         self.t_ok.set_value(a["agreed"])
