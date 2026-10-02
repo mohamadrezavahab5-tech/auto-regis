@@ -91,6 +91,10 @@ class SettingsPage(ScrollPage):
         self.s_mismatch.setChecked(bool(self._cur("mismatch_allowed", "category_map")))
         g.addWidget(label("مغایرت دسته‌ی اینماد ← اصلاح (فقط بعد از بازبینی جدول نگاشت)", "h3"), 4, 0)
         g.addWidget(self.s_mismatch, 4, 1, Qt.AlignmentFlag.AlignLeft)
+        g.addWidget(label("تطبیق دسته‌ی اینماد", "h3"), 5, 0)
+        w, self.r_catmode = _radio_row((("action_test_4", "مثل Action Test 4 (فعالیت شناخته‌شده کافی است)"),
+                                        ("strict", "سخت‌گیر (فقط جدول نگاشت)")), self._cur("match_mode", "category_map") or "action_test_4")
+        g.addWidget(w, 5, 1)
         g.setColumnStretch(2, 1)
         d.lay.addLayout(g)
         d.lay.addWidget(label("بررسی‌های قابل خاموش کردن:", "muted"))
@@ -307,7 +311,7 @@ class SettingsPage(ScrollPage):
             "automation.nbo_minutes": self.nbo_every.value(), "automation.crm_minutes": self.crm_every.value(),
             "automation.keep_in_tray": self.s_tray.isChecked(), "automation.autopilot": self.s_autopilot.isChecked(),
         }
-        return {"rules": rules, "category_map": {"mismatch_allowed": self.s_mismatch.isChecked()}}
+        return {"rules": rules, "category_map": {"mismatch_allowed": self.s_mismatch.isChecked(), "match_mode": picked(self.r_catmode)}}
 
     def _autostart(self, on):
         try:

@@ -73,6 +73,7 @@ EDITABLE = {
     ("rules", "automation.autopilot"): _is_bool,
     ("rules", "execution.auto_actions"): lambda v: isinstance(v, list) and set(v) <= {"APPROVE", "EDIT", "CANCEL"},
     ("category_map", "mismatch_allowed"): _is_bool,
+    ("category_map", "match_mode"): _one_of("action_test_4", "strict"),
 }
 
 

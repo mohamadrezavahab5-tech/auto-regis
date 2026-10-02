@@ -4,6 +4,7 @@ Everything here is read-only HTTP. Whatever cannot be proven stays None, and the
 A 'blocker' stops the checks early when the site cannot be judged at all (a social-media page, a bot wall, a parked
 domain, a redirect to another domain) - the person reviewing gets that exact reason instead of a vague 'unknown'."""
 import asyncio
+import json
 from dataclasses import asdict
 
 from .collectors import detectors, enamad, site as sitec
@@ -35,6 +36,33 @@ def _apply_enamad(facts, ev, info, row, website, category_map):
     reg, holder = registrant_name(row), str(row.get("account_holder") or "").strip()
     facts.registrant_matches_account_holder = names_equal(reg, holder) if reg and holder else None
     ev["names"] = {"account_holder": holder, "registrant": reg, "enamad_owner": info.owner}
+    if facts.category_relation == "unknown" and category_map.get("match_mode", "action_test_4") == "action_test_4":
+        hit = old_category_match(info.activities)
+        if hit:
+            facts.category_relation = "match"
+            ev["category_rule"] = f"Action Test 4: '{hit[0]}' -> {hit[1]}"
+
+
+_KEYWORDS = None
+
+
+def old_category_match(activities):
+    """Action Test 4's category rule (owner 2026-10-02: the old rules): an enamad activity counts when it IS an NBO category
+    or a keyword of any category is inside it (or it inside a keyword). -> (activity, category) or None."""
+    global _KEYWORDS
+    if _KEYWORDS is None:
+        from .paths import config_dir
+        _KEYWORDS = json.loads((config_dir() / "category_keywords.json").read_text(encoding="utf-8"))["keywords"]
+    for act in activities or []:
+        act = str(act or "").strip()
+        if not act:
+            continue
+        if act in _KEYWORDS:
+            return act, act
+        for cat, words in _KEYWORDS.items():
+            if any(w in act or act in w for w in words):
+                return act, cat
+    return None
 
 
 def registrant_name(row: dict) -> str:

@@ -126,3 +126,11 @@ def test_owner_label_and_value_on_one_line_and_missing_value():
     assert p["owner"] == "مریم احمدی" and p["valid_until"] == "1406/01/01"
     empty = "<div>صاحب امتیاز :</div><div>تاریخ اعطا :</div><div>1401/01/01</div>"
     assert parse_profile(empty)["owner"] is None                       # never take the next label as the owner's name
+
+
+def test_action_test_4_category_rule_recognises_known_activities():
+    from autoreview.facts import old_category_match
+    assert old_category_match(["فروش پوشاک، کیف، کفش و محصولات چرمی"])[1] == "مد و پوشاک"
+    assert old_category_match(["کیف و کفش"]) == ("کیف و کفش", "کیف و کفش")              # an NBO category itself
+    assert old_category_match([]) is None and old_category_match(["", None]) is None
+    assert old_category_match(["xyz-unrelated-qwerty"]) is None
