@@ -78,7 +78,9 @@ class ExecutionPage(ScrollPage):
         self.t_ready = StatTile("آماده‌ی تأیید در NBO", C["accent_text"], C["accent_soft"], "check")
         self.t_instore = StatTile("منتظر نظر Instore", C["info"], C["info_soft"], "clock")
         self.t_done = StatTile("تأییدشده در NBO", C["approve"], C["approve_soft"], "shield")
-        self.t_outside = StatTile("تأیید بدون روند کامل", C["warn"], C["warn_soft"], "alert")
+        self.t_outside = StatTile("تأیید مستقیم در NBO", C["warn"], C["warn_soft"], "alert")
+        self.t_outside.setToolTip("در NBO تأیید شده‌اند ولی نظر «تأیید» تیم‌های لازم (Online و برای Online + Instore، Instore هم) "
+                                  "در اپ ثبت نشده بود؛ یعنی کسی مستقیم در NBO تأیید زده است. خطا نیست، فقط برای پیگیری.")
         for t in (self.t_ready, self.t_instore, self.t_done, self.t_outside):
             tiles.addWidget(t)
         self.body.addLayout(tiles)
