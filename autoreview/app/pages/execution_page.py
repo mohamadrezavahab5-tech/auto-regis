@@ -37,7 +37,7 @@ class ExecutionPage(ScrollPage):
         allc.lay.addWidget(self.batch_line)
         allc.lay.addWidget(label("«اعمال همه» با حساب NBO که داخل اپ وارد شده، یکی‌یکی همان مراحل NBO را می‌زند "
                                  "(Assign to me ← Change Status ← گزینه ← دلیل)، با اولین خطا می‌ایستد، و بعد از اولین تغییر "
-                                 "واقعی هم می‌ایستد تا در NBO نگاهش کنی؛ دوباره بزنی بقیه را ادامه می‌دهد. فقط مدیر. "
+                                 "Real هم می‌ایستد تا در NBO نگاهش کنی؛ دوباره بزنی بقیه را ادامه می‌دهد. فقط مدیر. "
                                  "«تمرین همه» همه‌ی مراحل را تا قبل از Assign و ثبت نهایی می‌رود و چیزی را در NBO عوض نمی‌کند.",
                                  "caption", wrap=True))
         self.body.addWidget(allc)
@@ -147,7 +147,7 @@ class ExecutionPage(ScrollPage):
         parts = "، ".join(f"{n} {ACTION_FA[k]}" for k, n in kinds.items())
         if QMessageBox.question(self, "اعمال همه در NBO",
                                 f"{len(todo)} درخواست ({parts}) با حساب NBO که داخل اپ وارد شده، یکی‌یکی در NBO ثبت می‌شود.\n"
-                                "با اولین خطا می‌ایستد و بعد از اولین تغییر واقعی هم می‌ایستد تا در NBO نگاهش کنی. شروع کنم؟") \
+                                "با اولین خطا می‌ایستد و بعد از اولین تغییر Real هم می‌ایستد تا در NBO نگاهش کنی. شروع کنم؟") \
                 != QMessageBox.StandardButton.Yes:
             return
         try:
@@ -160,7 +160,7 @@ class ExecutionPage(ScrollPage):
         try:
             self.control.set_live(on)
         except (PermissionError, ValueError) as e:
-            QMessageBox.information(self, "حالت واقعی", str(e))
+            QMessageBox.information(self, "حالت Real", str(e))
         self.render()
 
     def render(self):
@@ -170,7 +170,7 @@ class ExecutionPage(ScrollPage):
         self.switch.setEnabled(self.control.owner())
         self.switch.blockSignals(False)
         self.mode_text.setText("«اعمال همه» در جریان است — اپ خودش در NBO ثبت می‌کند" if live
-                               else "آزمایشی — تا «اعمال همه» را نزنی، اپ چیزی در NBO تغییر نمی‌دهد")
+                               else "Fake — تا «اعمال همه» را نزنی، اپ چیزی در NBO تغییر نمی‌دهد")
         todo = self.control.ready_cases()
         kinds = {}
         for c in todo:

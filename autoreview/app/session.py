@@ -317,7 +317,7 @@ class Session(QObject):
         rows = self.queue_rows("all")[: rules["backlog"]["batch_size"]]
         if not rows:
             return 0
-        self.start_run(rows, "auto", label="خلبان خودکار")
+        self.start_run(rows, "auto", label="Autopilot")
         log.info("autopilot started a batch of %d new requests", len(rows))
         return len(rows)
 

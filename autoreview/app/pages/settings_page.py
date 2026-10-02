@@ -215,7 +215,7 @@ class SettingsPage(ScrollPage):
         self.s_autopilot = Switch()
         self.s_autopilot.setChecked(self._cur("automation.autopilot") is not False)
         r9.addWidget(self.s_autopilot)
-        r9.addWidget(label("خلبان خودکار: بعد از هر دریافت NBO، درخواست‌های جدید خودشان بررسی شوند", "muted"))
+        r9.addWidget(label("Autopilot: بعد از هر دریافت NBO، درخواست‌های جدید خودشان بررسی شوند", "muted"))
         r9.addStretch(1)
         wf.lay.addLayout(r9)
         r7 = QHBoxLayout()

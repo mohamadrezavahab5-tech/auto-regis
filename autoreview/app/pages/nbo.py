@@ -83,7 +83,7 @@ class NboPage(QWidget):
         self.list.itemDoubleClicked.connect(lambda it: (QGuiApplication.clipboard().setText(it.data(Qt.ItemDataRole.UserRole)),
                                                         toast(self.window(), "کد کپی شد")))
         panel.lay.addWidget(self.list, 1)
-        b_apply = button("اعمال در NBO (خاموش)", None, "lock", "در حالت آزمایشی هیچ وضعیتی در NBO تغییر نمی‌کند")
+        b_apply = button("اعمال در NBO (خاموش)", None, "lock", "در حالت Fake هیچ وضعیتی در NBO تغییر نمی‌کند")
         b_apply.setEnabled(False)
         panel.lay.addWidget(b_apply)
         h.addWidget(panel)

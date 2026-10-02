@@ -28,7 +28,7 @@ class ExecutionControl(QObject):
         self.batch = None                     # a running "rehearse all": {todo, done, ok, assign, failed, stop}
         self.last_batch = ''
         self._refreshing = self._again = False
-        self.summary = 'آزمایشی — اپ خودش چیزی در NBO تغییر نمی‌دهد'
+        self.summary = 'Fake — اپ خودش چیزی در NBO تغییر نمی‌دهد'
         self.last_stop = ''
         self._first_run = False
         db = session.db()
@@ -257,7 +257,7 @@ class ExecutionControl(QObject):
                 self._stop_live(f"اجرای خودکار متوقف شد ({case['smr']}): {res.get('message')}")
             elif self._first_run:
                 self._first_run = False
-                self._stop_live(f"اولین تغییر واقعی ثبت شد ({case['smr']}). در NBO نگاهش کن؛ اگر درست بود دوباره «واقعی» را روشن کن.")
+                self._stop_live(f"اولین تغییر Real ثبت شد ({case['smr']}). در NBO نگاهش کن؛ اگر درست بود دوباره «Real» را روشن کن.")
             else:
                 QTimer.singleShot(3000, self._auto_tick)
         self.apply(case, done)
@@ -287,7 +287,7 @@ class ExecutionControl(QObject):
         def done(res):
             self._refreshing = False
             if isinstance(res, tuple):
-                mode = 'واقعی — اپ خودش در NBO ثبت می‌کند' if self.mode.live else 'آزمایشی — اپ خودش چیزی در NBO تغییر نمی‌دهد'
+                mode = 'Real — اپ خودش در NBO ثبت می‌کند' if self.mode.live else 'Fake — اپ خودش چیزی در NBO تغییر نمی‌دهد'
                 self.summary = f"{mode} • {fa_digits(res[0])} آماده‌ی تأیید، {fa_digits(res[1])} منتظر نظر Instore"
             self.changed.emit()
             if self._again:

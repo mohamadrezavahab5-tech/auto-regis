@@ -102,9 +102,9 @@ class AutomaticSources(QObject):
                 return
             s.sync_workflow()
             started = s.autopilot_run()
-            self.update({"off": "NBO خودکار به‌روز شد (خلبان خودکار خاموش است)", "busy": "NBO به‌روز شد؛ یک بررسی در جریان است",
-                         "no_crm": "NBO به‌روز شد؛ خلبان خودکار منتظر داده‌ی CRM است", 0: "NBO به‌روز شد؛ درخواست جدیدی نبود"}.get(
-                started, f"NBO به‌روز شد؛ خلبان خودکار {started} درخواست جدید را بررسی می‌کند"))
+            self.update({"off": "NBO خودکار به‌روز شد (Autopilot خاموش است)", "busy": "NBO به‌روز شد؛ یک بررسی در جریان است",
+                         "no_crm": "NBO به‌روز شد؛ Autopilot منتظر داده‌ی CRM است", 0: "NBO به‌روز شد؛ درخواست جدیدی نبود"}.get(
+                started, f"NBO به‌روز شد؛ Autopilot {started} درخواست جدید را بررسی می‌کند"))
 
         def complete(parts, done_statuses, refused, limited):
             took = time.monotonic() - started_at

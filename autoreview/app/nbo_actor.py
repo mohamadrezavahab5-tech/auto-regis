@@ -25,7 +25,7 @@ ERRORS = {
     "no_details": "لینک Details این درخواست پیدا نشد",
     "detail_mismatch": "صفحه‌ی باز شده مال همین درخواست نبود؛ کاری انجام نشد",
     "needs_assign": "تمرین تا Assign درست بود: درخواست هنوز به این حساب Assign نشده و دکمه‌ی «Assign to me» پیدا شد و فعال است "
-                    "(اجرای واقعی همین دکمه را می‌زند؛ پنجره‌ی Change Status فقط روی درخواستِ Assign‌شده تمرین می‌شود)",
+                    "(اجرای Real همین دکمه را می‌زند؛ پنجره‌ی Change Status فقط روی درخواستِ Assign‌شده تمرین می‌شود)",
     "assign_missing": "دکمه‌ی Change Status فعال نیست و دکمه‌ی «Assign to me» هم پیدا نشد (شاید به کس دیگری Assign شده)",
     "change_status_disabled": "NBO اجازه‌ی تغییر وضعیت نداد (دکمه‌ی Change Status غیرفعال ماند)",
     "option_missing": "این گزینه در پنجره‌ی تغییر وضعیت NBO نبود؛ کاری انجام نشد",

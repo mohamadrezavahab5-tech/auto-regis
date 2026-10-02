@@ -2,7 +2,7 @@
 dry-run notice, and a status bar that always shows the state of every connection."""
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
@@ -16,7 +16,7 @@ from . import icons, theme
 from .session import run_bg
 from .theme import C
 from .web import NboClient, PageRenderer
-from .widgets import Pill, label, ltr, toast
+from .widgets import LiveChart, Pill, label, ltr, toast
 
 # The work, step by step, in the order it happens (owner 2026-10-02: "it is not clear how Workflow and Review differ";
 # "there is no clear place to apply all / automatically"). The page titles say the same step.
@@ -211,6 +211,16 @@ class Shell(QMainWindow):
         col.addWidget(self.title)
         col.addWidget(self.subtitle)
         h.addLayout(col, 1)
+        self.live_chart = LiveChart()
+        self.live_chart.setToolTip("کار زنده‌ی ۱۰ دقیقه‌ی اخیر: هر نقطه = ۳۰ ثانیه، بررسی‌های موتور + تغییرهای NBO. "
+                                   "فقط وقتی دیده می‌شود که اپ در حال کار است.")
+        self.live_chart.setVisible(False)
+        h.addWidget(self.live_chart, 0, Qt.AlignmentFlag.AlignVCenter)
+        h.addSpacing(8)
+        self._live_timer = QTimer(self)
+        self._live_timer.timeout.connect(self._live_activity)
+        self._live_timer.start(5_000)
+        self.session.run_changed.connect(self._live_activity)
         self.mode_chip = QPushButton("")
         self.mode_chip.setProperty("kind", "chip")
         self.mode_chip.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -232,9 +242,54 @@ class Shell(QMainWindow):
         self._mode_chip()
         return bar
 
+    def _live_activity(self):
+        """Shows the live chart while something runs, fed with what really happened (one small indexed read)."""
+        ex, runner = self.execution, self.session.runner
+        reviewing = bool(runner and runner.is_active())
+        if ex.batch:
+            what = "تمرین همه"
+        elif ex.mode.live or ex.actor.busy:
+            what = "Autopilot" if ex.mode.live else "در NBO"
+        elif reviewing:
+            what = "بررسی"
+        else:
+            what = ""
+        if not what:
+            if self.live_chart.isVisible():
+                self.live_chart.setVisible(False)
+            return
+        now = datetime.now(timezone.utc)
+        span = LiveChart.BUCKET * LiveChart.POINTS
+        start = now - timedelta(seconds=span)
+        counts = [0] * LiveChart.POINTS
+        db = self.session.db()
+        try:
+            stamps = [r[0] for r in db.execute("SELECT decided_at FROM results WHERE decided_at >= ?",
+                                               (start.isoformat(timespec="seconds"),))]
+            stamps += [r[0] for r in db.execute("SELECT updated_at FROM nbo_execution WHERE updated_at >= ? AND state IN "
+                                                "('SENT','REHEARSED','VERIFIED')", (start.isoformat(timespec="seconds"),))]
+        except Exception:                                   # the chart never gets in the way of the work
+            stamps = []
+        finally:
+            db.close()
+        newest = int(now.timestamp() // LiveChart.BUCKET)    # buckets sit on the clock, so the line can slide between them
+        for at in stamps:
+            try:
+                bucket = int(datetime.fromisoformat(at).timestamp() // LiveChart.BUCKET)
+            except (TypeError, ValueError):
+                continue
+            i = LiveChart.POINTS - 1 - (newest - bucket)
+            if 0 <= i < LiveChart.POINTS:
+                counts[i] += 1
+        per_min = sum(counts[-2:])                           # the last minute
+        self.live_chart.text, self.live_chart.rate = what, f"{per_min} در دقیقه"
+        self.live_chart.set_series(counts, (now.timestamp() % LiveChart.BUCKET) / LiveChart.BUCKET)
+        if not self.live_chart.isVisible():
+            self.live_chart.setVisible(True)
+
     def _mode_chip(self):
         live = self.execution.mode.live
-        self.mode_chip.setText("● واقعی — اپ در NBO ثبت می‌کند" if live else "● آزمایشی")
+        self.mode_chip.setText("● Real — اپ در NBO ثبت می‌کند" if live else "● Fake")
         fg, bg = (C["danger"], C["danger_soft"]) if live else (C["banner_text"], C["warn_soft"])
         self.mode_chip.setStyleSheet(f"QPushButton {{ color: {fg}; background: {bg}; border: 1px solid {bg}; border-radius: 13px; "
                                      f"padding: 4px 12px; font-weight: 600; }} QPushButton:hover {{ border-color: {fg}; }}")

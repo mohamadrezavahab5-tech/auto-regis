@@ -38,7 +38,7 @@ def approve(db, case, backend, is_live):
     ambiguous; a later run must reconcile it rather than resending automatically.
     """
     if not is_live():
-        raise ValueError('حالت واقعی فعال نیست')
+        raise ValueError('حالت Real فعال نیست')
     reason = execution.eligibility(case)
     if reason:
         raise ValueError(reason)
@@ -56,7 +56,7 @@ def approve(db, case, backend, is_live):
 
     def check_before_send():
         if not is_live():
-            raise ValueError('ارسال بعدی با سوییچ آزمایشی متوقف شد')
+            raise ValueError('ارسال بعدی با سوییچ Fake متوقف شد')
         current = workflow.get(db, case['smr'])
         if not current or current['revision'] != case['revision'] or execution.eligibility(current):
             raise ValueError('تأییدهای پرونده تغییر کرده‌اند')

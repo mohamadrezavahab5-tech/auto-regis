@@ -671,3 +671,108 @@ class Toast(QFrame):
 
 def toast(window, text, kind="ok"):
     Toast(window, text, kind)
+
+
+class LiveChart(QWidget):
+    """While the app works: the real activity of the last minutes (reviews + NBO changes per 30-second bucket) as a line
+    that slides with the clock, its newest point pulsing (owner 2026-10-03: "a live moving chart while it works").
+    Nothing is invented - the shape only changes when the counts do, and a new series eases in from the old one."""
+    BUCKET = 30                                             # seconds per point
+    POINTS = 20                                             # 10 minutes
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(220, 38)
+        self.text, self.rate = "", ""                       # what is running / its pace, on two lines
+        self._old = self._new = [0] * self.POINTS
+        self._mix = 1.0
+        self._edge = 0.0                                    # 0..1: how far the clock is into the newest bucket
+        self._phase = 0.0
+        self._anim = QVariantAnimation(self, duration=600, startValue=0.0, endValue=1.0,
+                                       easingCurve=QEasingCurve.Type.OutCubic)
+        self._anim.valueChanged.connect(self._set_mix)
+        self._frames = QTimer(self, interval=50)
+        self._frames.timeout.connect(self._frame)
+
+    def _set_mix(self, v):
+        self._mix = float(v)
+        self.update()
+
+    def set_series(self, counts, edge):
+        counts = list(counts)[-self.POINTS:]
+        counts = [0] * (self.POINTS - len(counts)) + counts
+        cur = self._values()
+        self._edge = edge
+        if counts != self._new:
+            self._old, self._new = cur, counts
+            self._anim.stop()
+            self._anim.start()
+        self.update()
+
+    def _values(self):
+        return [o + (n - o) * self._mix for o, n in zip(self._old, self._new)]
+
+    def setVisible(self, on):
+        super().setVisible(on)
+        if on:
+            self._frames.start()
+        else:
+            self._frames.stop()
+
+    def _frame(self):
+        self._phase = (self._phase + 0.05) % 1.0
+        self._edge = min(1.0, self._edge + 0.05 / self.BUCKET)          # the window keeps sliding between data reads
+        self.update()
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(C["accent_soft"]))
+        p.drawRoundedRect(r, 9, 9)
+        chart = QRectF(r.left() + 8, r.top() + 6, 92, r.height() - 12)
+        vals = self._values()
+        top = max(1.0, max(vals))
+        step = chart.width() / (self.POINTS - 1)
+        rtl = self.layoutDirection() == Qt.LayoutDirection.RightToLeft
+        pts = []
+        for i, v in enumerate(vals):                        # oldest .. newest; newest at the reading end of the line
+            pos = (self.POINTS - 1 - i) - self._edge        # buckets back from now, sliding with the clock
+            x = chart.left() + pos * step if rtl else chart.right() - pos * step
+            pts.append(QPointF(min(max(x, chart.left()), chart.right()), chart.bottom() - (v / top) * chart.height()))
+        path = QPainterPath(pts[0])
+        for a, b2 in zip(pts, pts[1:]):
+            mid = (a.x() + b2.x()) / 2
+            path.cubicTo(QPointF(mid, a.y()), QPointF(mid, b2.y()), b2)
+        area = QPainterPath(path)
+        area.lineTo(pts[-1].x(), chart.bottom())
+        area.lineTo(pts[0].x(), chart.bottom())
+        area.closeSubpath()
+        fill = QColor(C["accent"])
+        fill.setAlpha(40)
+        p.fillPath(area, fill)
+        p.setPen(QPen(QColor(C["accent"]), 1.8))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(path)
+        end = pts[-1]
+        glow = QColor(C["accent"])
+        glow.setAlpha(int(110 * (1 - self._phase)))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(glow)
+        rad = 3 + 6 * self._phase
+        p.drawEllipse(end, rad, rad)
+        p.setBrush(QColor(C["accent"]))
+        p.drawEllipse(end, 3, 3)
+        p.setPen(QColor(C["accent_text"]))
+        f = QFont(self.font())
+        f.setPointSizeF(max(7.5, f.pointSizeF() - 1))
+        f.setBold(True)
+        p.setFont(f)
+        side = Qt.AlignmentFlag.AlignLeft                   # Qt mirrors it in a right-to-left window: the text hugs the right
+        box = QRectF(chart.right() + 8, r.top() + 3, r.right() - chart.right() - 16, r.height() / 2 - 3)
+        p.drawText(box, int(Qt.AlignmentFlag.AlignVCenter | side), self.text)
+        f.setBold(False)
+        p.setFont(f)
+        p.drawText(box.translated(0, r.height() / 2 - 2), int(Qt.AlignmentFlag.AlignVCenter | side), self.rate)
+        p.end()
