@@ -278,3 +278,43 @@ def test_old_instore_cells_are_not_reused_after_the_request_changed(db):
     workflow.refresh(db, [row], {row['smr']})
     assert 'دوباره' in workflow.sheet_verdict(db, 'SMR-12345', 'instore', cells, LABELS)
     assert workflow.get(db, 'SMR-12345')['instore'] is None
+
+
+def _result(db, run, action, trace, smr='SMR-12345'):
+    from autoreview import rules as R
+    store.save_result(db, run, dict(smr=smr, site='example.test'), R.Decision(action, trace=trace), {})
+
+
+def test_a_half_finished_review_still_becomes_the_online_verdict_and_errors_are_taken_again(db):
+    imported(db, both=True)
+    store.start_run(db, 'r1', 1)
+    _result(db, 'r1', 'APPROVE', ['PASS'])                  # the run was interrupted: nobody called suggest
+    assert workflow.get(db, 'SMR-12345')['online'] is None
+    assert workflow.reconcile_suggestions(db, store.latest_results(db), engine_counts=True) == 1
+    assert workflow.state(workflow.get(db, 'SMR-12345')) == 'WAIT_INSTORE'
+    assert workflow.reconcile_suggestions(db, store.latest_results(db), engine_counts=True) == 0
+    _result(db, 'r2', 'MANUAL', ['ERROR'])                  # an internal error is not a review
+    assert 'SMR-12345' in store.latest_states(db) and store.latest_states(db)['SMR-12345'][0] == 'APPROVE'
+    assert store.latest_results(db)['SMR-12345']['action'] == 'APPROVE'
+
+
+def test_a_review_from_before_a_reset_is_not_applied(db):
+    imported(db)
+    _result(db, 'r1', 'APPROVE', ['PASS'])
+    changed = dict(smr='SMR-12345', site='other.test', category='test', status='PENDING', ownership='INDIVIDUAL',
+                   has_online='true', has_instore='false')
+    import time; time.sleep(1.1)
+    workflow.refresh(db, [changed], {'SMR-12345'})          # the site changed: verdicts start over
+    assert workflow.reconcile_suggestions(db, store.latest_results(db), engine_counts=True) == 0
+
+
+def test_a_locked_database_is_waited_for(monkeypatch):
+    import sqlite3
+    calls = []
+    def write():
+        calls.append(1)
+        if len(calls) < 3:
+            raise sqlite3.OperationalError('database is locked')
+        return 'ok'
+    monkeypatch.setattr(store.time, 'sleep', lambda s: None)
+    assert store._when_unlocked(write) == 'ok' and len(calls) == 3

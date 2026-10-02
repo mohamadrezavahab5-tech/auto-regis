@@ -183,7 +183,8 @@ def refresh(db, rows, eligible_ids, source_loaded_at=None, approved_statuses=(),
                         brand=row.get('brand_fa', ''), source_status=status, channel=channel,
                         active=active, outcome=outcome, fingerprint=fingerprint, online=None, instore=None,
                         suggestion=None, online_hold=False,
-                        revision=old['revision'] if old else 0, source_loaded_at=loaded)
+                        revision=old['revision'] if old else 0, source_loaded_at=loaded,
+                        reset_at=store.now() if old else '')       # reviews before a reset no longer describe this request
             _save(db, case, 'WORKFLOW_SOURCE_CHANGED' if old else 'WORKFLOW_IMPORTED',
                   detail={'approvals_reset': bool(old)})
         for old in cases(db) if complete else ():     # a partial NBO refresh proves nothing about absent requests
@@ -222,6 +223,30 @@ def suggest(db, smr, result, engine_counts=False):
             return
         _save(db, case, 'WORKFLOW_SUGGESTED', detail={'action': suggestion['action'],
                                                       'engine_verdict': bool((case['online'] or {}).get('source') == 'engine')})
+
+
+def reconcile_suggestions(db, latest, engine_counts=False):
+    """latest: store.latest_results(). Gives every open case the engine's newest review when it does not have it yet - a
+    review that was interrupted, stopped or failed half-way never reached the queue (live 2026-10-02: 41 Online + Instore
+    requests reviewed but still 'waiting for Online'). A review from before the case was reset is ignored. -> applied."""
+    resets = {}
+    for smr, body in db.execute("SELECT smr, body FROM workflow_events"):
+        if '"WORKFLOW_SOURCE_CHANGED"' in body:
+            at = json.loads(body).get('at') or ''
+            resets[smr] = max(resets.get(smr, ''), at)
+    applied = 0
+    for case in cases(db):
+        result = latest.get(case['smr'])
+        if not case.get('active') or not result:
+            continue
+        since = case.get('reset_at') or resets.get(case['smr'], '')
+        if (result.get('decided_at') or '') < since:
+            continue
+        if (case.get('suggestion') or {}).get('decided_at', '') >= (result.get('decided_at') or ''):
+            continue
+        suggest(db, case['smr'], result, engine_counts)
+        applied += 1
+    return applied
 
 
 def adopt_engine_verdicts(db, on):

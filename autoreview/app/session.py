@@ -318,6 +318,7 @@ class Session(QObject):
             if run_id:
                 for result in store.results_of(db, run_id):
                     workflow.suggest(db, result['smr'], result, engine_counts)
+            workflow.reconcile_suggestions(db, store.latest_results(db), engine_counts)
             workflow.adopt_engine_verdicts(db, engine_counts)        # follows the switch in Settings both ways
             execution.note_nbo_outcomes(db)
         finally:

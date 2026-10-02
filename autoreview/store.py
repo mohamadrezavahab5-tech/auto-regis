@@ -4,6 +4,7 @@ One database per person (in their profile). Every connection is short-lived and 
 window can read/write at the same time."""
 import json
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 
 SCHEMA = """
@@ -116,7 +117,24 @@ def run_sources(db, run_id):
 
 
 # ---- decisions -------------------------------------------------------------------------------------------------------------
+def _when_unlocked(write, wait=60.0):
+    """Runs a write, waiting for another writer instead of failing: a 'database is locked' once ended a whole review
+    (live 2026-10-02) and every request still in flight was then saved as an internal error."""
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            return write()
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e) or time.monotonic() > deadline:
+                raise
+            time.sleep(0.5)
+
+
 def save_result(db, run_id, row, decision, evidence, duration_ms=None):
+    _when_unlocked(lambda: _save_result(db, run_id, row, decision, evidence, duration_ms))
+
+
+def _save_result(db, run_id, row, decision, evidence, duration_ms):
     with db:
         db.execute(
             "INSERT OR REPLACE INTO results (run_id, smr, site, category, created_at, action, reason_keys, reason_codes, notes, trace, "
@@ -169,10 +187,23 @@ def latest_decisions(db) -> dict:
 
 
 def latest_states(db) -> dict:
-    """{smr: (action, [reason codes], decided_at)} - the most recent decision of every request ever reviewed."""
+    """{smr: (action, [reason codes], decided_at)} - the most recent decision of every request ever reviewed. An internal
+    error is not a review: such a request counts as not reviewed and is taken again."""
     cur = db.execute("SELECT r.smr, r.action, r.reason_codes, r.decided_at FROM results r JOIN "
-                     "(SELECT smr, MAX(decided_at) m FROM results GROUP BY smr) x ON r.smr = x.smr AND r.decided_at = x.m")
+                     f"(SELECT smr, MAX(decided_at) m FROM results WHERE {_REVIEWED} GROUP BY smr) x "
+                     f"ON r.smr = x.smr AND r.decided_at = x.m WHERE {_REVIEWED.replace('(trace', '(r.trace')}")
     return {smr: (action, json.loads(codes or "[]"), at) for smr, action, codes, at in cur.fetchall()}
+
+
+_REVIEWED = "COALESCE(trace, '') NOT LIKE '%\"ERROR\"%'"          # pipeline: an internal error is traced as ["ERROR"]
+
+
+def latest_results(db) -> dict:
+    """{smr: result} - the most recent real decision of every request (internal errors left out)."""
+    cur = db.execute(f"SELECT r.{', r.'.join(_RESULT_COLS)} FROM results r JOIN "
+                     f"(SELECT smr, MAX(decided_at) m FROM results WHERE {_REVIEWED} GROUP BY smr) x "
+                     f"ON r.smr = x.smr AND r.decided_at = x.m WHERE {_REVIEWED.replace('(trace', '(r.trace')}")
+    return {row[0]: _decode(dict(zip(_RESULT_COLS, row))) for row in cur.fetchall()}
 
 
 def history(db, smr) -> list:
