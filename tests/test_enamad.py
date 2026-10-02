@@ -52,7 +52,7 @@ def facts(i, holder="رضایی علی"):
 
 def test_facts_for_a_valid_enamad():
     f = facts(info())
-    assert f == dict(has_enamad=True, enamad_expired=False, owner_matches_account_holder=True, category_relation="match")
+    assert f == dict(has_enamad=True, enamad_expired=False, owner_matches_account_holder=True, category_relation="match", category_why="")
 
 
 def test_expired_missing_and_unreachable_are_different_facts():
@@ -134,3 +134,11 @@ def test_action_test_4_category_rule_recognises_known_activities():
     assert old_category_match(["کیف و کفش"]) == ("کیف و کفش", "کیف و کفش")              # an NBO category itself
     assert old_category_match([]) is None and old_category_match(["", None]) is None
     assert old_category_match(["xyz-unrelated-qwerty"]) is None
+
+
+def test_an_unknown_category_says_its_real_cause():
+    from autoreview import texts
+    from autoreview.collectors.enamad import EnamadInfo, to_facts
+    assert to_facts(EnamadInfo(None, error="timeout"), "a.ir", "x", "پوشاک", {})["category_why"] == "no_answer"
+    note = texts.note_fa("could not determine: enamad category mapping [status:SUSPENDED]")
+    assert "SUSPENDED" in note and "جدول نگاشت" not in note

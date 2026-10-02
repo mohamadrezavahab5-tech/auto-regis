@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
 from .. import execution, settings, sheets, workflow, workspace
 from ..jalali import fa_digits
 from .nbo_actor import AFTER_SEND, NboActor
+from .session import run_bg
 
 ACTION_FA = {"APPROVE": "تأیید", "EDIT": "نیاز به اصلاح", "CANCEL": "لغو"}
 
@@ -24,6 +25,7 @@ class ExecutionControl(QObject):
         self.mode = execution.Mode()
         self.actor = NboActor(self)
         self.readiness = ''
+        self._refreshing = self._again = False
         self.summary = 'آزمایشی — اپ خودش چیزی در NBO تغییر نمی‌دهد'
         self.last_stop = ''
         self._first_run = False
@@ -193,20 +195,35 @@ class ExecutionControl(QObject):
 
     # ---- summary
     def refresh(self):
-        db = self.session.db()
-        try:
-            cases = workflow.cases(db)
-            ready = [case for case in cases if workflow.state(case) == 'READY']
-            prior = {(r['smr'], r['revision']) for r in execution.records(db)}
-            for case in ready:
-                if (case['smr'], case['revision']) not in prior:
-                    execution.record(db, case, 'PREVIEW', execution.eligibility(case) or 'تأیید تیم‌های لازم تکمیل است')
-            waiting = sum(workflow.state(c) == 'WAIT_INSTORE' for c in cases)
-            mode = 'واقعی — اپ خودش در NBO ثبت می‌کند' if self.mode.live else 'آزمایشی — اپ خودش چیزی در NBO تغییر نمی‌دهد'
-            self.summary = f"{mode} • {fa_digits(len(ready))} آماده‌ی تأیید، {fa_digits(waiting)} منتظر نظر Instore"
-        finally:
-            db.close()
-        self.changed.emit()
+        """On a worker thread: it writes preview rows, and a write on the window thread waits for the review's own writes
+        (the app froze while a review was running, owner 2026-10-02)."""
+        if self._refreshing:
+            self._again = True
+            return
+        self._refreshing, self._again = True, False
+
+        def work(_p):
+            db = self.session.db()
+            try:
+                cases = workflow.cases(db)
+                ready = [case for case in cases if workflow.state(case) == 'READY']
+                prior = {(r['smr'], r['revision']) for r in execution.records(db)}
+                for case in ready:
+                    if (case['smr'], case['revision']) not in prior:
+                        execution.record(db, case, 'PREVIEW', execution.eligibility(case) or 'تأیید تیم‌های لازم تکمیل است')
+                return len(ready), sum(workflow.state(c) == 'WAIT_INSTORE' for c in cases)
+            finally:
+                db.close()
+
+        def done(res):
+            self._refreshing = False
+            if isinstance(res, tuple):
+                mode = 'واقعی — اپ خودش در NBO ثبت می‌کند' if self.mode.live else 'آزمایشی — اپ خودش چیزی در NBO تغییر نمی‌دهد'
+                self.summary = f"{mode} • {fa_digits(res[0])} آماده‌ی تأیید، {fa_digits(res[1])} منتظر نظر Instore"
+            self.changed.emit()
+            if self._again:
+                self.refresh()
+        run_bg(work, done, done)
 
     def stop(self):
         self.mode.live = False

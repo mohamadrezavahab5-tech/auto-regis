@@ -46,12 +46,26 @@ _UNKNOWN = {
     "enamad expiry": "اعتبار اینماد",
     "enamad owner vs account holder": "تطبیق نام صاحب اینماد با صاحب حساب",
     "registrant vs account holder": "تطبیق نام ثبت‌کننده با صاحب حساب",
-    "enamad category mapping": "تطبیق دسته‌ی اینماد با دسته‌ی NBO (عنوان فعالیت در جدول نگاشت نیست)",
+    "enamad category mapping": "تطبیق دسته‌ی اینماد با دسته‌ی NBO (نتیجه‌ی قدیمی؛ علتش ثبت نشده — دوباره بررسی کن)",
     "enamad displayed on site": "نمایش نماد اینماد روی سایت",
     "agreement": "قرارداد (Agreement)",
     "add to cart": "امکان افزودن به سبد خرید",
     "product count": "تعداد محصول",
     "contact info": "اطلاعات تماس",
+}
+
+# the real cause, per case (results from before 2026-10-02 carry only the old fixed sentence above)
+_CATEGORY_WHY = {
+    "no_answer": "سایت اینماد همان لحظه جواب نداد (یعنی نه «ندارد» نه «منقضی»؛ دوباره بررسی کن)",
+    "suspended": "اینماد این سایت تعلیق شده است",
+    "profile_unreadable": "صفحه‌ی مشخصات اینماد همان لحظه باز نشد؛ عنوان فعالیت‌ها خوانده نشد",
+    "no_enamad": "برای این سایت اینماد پیدا نشد",
+    "status": "وضعیت اینماد «{}» است",
+    "other_domain": "صفحه‌ی اینماد مال دامنه‌ی دیگری است ({})",
+    "no_activities": "اینماد هیچ عنوان فعالیتی ندارد",
+    "no_nbo_category": "دسته‌ی درخواست در NBO خالی است",
+    "not_mapped": "عنوان فعالیت اینماد در جدول نگاشت نیست",
+    "no_keyword": "عنوان فعالیت اینماد نه در جدول نگاشت است نه با کلیدواژه‌های قوانین Action Test 4 جور شد",
 }
 
 _BLOCKERS = [
@@ -87,6 +101,10 @@ def note_fa(note: str) -> str:
         m = re.match(r"product count \(at least (\d+), sitemap only partly readable\)", what)
         if m:
             return f"نامشخص: تعداد محصول (دست‌کم {fa_digits(m.group(1))}؛ نقشه‌ی سایت کامل خوانده نشد)"
+        m = re.fullmatch(r"enamad (category mapping|availability) \[(\w+)(?::(.*))?\]", what)
+        if m:
+            head = "تطبیق دسته‌ی اینماد با دسته‌ی NBO" if m.group(1) == "category mapping" else "اینماد"
+            return f"نامشخص: {head} — " + _CATEGORY_WHY.get(m.group(2), m.group(2)).format(m.group(3) or "")
         return "نامشخص: " + _UNKNOWN.get(what, what)
     if n.startswith("blocked: "):
         what = n[len("blocked: "):]

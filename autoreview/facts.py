@@ -40,7 +40,10 @@ def _apply_enamad(facts, ev, info, row, website, category_map):
         hit = old_category_match(info.activities)
         if hit:
             facts.category_relation = "match"
+            facts.category_why = ""
             ev["category_rule"] = f"Action Test 4: '{hit[0]}' -> {hit[1]}"
+        elif facts.category_why == "not_mapped":
+            facts.category_why = "no_keyword"
 
 
 _KEYWORDS = None

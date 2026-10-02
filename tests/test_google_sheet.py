@@ -14,12 +14,14 @@ class Book:
         self.writes=0
         self.requests=[]
         self.fail=False
+        self.protections=[]
 
     def handle(self, req):
         from urllib.parse import unquote
         if req.method=='GET' and '/values/' not in req.url.path:
             return httpx.Response(200,json={'spreadsheetId':'x'*30,'properties':{'title':'test'},
-                'sheets':[{'properties':{'sheetId':self.ids[n],'title':n,'gridProperties':{'rowCount':1000,'columnCount':len(v[0])}}} for n,v in self.tabs.items()]})
+                'sheets':[{'properties':{'sheetId':self.ids[n],'title':n,'gridProperties':{'rowCount':1000,'columnCount':len(v[0])}},
+                           'protectedRanges':[p for p in self.protections if p['range']['sheetId']==self.ids[n]]} for n,v in self.tabs.items()]})
         if req.method=='GET':
             name=unquote(req.url.path.split('/values/')[1]).split('!')[0].strip("'")
             return httpx.Response(200,json={'values':self.tabs[name]})
@@ -28,6 +30,12 @@ class Book:
         data=json.loads(req.content)
         self.requests += data['requests']
         for request in data['requests']:
+            if 'addProtectedRange' in request:
+                p=dict(request['addProtectedRange']['protectedRange']); p['protectedRangeId']=len(self.protections)+100+self.writes*1000
+                self.protections.append(p)
+            if 'deleteProtectedRange' in request:
+                gone=request['deleteProtectedRange']['protectedRangeId']
+                self.protections=[p for p in self.protections if p['protectedRangeId']!=gone]
             add=request.get('addSheet')
             if add:
                 name=add['properties']['title']; self.tabs[name]=[['']*26]; self.ids[name]=max(self.ids.values())+1
@@ -206,3 +214,37 @@ def test_audit_dedup_reads_only_the_id_column(book):
     with gs.Client('x' * 30, transport=httpx.MockTransport(handle)) as c:
         c.sync(p)
     assert any("Audit'!A1:A" in u.replace('%27', "'").replace('%21', '!').replace('%3A', ':') for u in seen)
+
+
+def covered(b, tab, row, col):
+    sid=b.ids[tab]
+    for p in b.protections:
+        r=p['range']
+        if r['sheetId']!=sid: continue
+        if r.get('startRowIndex',0)<=row<r.get('endRowIndex',10**6) and r.get('startColumnIndex',0)<=col<r.get('endColumnIndex',10**6):
+            return p
+    return None
+
+
+def test_the_sheet_is_locked_except_the_instore_cells():
+    b=full_book(); b.tabs['Notes of mine']=[['x']]; b.ids['Notes of mine']=99
+    b.protections.append({'protectedRangeId':7,'range':{'sheetId':b.ids[gs.OI_TAB],'startColumnIndex':0,'endColumnIndex':7},
+                          'warningOnly':True,'description':'AutoReview این ستون‌ها را پر می‌کند'})
+    b.protections.append({'protectedRangeId':8,'range':{'sheetId':b.ids['Workflow']},'description':'owner rule'})
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        assert c.lock(['Online@SnappPay.ir']) is True
+        for col in range(7,12):                                     # Instore team: their own columns stay open
+            assert covered(b,gs.OI_TAB,5,col) is None
+            assert covered(b,gs.OI_TAB,0,col)                       # ... but not their header
+        for col in (0,4,6,12,13,20):
+            assert covered(b,gs.OI_TAB,5,col)
+        for tab in ('Workflow','Decisions','Audit','Notes of mine'):
+            assert covered(b,tab,3,2)
+        ours=[p for p in b.protections if p['description'].startswith('AutoReview')]
+        assert all(not p['warningOnly'] and p['editors']['users']==['online@snapppay.ir'] for p in ours)
+        assert not any(p['protectedRangeId']==7 for p in b.protections)        # the old warning is replaced
+        assert any(p['protectedRangeId']==8 for p in b.protections)            # the owner's own protection is untouched
+        writes=b.writes
+        assert c.lock(['online@snapppay.ir']) is False and b.writes==writes  # nothing to change: nothing sent
+        assert c.lock(['online@snapppay.ir','new@snapppay.ir']) is True
+        assert len([p for p in b.protections if p['description'].startswith('AutoReview')])==len(ours)

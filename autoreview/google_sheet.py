@@ -48,8 +48,14 @@ def col_letter(n):
     return letter
 
 
+LOCK_MARK = 'AutoReview'               # every protection the app owns starts with this (older warning-only ones too)
 RETRY_WAITS = (2, 6, 15)          # seconds; tests set this to ()
 _CHECKED = {}                     # sheet id -> when ensure_tabs last passed in this process
+
+
+def forget_checks():
+    """The next sync re-checks the tabs and the lock (after the owner changed who may edit)."""
+    _CHECKED.clear()
 
 
 class GoogleSheetError(RuntimeError):
@@ -240,11 +246,12 @@ class Client:
         row = [str(v) for v in row][:width]
         return row + [''] * (width - len(row))
 
-    def ensure_tabs_once(self, reason_labels=()):
+    def ensure_tabs_once(self, reason_labels=(), editors=()):
         """ensure_tabs at most every half hour per process: the per-sync header checks of read() still guard every write."""
         last = _CHECKED.get(self.sheet_id)
         if last is None or time.monotonic() - last > 1800:
             created = self.ensure_tabs(reason_labels)
+            self.lock(editors)
             _CHECKED[self.sheet_id] = time.monotonic()
             return created
         return []
@@ -287,12 +294,46 @@ class Client:
                 req.append(_list_rule(sid, 8, OI_RESULTS))
                 if reason_labels:
                     req.append(_list_rule(sid, 9, list(dict.fromkeys(reason_labels)), strict=False))
-                for a, b in ((0, 7), (12, 14)):                 # the app's columns: a warning before a person types over them
-                    req.append({'addProtectedRange': {'protectedRange': {
-                        'range': {'sheetId': sid, 'startColumnIndex': a, 'endColumnIndex': b}, 'warningOnly': True,
-                        'description': 'AutoReview این ستون‌ها را پر می‌کند'}}})
         self.batch(req)
         return missing
+
+    # ---- who may edit what ----------------------------------------------------------------------------------------------
+    def wanted_locks(self, sheets_meta):
+        """Every tab is locked, except the Instore team's cells of Online + Instore (below the header). -> [(sheetId, range)]"""
+        out = []
+        for s in sheets_meta:
+            sid, title = s['properties']['sheetId'], s['properties']['title']
+            if title != OI_TAB:
+                out.append((sid, {'sheetId': sid}))
+                continue
+            first, last = min(OI_TEAM_COLS), max(OI_TEAM_COLS) + 1
+            out += [(sid, {'sheetId': sid, 'startColumnIndex': 0, 'endColumnIndex': first}),
+                    (sid, {'sheetId': sid, 'startColumnIndex': last}),
+                    (sid, {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 1, 'startColumnIndex': first, 'endColumnIndex': last})]
+        return out
+
+    def lock(self, editors=()):
+        """Owner 2026-10-02: about 20 Instore colleagues work in this sheet; they may only fill their own columns of
+        Online + Instore, everything else is locked. Real protections (not warnings) that only the sheet's owner, the app's
+        service account and `editors` (the Online team's addresses, settings) can change. Idempotent: when the app's
+        protections already look right nothing is sent. -> True when protections were (re)written."""
+        meta = self.request('GET', params={'fields': 'sheets(properties(sheetId,title),protectedRanges(protectedRangeId,'
+                                                     'description,warningOnly,range,editors(users)))'})
+        account = getattr(self.credentials, 'service_account_email', None)
+        users = sorted({e.strip().lower() for e in (*editors, account) if e and '@' in e})
+        wanted = self.wanted_locks(meta['sheets'])
+        ours = [p for s in meta['sheets'] for p in s.get('protectedRanges', []) if (p.get('description') or '').startswith(LOCK_MARK)]
+        have = sorted(json.dumps(p['range'], sort_keys=True) for p in ours if not p.get('warningOnly'))
+        same_users = all(set(users) <= {u.lower() for u in p.get('editors', {}).get('users', [])} for p in ours)
+        if have == sorted(json.dumps(r, sort_keys=True) for _sid, r in wanted) and same_users:
+            return False
+        req = [{'deleteProtectedRange': {'protectedRangeId': p['protectedRangeId']}} for p in ours]
+        for _sid, rng in wanted:
+            req.append({'addProtectedRange': {'protectedRange': {
+                'range': rng, 'warningOnly': False, 'description': LOCK_MARK + ' — فقط ستون‌های Instore برای تیم Instore باز است',
+                'editors': {'users': users, 'domainUsersCanEdit': False}}}})
+        self.batch(req)
+        return True
 
     # ---- Online + Instore tab -------------------------------------------------------------------------------------------
     def instore_entries(self):

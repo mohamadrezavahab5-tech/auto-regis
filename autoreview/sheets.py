@@ -43,6 +43,7 @@ def load() -> dict:
     cfg.setdefault("auth_mode", "apps_script")
     cfg.setdefault("sheet_name", "")
     cfg.setdefault("sent_runs", [])
+    cfg.setdefault("sheet_editors", [])                         # Online-team addresses that may edit the locked tabs
     if cfg.pop("oi", None) is not None:                         # the old shared-sheet writer: removed, see module doc
         changed = True
     if changed:

@@ -25,6 +25,7 @@ class Facts:
     owner_matches_account_holder: Optional[bool] = None
     registrant_matches_account_holder: Optional[bool] = None
     category_relation: str = "unknown"             # match | mismatch | unknown
+    category_why: str = ""                         # why the relation stayed unknown, the real cause (shown to people)
     enamad_shown_on_site: Optional[bool] = None
     agreement_ok: Optional[bool] = None
     category_group: str = "normal"                 # normal | services | education | gold | special
@@ -79,7 +80,7 @@ def evaluate(facts: Facts, rules: dict, reasons: dict) -> Decision:
 
     # 1. enamad exists
     if facts.has_enamad is None:
-        return unknown("enamad availability")
+        return unknown("enamad availability" + (f" [{facts.category_why}]" if facts.category_why else ""))
     if facts.has_enamad is False:
         return fail(EDIT, "MISSING_ENAMAD")
 
@@ -177,7 +178,7 @@ def evaluate(facts: Facts, rules: dict, reasons: dict) -> Decision:
     if facts.category_group == "services" and rules.get("services_go_manual", {}).get("value"):
         return _manual(d, "services go to manual review by rule")
     if facts.category_relation == "unknown":
-        return unknown("enamad category mapping")
+        return unknown("enamad category mapping" + (f" [{facts.category_why}]" if facts.category_why else ""))
     if facts.category_relation == "mismatch":
         return fail(EDIT, "CATEGORY_MISMATCH")
     d.trace.append("PASS category")

@@ -172,16 +172,22 @@ _UNKNOWN = dict(has_enamad=None, enamad_expired=None, owner_matches_account_hold
 def to_facts(info: EnamadInfo, queried_site: str, account_holder, nbo_category, titles_by_category: dict, mismatch_allowed: bool = False) -> dict:
     """-> keyword arguments for rules.Facts (enamad part only)."""
     if info.found is None:
-        return dict(_UNKNOWN)
+        return dict(_UNKNOWN, category_why="no_answer")
     if info.found is False:
-        return dict(_UNKNOWN, has_enamad=False)
+        return dict(_UNKNOWN, has_enamad=False, category_why="no_enamad")
     if info.status not in (VALID, VALID_LICENCE_PENDING, EXPIRED):     # suspended or a status no rule exists for: never decided
-        return dict(_UNKNOWN)
+        return dict(_UNKNOWN, category_why="suspended" if info.status == SUSPENDED else f"status:{info.status}")
     if info.domain_shown and normalize_site(info.domain_shown) != normalize_site(queried_site):   # profile of another domain
-        return dict(_UNKNOWN)
+        return dict(_UNKNOWN, category_why=f"other_domain:{info.domain_shown}")
+    relation = category_relation(nbo_category, info.activities, titles_by_category, mismatch_allowed)
+    why = ""
+    if relation == "unknown":
+        why = ("profile_unreadable" if (info.error or "").startswith("profile_") else "no_activities" if not info.activities
+               else "no_nbo_category" if not nbo_category else "not_mapped")
     return dict(
+        category_why=why,
         has_enamad=True,
         enamad_expired=info.status == EXPIRED,
         owner_matches_account_holder=names_equal(info.owner, account_holder) if info.owner else None,
-        category_relation=category_relation(nbo_category, info.activities, titles_by_category, mismatch_allowed),
+        category_relation=relation,
     )

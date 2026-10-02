@@ -66,6 +66,7 @@ class Session(QObject):
         self.run_kind = None
         self.renderer = None              # set by the window (hidden browser for second looks)
         self.busy = set()
+        self._refresh_lock = threading.Lock()
         db = self.db()
         reference.ensure(db)
         workflow.ensure(db)
@@ -194,7 +195,8 @@ class Session(QObject):
     def _after(self, key, cb, res):
         self._busy(key, False)
         if key == 'nbo':
-            self.refresh_workflow()
+            self.refresh_workflow(then=lambda: cb(res) if cb else None)
+            return
         self.data_changed.emit()
         if cb:
             cb(res)
@@ -266,17 +268,35 @@ class Session(QObject):
     def _finished(self, run_id):
         if self.run_kind == "auto" and self.runner and self.runner.progress.state == "finished":
             QTimer.singleShot(5000, self.autopilot_run)          # next batch, until nothing new is left
-        self.refresh_workflow(run_id)
-        self.data_changed.emit()
-        self.run_finished.emit(run_id)
-        cfg = sheets.load()
-        if cfg.get("auto_send") and (cfg.get("webapp_url") or cfg.get('auth_mode') == 'service_account'):
-            self.send_run_to_sheet(run_id)
-        self.sync_workflow()
+        def then():
+            self.run_finished.emit(run_id)
+            cfg = sheets.load()
+            if cfg.get("auto_send") and (cfg.get("webapp_url") or cfg.get('auth_mode') == 'service_account'):
+                self.send_run_to_sheet(run_id)
+            self.sync_workflow()
+        self.refresh_workflow(run_id, then)
 
-    def refresh_workflow(self, run_id=None):
+    def refresh_workflow(self, run_id=None, then=None):
+        """Rebuilds the workflow queue from the NBO reference (and a finished run's verdicts) on a worker thread, then
+        data_changed and `then` on the window thread. It reads ~30,000 reference rows and writes the queue - on the window
+        thread, while a review was writing results, that froze the app ('Not Responding', owner 2026-10-02)."""
         if sheets.load().get('auth_mode') == 'workspace' and self.profile.get('workspace_role') not in ('admin', 'online'):
+            self.data_changed.emit()
+            if then:
+                then()
             return
+
+        def work(_p):
+            with self._refresh_lock:                 # one rebuild at a time; a second one waits and then sees fresh data
+                self._refresh_workflow_now(run_id)
+
+        def done(_r=None):
+            self.data_changed.emit()
+            if then:
+                then()
+        return run_bg(work, done, done)
+
+    def _refresh_workflow_now(self, run_id=None):
         rules = self.rules()
         engine_counts = bool(rules.get('workflow', {}).get('engine_verdict_counts'))
         db = self.db()

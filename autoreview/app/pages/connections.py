@@ -3,6 +3,7 @@ headers are verified), the person's Google Sheet (guided setup) and the shared O
 values checked before anything may be written), enamad and plain websites."""
 import asyncio
 import os
+import re
 import tempfile
 
 import httpx
@@ -88,8 +89,16 @@ class ConnectionsPage(ScrollPage):
         self.google_email = label("", "caption", wrap=True, selectable=True)
         ob.addWidget(self.google_email)
         ob.addWidget(label("فایل کلید رمزگذاری‌شده با حساب ویندوز خودت ذخیره می‌شود و هیچ‌جا فرستاده نمی‌شود. اپ تب‌های لازم "
-                           "(Workflow، Online + Instore، Decisions، Execution، Audit) را اگر نباشند خودش اضافه می‌کند و به تب‌های "
-                           "دیگر شیت دست نمی‌زند.", "muted", wrap=True))
+                           "(Workflow، Online + Instore، Decisions، Execution، Audit) را اگر نباشند خودش اضافه می‌کند و محتوای "
+                           "تب‌های دیگر را تغییر نمی‌دهد.", "muted", wrap=True))
+        ob.addWidget(label("قفل شیت: همه‌ی تب‌ها قفل می‌شوند و تیم Instore فقط ستون‌های Instore در تب «Online + Instore» را "
+                           "می‌تواند پر کند. خودت (مالک شیت) و اپ همیشه دسترسی دارید؛ ایمیل همکاران Online که باید بقیه‌ی "
+                           "شیت را هم ویرایش کنند را اینجا بنویس (با کاما جدا کن):", "muted", wrap=True))
+        self.editors = QLineEdit()
+        self.editors.setPlaceholderText("name@snapppay.ir, other@snapppay.ir")
+        self.editors.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.editors.editingFinished.connect(self._save_editors)
+        ob.addWidget(self.editors)
         sh.lay.addWidget(self.owner_box)
         for attr, text, slot in (("workflow_switch", "اتصال دائمی: هر 30 ثانیه گردش کار با شیت همگام شود (تا وقتی اپ باز است)", self._workflow_toggled),
                                  ("auto", "بعد از هر بررسی، نتایج کامل هم به تب Results شیتم اضافه شود", self._auto_toggled)):
@@ -183,6 +192,7 @@ class ConnectionsPage(ScrollPage):
         self.access_card.setVisible(not direct)
         self.workflow_switch.setChecked(bool(cfg.get("workflow_sync")))
         self.workspace_url.setText(cfg.get('workspace_url',''))
+        self.editors.setText(', '.join(cfg.get('sheet_editors') or []))
         self._loading = False
 
     # ---- CRM
@@ -275,6 +285,19 @@ class ConnectionsPage(ScrollPage):
         self.on_show()
         self.test_direct()
 
+    def _save_editors(self):
+        found = [e.strip() for e in self.editors.text().replace('،', ',').replace(';', ',').split(',') if e.strip()]
+        bad = [e for e in found if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", e)]
+        if bad:
+            QMessageBox.warning(self, "قفل شیت", "این ایمیل معتبر نیست: " + "، ".join(bad))
+            return
+        cfg = sheets.load()
+        if cfg.get("sheet_editors") != found:
+            cfg["sheet_editors"] = found
+            sheets.save(cfg)
+            from ...google_sheet import forget_checks
+            forget_checks()                     # the next sheet round applies the new list (not half an hour later)
+
     def _owner(self):
         try:
             return workspace.username(self.session.profile.get("username")) == workspace.ADMIN
@@ -294,6 +317,7 @@ class ConnectionsPage(ScrollPage):
             with Client(cfg['own_sheet_id']) as google:
                 info = google.ping()
                 created = google.ensure_tabs(list(labels['edit'].values()) + list(labels['cancel'].values()))
+                google.lock(cfg.get('sheet_editors') or ())
             return info, created
 
         def ok(res):
@@ -303,6 +327,7 @@ class ConnectionsPage(ScrollPage):
             sheets.save(cfg2)
             self.sheet_steps.set_steps([("اتصال به شیت", True, f"«{info.get('sheet', '')}»"),
                                         ("تب‌های گردش کار", True, ("اضافه شد: " + "، ".join(created)) if created else "همه آماده بودند"),
+                                        ("قفل شیت", True, "Instore فقط ستون‌های خودش را می‌تواند پر کند"),
                                         ("اتصال دائمی", True, "هر 30 ثانیه، تا وقتی اپ باز است")])
             self.on_show()
             self.session.sync_workflow(force=True)

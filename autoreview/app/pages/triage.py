@@ -17,6 +17,7 @@ from ...texts import ACTION_FA, notes_fa, reasons_fa
 from .. import theme
 from ..session import run_bg
 from ..theme import C
+from ...collectors.site import UA
 from ..web import Page
 from ..widgets import Card, EmptyState, Pill, button, label, ltr, num, toast
 from .common import related_card
@@ -28,6 +29,19 @@ QUEUES = (("manual", "دستی و اختلاف", ("MANUAL", "CONFLICT"), "online
 KEYS = {"APPROVE": ("1", "۱", "F1"), "EDIT": ("2", "۲", "F2"), "CANCEL": ("3", "۳", "F3"), "SKIP": ("4", "۴", "PgDown"),
         "BACK": ("PgUp",)}
 
+
+
+class DesktopView(QWebEngineView):
+    """Shows a merchant site laid out like a desktop window. The pane is narrower than a monitor (about 950 px next to the
+    evidence), so shops took it for a phone held sideways ("hold your phone upright") or showed their mobile menu. Zooming
+    out keeps the page's own width at DESKTOP_WIDTH CSS pixels, so it gets its desktop layout."""
+    DESKTOP_WIDTH = 1366
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        width = event.size().width()
+        if width > 0:
+            self.setZoomFactor(max(0.5, min(1.0, width / self.DESKTOP_WIDTH)))
 
 class TriagePage(QWidget):
     title = "بررسی سریع"
@@ -70,9 +84,10 @@ class TriagePage(QWidget):
         split.addWidget(self.info)
         # merchant pages: off the record, no pop-ups, no downloads - only to look at
         self.profile = QWebEngineProfile(self)
+        self.profile.setHttpUserAgent(UA)                     # a desktop browser, as the owner sees the site on his PC
         self.profile.downloadRequested.connect(lambda item: item.cancel())
         self.tabs = QTabWidget()
-        self.site_view, self.product_view = QWebEngineView(), QWebEngineView()
+        self.site_view, self.product_view = DesktopView(), DesktopView()
         for view in (self.site_view, self.product_view):
             view.setPage(Page(self.profile, view))
         self.tabs.addTab(self.site_view, "سایت")
