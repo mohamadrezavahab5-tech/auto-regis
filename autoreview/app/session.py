@@ -129,7 +129,7 @@ class Session(QObject):
         db = self.db()
         try:
             backlog, skipped, both = self._queues(db)
-            latest, manual_done = store.latest_states(db), store.manual_done_set(db)
+            latest, manual_done = workflow.current_reviews(db, store.latest_states(db)), store.manual_done_set(db)
             return {"backlog": workboard.summarize(backlog, latest, manual_done),
                     "both": workboard.summarize(both, latest, manual_done),
                     "nbo_meta": reference.meta(db, "nbo"), "crm_meta": reference.meta(db, "crm"),
@@ -142,7 +142,7 @@ class Session(QObject):
         changed (owner 2026-10-02: old 'unknown: category' results that the old rules now decide). Same order as 'all'."""
         db = self.db()
         try:
-            latest = store.latest_states(db)
+            latest = workflow.current_reviews(db, store.latest_states(db))
             human = {c['smr'] for c in workflow.cases(db)
                      if (c.get('online') or {}).get('source') not in (None, 'engine') or c.get('online_hold')}
         finally:
@@ -163,7 +163,7 @@ class Session(QObject):
             else:
                 rows = list(backlog if kind == "online" else both)
             if only_unreviewed:
-                latest = store.latest_states(db)
+                latest = workflow.current_reviews(db, store.latest_states(db))
                 rows = [r for r in rows if r["smr"] not in latest]
             return [dict(r) for r in rows]                 # callers may change a row; the shared cache stays as it is
         finally:
@@ -174,7 +174,7 @@ class Session(QObject):
         db = self.db()
         try:
             backlog, _skipped, both = self._queues(db)
-            latest = store.latest_states(db)
+            latest = workflow.current_reviews(db, store.latest_states(db))
         finally:
             db.close()
         seen = {r["smr"] for r in both}

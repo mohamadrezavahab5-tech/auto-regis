@@ -134,7 +134,7 @@ class TriagePage(QWidget):
         _k, _t, states, self.team = next(q for q in QUEUES if q[0] == key)
         db = self.session.db()
         try:
-            created = {r["smr"]: r.get("created_at") for r in reference.all_nbo_rows(db)}
+            created = reference.created_dates(db)
             items = [c for c in workflow.cases(db) if (c.get("state") or workflow.state(c)) in states]
         finally:
             db.close()

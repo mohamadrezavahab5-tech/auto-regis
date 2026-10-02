@@ -139,6 +139,12 @@ def all_nbo_rows(db):
     return _nbo_rows(db)
 
 
+def created_dates(db) -> dict:
+    """{smr: NBO registration date} - two columns instead of every field of ~70k rows (0.3 s on the UI thread)."""
+    ensure(db)
+    return dict(db.execute("SELECT smr, created_at FROM ref_nbo").fetchall())
+
+
 def approved_sets(db, rules):
     """-> (nbo approved [{id, site}], crm approved [{id, site}]). CRM: approved statuses AND a store type that includes
     online (the team's CRM reference was 'Store Type = Online'); an empty list in the settings means 'any store type'."""

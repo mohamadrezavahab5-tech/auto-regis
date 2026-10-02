@@ -104,11 +104,15 @@ class DashboardPage(ScrollPage):
         tiles = QHBoxLayout()
         tiles.setSpacing(14)
         self.t_approve = StatTile("تایید (7 روز)", ACTION_COLORS["APPROVE"], C["approve_soft"], "check")
-        self.t_edit = StatTile("نیاز به اصلاح", ACTION_COLORS["EDIT"], C["edit_soft"], "alert")
-        self.t_cancel = StatTile("لغو", ACTION_COLORS["CANCEL"], C["cancel_soft"], "x")
-        self.t_manual = StatTile("بررسی دستی", ACTION_COLORS["MANUAL"], C["manual_soft"], "user")
+        self.t_edit = StatTile("نیاز به اصلاح (7 روز)", ACTION_COLORS["EDIT"], C["edit_soft"], "alert")
+        self.t_cancel = StatTile("لغو (7 روز)", ACTION_COLORS["CANCEL"], C["cancel_soft"], "x")
+        self.t_manual = StatTile("دستی (7 روز)", ACTION_COLORS["MANUAL"], C["manual_soft"], "user")
         self.t_speed = StatTile("میانگین زمان هر بررسی", C["text"], C["surface2"], "clock")
+        # "بررسی دستی" alone read as "waiting for a person now" (owner 2026-10-03); that number is in the two-team flow above
+        week = ("نتیجه‌ی بررسی موتور در 7 روز اخیر؛ هر درخواست یک بار، با آخرین نتیجه‌اش. "
+                "تعداد درخواست‌هایی که الان منتظر بررسی دستی‌اند در «گردش کار دو تیم» است.")
         for t in (self.t_approve, self.t_edit, self.t_cancel, self.t_manual, self.t_speed):
+            t.setToolTip(week)
             tiles.addWidget(t)
         self.body.addLayout(tiles)
 
@@ -201,9 +205,10 @@ class DashboardPage(ScrollPage):
             try:
                 cases = workflow.cases(db)
                 today = datetime.now().astimezone().date().isoformat()
-                reviewed_today = sum(1 for (at,) in db.execute("SELECT decided_at FROM results WHERE decided_at >= ?",
-                                                               ((datetime.now() - timedelta(days=1)).astimezone().isoformat(),))
-                                     if jalali_local_day(at) == today)
+                # requests, not results: a request reviewed again today counts once; internal errors are not reviews
+                reviewed_today = len({smr for smr, at in db.execute(
+                    f"SELECT smr, decided_at FROM results WHERE decided_at >= ? AND {store._REVIEWED}",
+                    ((datetime.now() - timedelta(days=1)).astimezone().isoformat(),)) if jalali_local_day(at) == today})
                 return {"board": board, "flow": workflow.counts(db), "accuracy": insights.accuracy(cases)["rate"],
                         "today": reviewed_today, "week": store.totals(db, days=7), "days": store.daily_counts(db, 14),
                         "reasons": store.reason_counts(db, days=30, limit=8), "manual": store.manual_causes(db, days=30, limit=8)}

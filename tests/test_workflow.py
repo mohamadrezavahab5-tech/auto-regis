@@ -306,6 +306,13 @@ def test_a_review_from_before_a_reset_is_not_applied(db):
     import time; time.sleep(1.1)
     workflow.refresh(db, [changed], {'SMR-12345'})          # the site changed: verdicts start over
     assert workflow.reconcile_suggestions(db, store.latest_results(db), engine_counts=True) == 0
+    # ... and the queue takes it again instead of counting the old review (live 2026-10-03: stuck 'waiting for Online')
+    assert 'SMR-12345' in store.latest_states(db)
+    assert 'SMR-12345' not in workflow.current_reviews(db, store.latest_states(db))
+    time.sleep(1.1)
+    _result(db, 'r2', 'EDIT', ['FAIL'])                      # the fresh review counts again
+    assert workflow.current_reviews(db, store.latest_states(db))['SMR-12345'][0] == 'EDIT'
+    assert workflow.reconcile_suggestions(db, store.latest_results(db), engine_counts=True) == 1
 
 
 def test_a_locked_database_is_waited_for(monkeypatch):

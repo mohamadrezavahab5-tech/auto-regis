@@ -6,7 +6,7 @@ from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QListWidget, QListWidgetItem, QMessageBox, QVBoxLayout, QWidget
 
-from ... import reference, store
+from ... import reference, store, workflow
 from ...texts import ACTION_FA, reasons_fa
 from .. import theme
 from ..theme import C
@@ -162,7 +162,7 @@ class NboPage(QWidget):
             return
         db = self.session.db()
         try:
-            latest = store.latest_states(db)
+            latest = workflow.current_reviews(db, store.latest_states(db))
         finally:
             db.close()
         self.list.clear()

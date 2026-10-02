@@ -224,3 +224,19 @@ def test_https_as_the_old_code_the_address_registered_in_nbo_decides(isolated_pr
     assert got["A"]["action"] == "EDIT" and got["A"]["reason_codes"] == ["INVALID_URL"]     # typed http:// = 'URL wrong'
     assert got["B"]["action"] == "APPROVE", got["B"]["notes"]                               # no scheme = https (NBO links it so)
     assert got["C"]["action"] == "APPROVE", got["C"]["notes"]
+
+
+def test_week_totals_count_each_request_once(isolated_profile):
+    """Re-reviews and internal errors must not inflate the 7-day tiles (live 2026-10-03: 603 manual requests showed as 1,000)."""
+    db = store.connect(isolated_profile / "t.db")
+    from datetime import datetime, timedelta, timezone
+    start = datetime.now(timezone.utc) - timedelta(hours=1)
+    rows = [("r1", "A", "MANUAL", ""), ("r2", "A", "MANUAL", ""), ("r3", "A", "APPROVE", ""),   # A: decided at last
+            ("r1", "B", "MANUAL", ""), ("r2", "B", "MANUAL", ""),                              # B: manual twice
+            ("r1", "C", "MANUAL", '["ERROR"]')]                                                 # C: only an internal error
+    for i, (run, smr, action, trace) in enumerate(rows):
+        db.execute("INSERT INTO results (run_id, smr, action, trace, decided_at) VALUES (?,?,?,?,?)",
+                   (run, smr, action, trace, (start + timedelta(seconds=i)).isoformat(timespec="seconds")))
+    db.commit()
+    t = store.totals(db, days=7)
+    assert t["counts"]["MANUAL"] == 1 and t["counts"]["APPROVE"] == 1 and t["total"] == 2

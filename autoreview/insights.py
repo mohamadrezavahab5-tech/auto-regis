@@ -109,9 +109,12 @@ def control_room(cases, evs, results, created_at, approved_statuses=(), now=None
         people["موتور (AutoReview)"] += engine_week
 
     undecided = sum(states.get(k, 0) for k in UNDECIDED)
-    active_days = [daily[d]["engine"] + daily[d]["human"] for d in day_keys[-7:]]
+    # The undecided ones wait on people (a manual review, the Instore verdict): only people's decisions empty that queue.
+    # Counting the engine's ~1,000 reviews a day here promised "less than a day" while people had decided nothing
+    # (live 2026-10-03). No human decision in 7 days -> no estimate rather than an invented one.
+    active_days = [daily[d]["human"] for d in day_keys[-7:]]
     worked = [n for n in active_days if n]
-    speed = sum(worked) / len(worked) if worked else None             # decisions per working day (idle days do not count)
+    speed = sum(worked) / len(worked) if worked else None             # people's decisions per working day
     eta_days = (undecided / speed) if speed else None
 
     waiting = []

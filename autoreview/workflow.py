@@ -14,6 +14,7 @@ names, channel ...) invalidates old verdicts, and a request that re-enters the q
 import hashlib
 import json
 import re
+import sqlite3
 import uuid
 
 from . import jalali, store
@@ -225,15 +226,31 @@ def suggest(db, smr, result, engine_counts=False):
                                                       'engine_verdict': bool((case['online'] or {}).get('source') == 'engine')})
 
 
+def reset_times(db) -> dict:
+    """{smr: when its NBO data last changed} - from then on, older reviews no longer describe the request."""
+    out = {}
+    try:
+        rows = db.execute("SELECT smr, body FROM workflow_events WHERE body LIKE '%\"WORKFLOW_SOURCE_CHANGED\"%'").fetchall()
+    except sqlite3.OperationalError:                        # no workflow tables yet
+        return out
+    for smr, body in rows:
+        out[smr] = max(out.get(smr, ''), json.loads(body).get('at') or '')
+    return out
+
+
+def current_reviews(db, latest: dict) -> dict:
+    """store.latest_states() without the reviews made before the request's data changed in NBO. Those requests count as
+    not reviewed, so the queue takes them again (live 2026-10-03: 3 requests whose website / names changed after their
+    review stayed 'waiting for Online' for good - the queue thought they were reviewed, the workflow knew they were not)."""
+    resets = reset_times(db)
+    return {smr: v for smr, v in latest.items() if (v[2] or '') >= resets.get(smr, '')}
+
+
 def reconcile_suggestions(db, latest, engine_counts=False):
     """latest: store.latest_results(). Gives every open case the engine's newest review when it does not have it yet - a
     review that was interrupted, stopped or failed half-way never reached the queue (live 2026-10-02: 41 Online + Instore
     requests reviewed but still 'waiting for Online'). A review from before the case was reset is ignored. -> applied."""
-    resets = {}
-    for smr, body in db.execute("SELECT smr, body FROM workflow_events"):
-        if '"WORKFLOW_SOURCE_CHANGED"' in body:
-            at = json.loads(body).get('at') or ''
-            resets[smr] = max(resets.get(smr, ''), at)
+    resets = reset_times(db)
     applied = 0
     for case in cases(db):
         result = latest.get(case['smr'])

@@ -30,12 +30,14 @@ def test_agreement_counts_people_against_the_engine_and_names_the_overruled_rule
 def test_control_room_speed_eta_oldest_and_people():
     db = store.connect()
     setup(db)
-    now = datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)                       # the human decision below is stamped now
     workflow.decide(db, 'SMR-0', 'online', 'APPROVE', 'سارا', 'ok', workflow.get(db, 'SMR-0')['revision'])
     results = [((now - timedelta(hours=h)).isoformat(), 'MANUAL') for h in (1, 2, 3)]
     created = {'SMR-1': '۱۴۰۵/۰۷/۰۱', 'SMR-2': '۱۴۰۵/۰۷/۰۸'}
     r = insights.control_room(workflow.cases(db), insights.events(db), results, created, now=now)
     assert r['undecided'] == 3 and r['open'] == 4
-    assert r['speed'] and r['eta_days'] is not None
+    assert r['speed'] == 1 and r['eta_days'] == 3            # people's decisions only: the engine cannot clear these
+    none = insights.control_room(workflow.cases(db), [], results, created, now=now)
+    assert none['speed'] is None and none['eta_days'] is None
     assert r['oldest'][0][1] == 'SMR-1' and r['oldest'][0][0] >= 9
     assert dict(r['people'])['موتور (AutoReview)'] == 3

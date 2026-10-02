@@ -235,10 +235,14 @@ def _since(days):
 
 
 def daily_counts(db, days=14):
-    """-> [(YYYY-MM-DD local, {action: n})] for the last `days` days (days without decisions included as zeros)."""
-    out = {}
-    for decided, action in db.execute("SELECT decided_at, action FROM results WHERE decided_at >= ?", (_since(days + 1),)):
-        day = datetime.fromisoformat(decided).astimezone().strftime("%Y-%m-%d")
+    """-> [(YYYY-MM-DD local, {action: n})] for the last `days` days (days without decisions included as zeros). A request
+    reviewed twice in one day counts once, by its last verdict that day; internal errors are not verdicts (live
+    2026-10-02: 1,599 results for 1,151 requests)."""
+    out, last = {}, {}
+    for smr, decided, action in db.execute(f"SELECT smr, decided_at, action FROM results WHERE decided_at >= ? AND {_REVIEWED} "
+                                           "ORDER BY decided_at", (_since(days + 1),)):
+        last[(datetime.fromisoformat(decided).astimezone().strftime("%Y-%m-%d"), smr)] = action
+    for (day, _smr), action in last.items():
         bucket = out.setdefault(day, dict.fromkeys(ACTIONS, 0))
         bucket[action] = bucket.get(action, 0) + 1
     today = datetime.now().astimezone().date()
@@ -250,11 +254,22 @@ def daily_counts(db, days=14):
 
 
 def totals(db, run_id=None, days=None):
+    """Verdict counts. Over `days` every request counts once, by its latest real verdict in the window: re-reviews and
+    interrupted runs had turned 603 manual requests into a "1,000 manual" tile (live 2026-10-03), and internal errors
+    are not verdicts at all."""
     q, args = "SELECT action, COUNT(*), AVG(duration_ms) FROM results", []
     if run_id:
         q, args = q + " WHERE run_id = ?", [run_id]
     elif days:
-        q, args = q + " WHERE decided_at >= ?", [_since(days)]
+        q = (f"SELECT r.action, COUNT(*), AVG(r.duration_ms) FROM results r JOIN "
+             f"(SELECT smr, MAX(decided_at) m FROM results WHERE decided_at >= ? AND {_REVIEWED} GROUP BY smr) x "
+             f"ON r.smr = x.smr AND r.decided_at = x.m WHERE {_REVIEWED.replace('(trace', '(r.trace')}")
+        args = [_since(days)]
+        return _totals(db, q.replace("COUNT(*)", "COUNT(DISTINCT r.smr)"), args)
+    return _totals(db, q, args)
+
+
+def _totals(db, q, args):
     counts, avg_ms, weighted = dict.fromkeys(ACTIONS, 0), 0.0, 0
     for action, n, avg in db.execute(q + " GROUP BY action", args):
         counts[action] = n
@@ -278,12 +293,16 @@ def reason_counts(db, run_id=None, days=None, limit=10):
 
 
 def manual_causes(db, run_id=None, days=None, limit=10):
-    """Why requests went to a person, grouped by the first note's kind ('could not determine: X' -> X)."""
+    """Why requests went to a person, grouped by the first note's kind ('could not determine: X' -> X). Over `days` only
+    requests whose latest real verdict in the window is MANUAL count, once each (re-reviews had counted 603 requests
+    1,000 times, and requests later decided still showed as manual)."""
     q, args = "SELECT notes FROM results WHERE action = 'MANUAL'", []
     if run_id:
         q, args = q + " AND run_id = ?", [run_id]
     elif days:
-        q, args = q + " AND decided_at >= ?", [_since(days)]
+        q = (f"SELECT r.notes FROM results r JOIN (SELECT smr, MAX(decided_at) m FROM results WHERE decided_at >= ? AND "
+             f"{_REVIEWED} GROUP BY smr) x ON r.smr = x.smr AND r.decided_at = x.m WHERE r.action = 'MANUAL'")
+        args = [_since(days)]
     counts = {}
     for (notes,) in db.execute(q, args):
         n = (json.loads(notes or "[]") or ["?"])[0]

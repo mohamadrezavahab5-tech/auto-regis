@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractItemView, QGridLayout, QHBoxLayout, QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout
 
-from ... import insights, jalali, reference, workflow
+from ... import insights, jalali, reference, store, workflow
 from ...texts import ACTION_FA, REASON_FA
 from .. import theme
 from ..session import run_bg
@@ -36,7 +36,7 @@ class ControlRoomPage(ScrollPage):
         tiles.setSpacing(14)
         self.t_open = StatTile("درخواست باز", C["text"], C["surface2"], "list-check")
         self.t_undecided = StatTile("هنوز بی‌نظر", C["manual"], C["manual_soft"], "user")
-        self.t_speed = StatTile("سرعت (تصمیم در روز کاری)", C["accent_text"], C["accent_soft"], "play")
+        self.t_speed = StatTile("تصمیم همکاران در روز", C["accent_text"], C["accent_soft"], "play")
         self.t_eta = StatTile("صف خالی می‌شود در", C["info"], C["info_soft"], "clock")
         self.t_done = StatTile("میانگین تا نتیجه‌ی NBO", C["approve"], C["approve_soft"], "shield")
         for t in (self.t_open, self.t_undecided, self.t_speed, self.t_eta, self.t_done):
@@ -87,8 +87,13 @@ class ControlRoomPage(ScrollPage):
             db = self.session.db()
             try:
                 since = (datetime.now(timezone.utc) - timedelta(days=15)).isoformat()
-                results = db.execute("SELECT decided_at, action FROM results WHERE decided_at >= ?", (since,)).fetchall()
-                created = {r["smr"]: r.get("created_at") for r in reference.all_nbo_rows(db)}
+                # one engine decision per request per day; internal errors are not decisions
+                per_day = {}
+                for smr, at, action in db.execute(f"SELECT smr, decided_at, action FROM results WHERE decided_at >= ? "
+                                                  f"AND {store._REVIEWED} ORDER BY decided_at", (since,)):
+                    per_day[(at[:10], smr)] = (at, action)
+                results = list(per_day.values())
+                created = reference.created_dates(db)
                 return insights.control_room(workflow.cases(db), insights.events(db), results, created,
                                              self.session.rules()["approved_statuses"]["nbo"])
             finally:
@@ -104,8 +109,9 @@ class ControlRoomPage(ScrollPage):
         self.daily.set_days([(jalali.fa_digits(jalali.jdate(datetime(day.year, day.month, day.day), False)[5:]), c) for day, c in d["daily"]])
         self.oldest.set_items([(f"{smr} — {workflow.STATES[st].split('؛')[0]}", days, theme.WORKFLOW[st][0]) for days, smr, st, _site in d["oldest"]])
         self.people.set_items([(who, n, None) for who, n in d["people"]])
-        self.note.setText("سرعت = میانگین تصمیم‌ها (موتور + آدم‌ها) در روزهایی که کاری انجام شده؛ «صف خالی می‌شود» = درخواست‌های بی‌نظر "
-                          "تقسیم بر همین سرعت. با روشن بودن خلبان خودکار، این عدد خودش پایین می‌آید.")
+        self.note.setText("«تصمیم همکاران در روز» = میانگین نظرهایی که همکاران (Online و Instore) در روزهای کاری ۷ روز اخیر ثبت کرده‌اند؛ "
+                          "«صف خالی می‌شود» = درخواست‌های بی‌نظر تقسیم بر همین عدد. این‌ها منتظر آدم‌اند، پس سرعت موتور در آن حساب نمی‌شود؛ "
+                          "تا همکاری نظری ثبت نکرده، تخمینی نشان داده نمی‌شود.")
 
 
 class AccuracyPage(ScrollPage):
