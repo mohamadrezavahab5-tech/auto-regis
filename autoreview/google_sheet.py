@@ -4,8 +4,10 @@ All input strings use stringValue/RAW, never executable formulas. One writer per
 workbook; human commands remain separate from the app-owned Workflow projection.
 """
 import json
+import logging
 import time
 import uuid
+from datetime import datetime
 from urllib.parse import quote
 
 import httpx
@@ -15,7 +17,9 @@ from google.auth.transport.requests import Request
 from . import google_credentials
 from .store import now
 
-WORKFLOW_HEAD = ['کد درخواست','مسیر','وب‌سایت','دسته‌بندی','وضعیت مرجع NBO','پیشنهاد موتور','نظر Online','بررسی‌کننده Online','توضیح Online','نظر Instore','بررسی‌کننده Instore','توضیح Instore','وضعیت گردش کار','نسخه پرونده','آخرین تغییر','دلیل پیشنهادی','شناسه دستگاه']
+log = logging.getLogger("autoreview.sheet")
+
+WORKFLOW_HEAD = ['کد درخواست','مسیر','وب‌سایت','دسته‌بندی','وضعیت مرجع NBO','پیشنهاد موتور','نظر Online','بررسی‌کننده Online','توضیح Online','نظر Instore','بررسی‌کننده Instore','توضیح Instore','وضعیت گردش کار','نسخه پرونده','آخرین تغییر','دلیل پیشنهادی','شناسه دستگاه','ترتیب']
 COMMAND_HEAD = ['شناسه فرمان','کد درخواست','تیم','تصمیم','کد دلیل NBO','توضیح / مرجع بررسی','نام بررسی‌کننده','نسخه پرونده','ارسال؟','وضعیت پردازش','پیام','زمان پردازش','درخواست ثبت‌شده']
 EVENT_HEAD = ['شناسه رویداد','زمان','کد درخواست','نوع رویداد','کاربر','نسخه','جزئیات']
 RESULT_HEAD = ['SMR','Site','Category','Decision','Reason code (NBO)','Reason label (NBO)','Notes','Checked at','Batch','Evidence']
@@ -28,7 +32,7 @@ LABELS = {'APPROVE':'تأیید','EDIT':'نیاز به اصلاح','CANCEL':'ل�
 OI_TAB = 'Online + Instore'
 OI_HEAD = ['کد درخواست','وب‌سایت','دسته‌بندی','تاریخ بررسی Online','نتیجه Online','دلایل Online','بررسی‌کننده Online',
            'تاریخ بررسی Instore','نتیجه Instore','دلیل Instore (برچسب NBO)','توضیح Instore','بررسی‌کننده Instore',
-           'وضعیت','نسخه پرونده']
+           'وضعیت','نسخه پرونده','ترتیب']
 OI_TEAM_COLS = range(7, 12)
 OI_RESULTS = ['تایید قرارداد', 'نیاز به ادیت', 'لغو قرارداد', 'بررسی دستی']
 EXEC_TAB = 'Execution'
@@ -39,10 +43,87 @@ UPD_HEAD = ['نسخه','لینک دانلود','SHA-256','توضیحات','تا�
 # columns 7-9, which the app never writes.
 LEGAL_TAB = 'Legal'
 LEGAL_HEAD = ['کد درخواست CRM','تاریخ ایجاد','نام تجاری','وب‌سایت','وضعیت CRM','آخرین تغییر در CRM','اضافه شده در',
-              'نتیجه بررسی Legal','توضیح','بررسی‌کننده']
+              'نتیجه بررسی Legal','توضیح','بررسی‌کننده','ترتیب']
 LEGAL_APP_COLS = 7
 TABS = {'Workflow': WORKFLOW_HEAD, OI_TAB: OI_HEAD, 'Decisions': COMMAND_HEAD, EXEC_TAB: EXEC_HEAD, 'Audit': EVENT_HEAD,
         'Results': RESULT_HEAD, 'Manual queue': MANUAL_HEAD, UPD_TAB: UPD_HEAD, LEGAL_TAB: LEGAL_HEAD}
+REPORT_TAB = 'گزارش'                    # numbers and charts (sheet_report.py): app-owned, free layout, no header contract
+OI_KEY, WF_KEY, LEGAL_KEY = OI_HEAD.index('ترتیب'), WORKFLOW_HEAD.index('ترتیب'), LEGAL_HEAD.index('ترتیب')
+
+# ---- order: what really needs someone's action comes first (owner 2026-10-02) ------------------------------------------
+# Each people's tab has a hidden 'ترتیب' column; the sheet sorts WHOLE rows by it, so a team's own cells always move with
+# their request. The group depends on who reads the tab: Online + Instore is the Instore team's list, Workflow the Online
+# team's record (an Online edit / cancel is applied without Instore - only an approval needs both teams).
+OI_GROUPS = {'WAIT_INSTORE': 1, 'CONFLICT': 2, 'MANUAL': 3, 'READY': 4, 'EDIT': 4, 'CANCEL': 4, 'WAIT_ONLINE': 5,
+             'DONE_APPROVED': 8, 'DONE_CLOSED': 8, 'OUT_OF_SCOPE': 9}
+WF_GROUPS = {'CONFLICT': 1, 'MANUAL': 2, 'READY': 3, 'EDIT': 3, 'CANCEL': 3, 'WAIT_INSTORE': 4, 'WAIT_ONLINE': 5,
+             'DONE_APPROVED': 8, 'DONE_CLOSED': 8, 'OUT_OF_SCOPE': 9}
+# what the Instore team reads in 'وضعیت': whose turn it is, in the app's own states
+OI_STATE_TEXT = {
+    'WAIT_INSTORE': 'نوبت Instore: نظرتان را ثبت کنید', 'CONFLICT': 'اختلاف نظر دو تیم؛ منتظر تصمیم',
+    'MANUAL': 'نیازمند بررسی دستی تیم Online', 'WAIT_ONLINE': 'منتظر نظر Online',
+    'READY': 'تأیید هر دو تیم؛ آماده‌ی اعمال در NBO', 'EDIT': 'نیاز به اصلاح؛ آماده‌ی اعمال در NBO',
+    'CANCEL': 'لغو؛ آماده‌ی اعمال در NBO', 'DONE_APPROVED': 'تأییدشده در NBO', 'DONE_CLOSED': 'بسته‌شده در NBO',
+    'OUT_OF_SCOPE': 'خارج از صف'}
+# CRM statuses after which a Legal check changes nothing any more (the request was cancelled or is registered)
+CRM_CLOSED = frozenset({'لغو درخواست', 'ثبت نام انجام شده', 'درحال فعال سازی فنی', 'اتمام فعال سازی فنی'})
+SORT_EVERY = {OI_TAB: 600, 'Workflow': 300, LEGAL_TAB: 600}     # seconds; people type in Online + Instore and Legal
+_SORTED = {}                                                    # (sheet id, tab) -> when it was last sorted
+
+
+def _epoch(when):
+    try:
+        return int(datetime.fromisoformat(str(when).replace('Z', '+00:00')).timestamp())
+    except (TypeError, ValueError):
+        return 0
+
+
+def order_key(group, when, newest_first=False):
+    """Text that sorts like (group, time): inside a group the oldest first (or the newest first). Fixed width, so the
+    sheet's own A-Z sort puts the rows in exactly this order."""
+    t = max(0, min(_epoch(when), 9_999_999_999))
+    return f"{group}{(9_999_999_999 - t) if newest_first else t:010d}"
+
+
+def workflow_key(case):
+    group = WF_GROUPS.get(case.get('state') or 'OUT_OF_SCOPE', 9)
+    return order_key(group, case.get('updated_at'), newest_first=group >= 8)
+
+
+def in_order(keys):
+    """Rows without a key belong at the bottom."""
+    return keys == sorted(keys, key=lambda k: (k == '', k))
+
+
+def _cell(v):
+    if isinstance(v, bool):
+        key = 'boolValue'
+    elif isinstance(v, (int, float)):
+        key = 'numberValue'
+    else:
+        key, v = 'stringValue', str(v or '')
+    return {'userEnteredValue': {key: v}}
+
+
+def _rgb(hex_colour):
+    h = hex_colour.lstrip('#')
+    return {'red': int(h[0:2], 16) / 255, 'green': int(h[2:4], 16) / 255, 'blue': int(h[4:6], 16) / 255}
+
+
+# ---- look (owner 2026-10-02: "pretty and clean") -------------------------------------------------------------------------
+STYLE_MARK, STYLE_VERSION = 'autoreview_style', '1'
+INK, HEAD, TEAM, BAND, SECTION, TABLE_HEAD = '#1B2A24', '#1B4D3E', '#1F4E8C', '#F4F7F5', '#E8F1EC', '#DDE8E2'
+TURN, CONFLICT_BG, MUTED = '#FFF3D0', '#FDE2E1', '#8A8F8C'
+ACTION_COLOURS = {'APPROVE': '#2E7D5B', 'EDIT': '#D99A00', 'CANCEL': '#C8453B', 'MANUAL': '#6E59A5'}
+# column widths in pixels; None = hidden helper column. The team's own columns get a blue header.
+TABLE_LOOK = {
+    OI_TAB: dict(widths=[130, 190, 150, 110, 120, 260, 120, 110, 130, 220, 220, 120, 270, None, None], team=(7, 12),
+                 colours=(('1', TURN, None), ('2', CONFLICT_BG, None), ('8', None, MUTED), ('9', None, MUTED))),
+    'Workflow': dict(widths=[130, 110, 190, 150, 120, 110, 110, 120, 220, 110, 120, 220, 230, None, 150, 160, None, None],
+                     team=None, colours=(('1', CONFLICT_BG, None), ('2', TURN, None), ('8', None, MUTED), ('9', None, MUTED))),
+    LEGAL_TAB: dict(widths=[130, 160, 170, 190, 170, 160, 160, 150, 220, 120, None], team=(7, 10),
+                    colours=(('2', None, MUTED), ('3', None, MUTED))),
+}
 
 
 def col_letter(n):
@@ -120,6 +201,7 @@ class Client:
                 raise GoogleSheetError('به شیت دسترسی نداریم؛ Service Account را روی همین شیت با نقش Editor اضافه کن')
             if r.status_code == 429 or r.status_code >= 500:
                 raise GoogleSheetError('Google موقتاً پاسخ نمی‌دهد؛ بعداً دوباره تلاش می‌شود')
+            log.warning("Google Sheets %s: %s", r.status_code, message[:400])
             raise GoogleSheetError(f'خطای Google Sheets ({r.status_code})؛ اطلاعات اتصال یا ساختار شیت را بررسی کن')
         return r.json()
 
@@ -161,13 +243,27 @@ class Client:
         return values[1:]
 
     def update(self, name, row, values, col=0):
-        def cell(v):
-            if isinstance(v,bool): key='boolValue'
-            elif isinstance(v,(int,float)): key='numberValue'
-            else: key='stringValue'; v=str(v or '')
-            return {'userEnteredValue':{key:v}}
         return {'updateCells':{'start':{'sheetId':self.sheet(name)['sheetId'],'rowIndex':row,'columnIndex':col},
-            'rows':[{'values':[cell(v) for v in values]}], 'fields':'userEnteredValue'}}
+            'rows':[{'values':[_cell(v) for v in values]}], 'fields':'userEnteredValue'}}
+
+    def sort_if_needed(self, name, keys, key_col):
+        """Sorts the tab's WHOLE rows by its order key when they are out of order - at most every SORT_EVERY seconds, as
+        people may be working in it. Best effort: the data is already written; a failed sort is simply tried later."""
+        mark = (self.sheet_id, name)
+        if in_order(keys) or time.monotonic() - _SORTED.get(mark, float('-inf')) < SORT_EVERY.get(name, 600):
+            return False
+        props = self.sheet(name)
+        body = {'requests': [{'sortRange': {
+            'range': {'sheetId': props['sheetId'], 'startRowIndex': 1, 'endRowIndex': 1 + len(keys), 'startColumnIndex': 0,
+                      'endColumnIndex': props['gridProperties']['columnCount']},
+            'sortSpecs': [{'dimensionIndex': key_col, 'sortOrder': 'ASCENDING'}]}}]}
+        try:
+            self.request('POST', ':batchUpdate', json=body)
+        except GoogleSheetError as e:
+            log.warning("sorting %s failed: %s", name, e)
+            return False
+        _SORTED[mark] = time.monotonic()
+        return True
 
     def batch(self, requests):
         if not requests: return
@@ -185,7 +281,8 @@ class Client:
         self.request('POST',':batchUpdate',json={'requests':growth+requests})
         if growth: self.meta=None
 
-    def sync(self, payload):
+    def sync(self, payload, keys=None):
+        """keys: {smr: workflow_key(case)} for every case - rows this round does not rewrite still get the current order."""
         current=self.read('Workflow',WORKFLOW_HEAD)
         event_ids=self.column('Audit',EVENT_HEAD[0])
         device=payload['device_id']
@@ -206,9 +303,16 @@ class Client:
             row=[case['smr'],'Online + Instore' if case['channel']=='both' else 'Online',case.get('site',''),
                 case.get('category',''),case.get('source_status',''),LABELS.get(s.get('action'),''),LABELS.get(o.get('action'),''),
                 o.get('actor',''),o.get('note',''),LABELS.get(t.get('action'),''),t.get('actor',''),t.get('note',''),
-                case['state_fa'],case['revision'],case['updated_at'],'، '.join(s.get('reason_codes') or []),device]
+                case['state_fa'],case['revision'],case['updated_at'],'، '.join(s.get('reason_codes') or []),device,
+                workflow_key(case)]
             if i is None: i=len(current); ids[case['smr']]=i; current.append(row)
+            else: current[i]=row
             req.append(self.update('Workflow',i+1,row))
+        written={c['smr'] for c in payload['cases']}
+        for smr,i in ids.items():
+            k=(keys or {}).get(smr)
+            if k is not None and smr not in written and str(current[i][WF_KEY])!=k:
+                req.append(self.update('Workflow',i+1,[k],WF_KEY)); current[i][WF_KEY]=k
         known={e for e in event_ids if e}
         index=len(event_ids)+1
         for e in payload['events']:
@@ -216,6 +320,7 @@ class Client:
             req.append(self.update('Audit',index,[e['event_id'],e['at'],e['smr'],e['kind'],e['actor'],e['revision'],json.dumps(e['detail'],ensure_ascii=False)]))
             known.add(e['event_id']); index+=1
         self.batch(req)
+        self.sort_if_needed('Workflow', [str(r[WF_KEY]) for r in current], WF_KEY)
         return dict(ok=True,cases=len(payload['cases']),events=len(payload['events']))
 
     def commands(self):
@@ -259,6 +364,10 @@ class Client:
             created = self.ensure_tabs(reason_labels)
             self.lock(editors)
             self.tidy()
+            try:
+                self.style()                        # the look only: a failure must never stop the data
+            except GoogleSheetError as e:
+                log.warning("sheet look not applied: %s", e)
             _CHECKED[self.sheet_id] = time.monotonic()
             return created
         return []
@@ -269,23 +378,34 @@ class Client:
         -> names of the tabs created now."""
         titles = {s['properties']['title'] for s in self.metadata()['sheets']}
         missing = [t for t in TABS if t not in titles]
-        if missing:
-            self.request('POST', ':batchUpdate', json={'requests': [
-                {'addSheet': {'properties': {'title': t, 'rightToLeft': True,
+        adds = [{'addSheet': {'properties': {'title': t, 'rightToLeft': True,
                                              'gridProperties': {'frozenRowCount': 1, 'columnCount': max(26, len(TABS[t]))}}}}
-                for t in missing]})
+                for t in missing]
+        if REPORT_TAB not in titles:
+            adds.append({'addSheet': {'properties': {'title': REPORT_TAB, 'rightToLeft': True, 'index': 0,
+                                                     'gridProperties': {'rowCount': 80, 'columnCount': 20}}}})
+            missing.append(REPORT_TAB)
+        if adds:
+            self.request('POST', ':batchUpdate', json={'requests': adds})
             self.meta = None
-        fresh = []
+        fresh, extended = [], []
         for name, head in TABS.items():
             current = self.header_row(name, len(head))
             if current == head:
                 continue
+            filled = len(current)
+            while filled and current[filled - 1] == '':
+                filled -= 1
+            if filled and current[:filled] == head[:filled]:
+                extended.append((name, filled))      # a newer app added columns at the end: only their titles are added
+                continue
             if any(current):
                 raise GoogleSheetError('ستون‌های تب تغییر کرده: ' + name)
             fresh.append(name)
+        req = [self.update(name, 0, TABS[name][filled:], filled) for name, filled in extended]
         if not fresh:
+            self.batch(req)
             return missing
-        req = []
         for name in fresh:
             sid = self.sheet(name)['sheetId']
             req.append(self.update(name, 0, TABS[name]))
@@ -322,7 +442,7 @@ class Client:
     # Owner 2026-10-02: "are all these tabs needed? user friendly - Online works only in the app, the sheet is the record".
     # People see three tabs; the app's bookkeeping tabs (and the old template's) are hidden, never deleted - their data
     # stays, and they can be shown again from the sheet's tab list.
-    VISIBLE = (OI_TAB, 'Workflow', LEGAL_TAB)
+    VISIBLE = (REPORT_TAB, OI_TAB, 'Workflow', LEGAL_TAB)
     HIDDEN = frozenset(TABS) - set(VISIBLE) | {'Daily summary', 'Reasons', 'Guide'}
 
     def tidy(self):
@@ -378,28 +498,36 @@ class Client:
 
     def write_online_instore(self, rows, statuses=None):
         """rows: workflow.sheet_row(case) for every Online + Instore case. Writes only the app's own cells, only when they
-        changed; new cases are added at the bottom; no row is ever removed."""
+        changed; new cases are added at the bottom, then whole rows are sorted so the Instore team's turn comes first
+        (OI_GROUPS); no row is ever removed."""
         statuses = statuses or {}
         current = self.read(OI_TAB, OI_HEAD)
         where = {str(r[0]).strip(): i for i, r in enumerate(current) if str(r[0]).strip()}
+        keys = [str(r[OI_KEY]) for r in current]
         req, end = [], len(current)
         for row in rows:
             status = statuses.get(row['smr'])
-            state = row['state'] + (f' — {status}' if status else '')
+            code = row.get('state_code') or 'OUT_OF_SCOPE'
+            group = OI_GROUPS.get(code, 9)
+            state = OI_STATE_TEXT.get(code, row['state']) + (f' — {status}' if status else '')
+            key = order_key(group, row.get('updated_at'), newest_first=group >= 8)
             left = [row['smr'], row['site'], row['category'], row['online_date'], row['online_result'], row['online_reasons'],
                     row['online_by']]
-            right = [state, row['revision']]
+            right = [state, row['revision'], key]
             i = where.get(row['smr'])
             if i is None:
                 i, end = end, end + 1
                 where[row['smr']] = i
+                keys.append(key)
             else:
                 have = current[i]
-                if [str(v) for v in have[:7]] == [str(v) for v in left] and [str(v) for v in have[12:14]] == [str(v) for v in right]:
+                keys[i] = key
+                if [str(v) for v in have[:7]] == [str(v) for v in left] and [str(v) for v in have[12:15]] == [str(v) for v in right]:
                     continue
             req.append(self.update(OI_TAB, i + 1, left))
             req.append(self.update(OI_TAB, i + 1, right, 12))
         self.batch(req)
+        self.sort_if_needed(OI_TAB, keys, OI_KEY)
         return len(req) // 2
 
     # ---- Legal tab --------------------------------------------------------------------------------------------------------
@@ -409,20 +537,196 @@ class Client:
         first upload of a few thousand finishes over a few rounds). -> rows written."""
         current = self.read(LEGAL_TAB, LEGAL_HEAD)
         where = {str(r[0]).strip(): i for i, r in enumerate(current) if str(r[0]).strip()}
-        req, end, stamp = [], len(current), now()
+        keys = [str(r[LEGAL_KEY]) for r in current]
+        req, end, stamp, added, pending, budget = [], len(current), now(), 0, 0, limit * 6
         for row in rows:
-            if len(req) >= limit:
-                break
             values = [row['caseid'], row['created_on'], row['brand'], row['site'], row['status'], row['modified_on']]
             i = where.get(row['caseid'])
+            checked = i is not None and str(current[i][7]).strip() != ''
+            # 1 = not checked and the request still open in CRM, 2 = not checked but already closed in CRM, 3 = checked
+            group = 3 if checked else (2 if row['status'] in CRM_CLOSED else 1)
+            pending += group == 1
+            key = order_key(group, row['created_on'], newest_first=True)
             if i is None:
-                i, end = end, end + 1
+                if added >= limit or len(req) >= budget:
+                    continue
+                i, end, added = end, end + 1, added + 1
                 where[row['caseid']] = i
-                req.append(self.update(LEGAL_TAB, i + 1, values + [stamp]))
-            elif [str(v) for v in current[i][:6]] != [str(v) for v in values]:
+                keys.append(key)
+                req += [self.update(LEGAL_TAB, i + 1, values + [stamp]), self.update(LEGAL_TAB, i + 1, [key], LEGAL_KEY)]
+                continue
+            if len(req) >= budget:
+                continue                            # the rest next round (the caller comes back sooner while catching up)
+            if [str(v) for v in current[i][:6]] != [str(v) for v in values]:
                 req.append(self.update(LEGAL_TAB, i + 1, values))
+            if keys[i] != key:
+                keys[i] = key
+                req.append(self.update(LEGAL_TAB, i + 1, [key], LEGAL_KEY))
+        self.legal_pending = pending
+        self.legal_writes = len(req)
         self.batch(req)
-        return len(req)
+        self.sort_if_needed(LEGAL_TAB, keys, LEGAL_KEY)
+        return added
+
+    # ---- report tab ---------------------------------------------------------------------------------------------------------
+    def write_report(self, rows):
+        """rows: sheet_report.grid() - the whole fixed area is rewritten (values only; the look is set by style())."""
+        sid = self.sheet(REPORT_TAB)['sheetId']
+        self.batch([{'updateCells': {'start': {'sheetId': sid, 'rowIndex': 0, 'columnIndex': 0},
+                                     'rows': [{'values': [_cell(v) for v in r]} for r in rows], 'fields': 'userEnteredValue'}}])
+
+    # ---- look ---------------------------------------------------------------------------------------------------------------
+    def style(self):
+        """Look of the people's tabs and the report's charts, applied once per STYLE_VERSION (a mark kept in the sheet), so
+        a round only reads one small field. The app's own earlier colours / bands / charts on these tabs are replaced.
+        -> True when the style was (re)applied."""
+        meta = self.request('GET', params={'fields': 'developerMetadata(metadataId,metadataKey,metadataValue),'
+                                           'sheets(properties(sheetId,title,gridProperties),conditionalFormats(ranges),'
+                                           'bandedRanges(bandedRangeId),charts(chartId))'})
+        mark = next((m for m in meta.get('developerMetadata', []) if m.get('metadataKey') == STYLE_MARK), None)
+        if mark and mark.get('metadataValue') == STYLE_VERSION:
+            return False
+        tabs = {s['properties']['title']: s for s in meta.get('sheets', [])}
+        req = []
+        for title in (REPORT_TAB, OI_TAB, 'Workflow', LEGAL_TAB):
+            s = tabs.get(title)
+            if not s:
+                continue
+            sid = s['properties']['sheetId']
+            req += [{'deleteConditionalFormatRule': {'sheetId': sid, 'index': i}}
+                    for i in range(len(s.get('conditionalFormats', [])) - 1, -1, -1)]
+            req += [{'deleteBanding': {'bandedRangeId': b['bandedRangeId']}} for b in s.get('bandedRanges', [])]
+            if title == REPORT_TAB:
+                req += [{'deleteEmbeddedObject': {'objectId': c['chartId']}} for c in s.get('charts', [])]
+                req += self._report_style(sid)
+            else:
+                req += self._table_style(title, sid, s['properties'])
+        if mark:
+            req.append({'updateDeveloperMetadata': {
+                'dataFilters': [{'developerMetadataLookup': {'metadataId': mark['metadataId']}}],
+                'developerMetadata': {'metadataValue': STYLE_VERSION}, 'fields': 'metadataValue'}})
+        else:
+            req.append({'createDeveloperMetadata': {'developerMetadata': {
+                'metadataKey': STYLE_MARK, 'metadataValue': STYLE_VERSION, 'location': {'spreadsheet': True},
+                'visibility': 'DOCUMENT'}}})
+        self.request('POST', ':batchUpdate', json={'requests': req})
+        self.meta = None
+        return True
+
+    @staticmethod
+    def _fmt(sid, r0, r1, c0, c1, fmt, fields):
+        rng = {'sheetId': sid, 'startRowIndex': r0, 'startColumnIndex': c0, 'endColumnIndex': c1}
+        if r1 is not None:
+            rng['endRowIndex'] = r1
+        return {'repeatCell': {'range': rng, 'cell': {'userEnteredFormat': fmt}, 'fields': 'userEnteredFormat(' + fields + ')'}}
+
+    def _table_style(self, title, sid, props):
+        look = TABLE_LOOK[title]
+        widths = look['widths']
+        width = len(widths)
+        key_letter = col_letter({OI_TAB: OI_KEY, 'Workflow': WF_KEY, LEGAL_TAB: LEGAL_KEY}[title] + 1)
+        head = {'backgroundColor': _rgb(HEAD), 'horizontalAlignment': 'CENTER', 'verticalAlignment': 'MIDDLE', 'wrapStrategy': 'WRAP',
+                'textFormat': {'bold': True, 'fontSize': 10, 'foregroundColor': _rgb('#FFFFFF')}}
+        fields = 'backgroundColor,horizontalAlignment,verticalAlignment,wrapStrategy,textFormat'
+        req = [self._fmt(sid, 0, 1, 0, width, head, fields),
+               self._fmt(sid, 1, None, 0, width, {'verticalAlignment': 'MIDDLE', 'wrapStrategy': 'CLIP',
+                                                  'textFormat': {'fontSize': 10, 'foregroundColor': _rgb(INK)}},
+                         'verticalAlignment,wrapStrategy,textFormat'),
+               {'updateDimensionProperties': {'range': {'sheetId': sid, 'dimension': 'ROWS', 'startIndex': 0, 'endIndex': 1},
+                                              'properties': {'pixelSize': 44}, 'fields': 'pixelSize'}},
+               {'updateSheetProperties': {'properties': {'sheetId': sid, 'gridProperties': {'frozenRowCount': 1, 'frozenColumnCount': 1}},
+                                          'fields': 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'}},
+               {'addBanding': {'bandedRange': {'range': {'sheetId': sid, 'startRowIndex': 0, 'startColumnIndex': 0, 'endColumnIndex': width},
+                                               'rowProperties': {'headerColor': _rgb(HEAD), 'firstBandColor': _rgb('#FFFFFF'),
+                                                                 'secondBandColor': _rgb(BAND)}}}}]
+        if look['team']:
+            req.append(self._fmt(sid, 0, 1, look['team'][0], look['team'][1], dict(head, backgroundColor=_rgb(TEAM)), fields))
+        for i, w in enumerate(widths):
+            props_ = {'hiddenByUser': w is None} if w is None else {'pixelSize': w, 'hiddenByUser': False}
+            req.append({'updateDimensionProperties': {'range': {'sheetId': sid, 'dimension': 'COLUMNS', 'startIndex': i, 'endIndex': i + 1},
+                                                      'properties': props_, 'fields': ','.join(props_)}})
+        total = props.get('gridProperties', {}).get('columnCount', width)
+        if total > width:                                   # the empty columns after the table
+            req.append({'updateDimensionProperties': {'range': {'sheetId': sid, 'dimension': 'COLUMNS', 'startIndex': width, 'endIndex': total},
+                                                      'properties': {'hiddenByUser': True}, 'fields': 'hiddenByUser'}})
+        for n, (group, background, text) in enumerate(look['colours']):
+            fmt = {}
+            if background:
+                fmt['backgroundColor'] = _rgb(background)
+            if text:
+                fmt['textFormat'] = {'foregroundColor': _rgb(text)}
+            req.append({'addConditionalFormatRule': {'index': n, 'rule': {
+                'ranges': [{'sheetId': sid, 'startRowIndex': 1, 'startColumnIndex': 0, 'endColumnIndex': width}],
+                'booleanRule': {'condition': {'type': 'CUSTOM_FORMULA',
+                                              'values': [{'userEnteredValue': f'=LEFT(${key_letter}2,1)="{group}"'}]},
+                                'format': fmt}}}})
+        return req
+
+    def _report_style(self, sid):
+        from .sheet_report import DAYS, ROW, TOP, WIDTH
+        f = self._fmt
+        text = lambda size, colour=INK, bold=False: {'fontSize': size, 'bold': bold, 'foregroundColor': _rgb(colour)}
+        req = [{'updateSheetProperties': {'properties': {'sheetId': sid, 'gridProperties': {'hideGridlines': True, 'frozenRowCount': 0}},
+                                          'fields': 'gridProperties.hideGridlines,gridProperties.frozenRowCount'}},
+               {'updateDimensionProperties': {'range': {'sheetId': sid, 'dimension': 'COLUMNS', 'startIndex': 0, 'endIndex': 1},
+                                              'properties': {'pixelSize': 250}, 'fields': 'pixelSize'}},
+               {'updateDimensionProperties': {'range': {'sheetId': sid, 'dimension': 'COLUMNS', 'startIndex': 1, 'endIndex': WIDTH},
+                                              'properties': {'pixelSize': 122}, 'fields': 'pixelSize'}},
+               {'updateDimensionProperties': {'range': {'sheetId': sid, 'dimension': 'COLUMNS', 'startIndex': WIDTH, 'endIndex': WIDTH + 1},
+                                              'properties': {'pixelSize': 28}, 'fields': 'pixelSize'}},
+               f(sid, 0, ROW['note'] + 1, 0, WIDTH, {'verticalAlignment': 'MIDDLE', 'textFormat': text(10)}, 'verticalAlignment,textFormat'),
+               f(sid, ROW['title'], ROW['title'] + 1, 0, 1, {'textFormat': text(18, HEAD, True)}, 'textFormat'),
+               f(sid, ROW['updated'], ROW['updated'] + 1, 0, 1, {'textFormat': text(9, MUTED)}, 'textFormat'),
+               f(sid, ROW['note'], ROW['note'] + 1, 0, 1, {'textFormat': text(9, MUTED)}, 'textFormat'),
+               f(sid, ROW['now_values'], ROW['now_values'] + 1, 0, 6,
+                 {'horizontalAlignment': 'CENTER', 'textFormat': text(22, HEAD, True)}, 'horizontalAlignment,textFormat'),
+               f(sid, ROW['now_labels'], ROW['now_labels'] + 1, 0, 6,
+                 {'horizontalAlignment': 'CENTER', 'backgroundColor': _rgb(TABLE_HEAD), 'textFormat': text(10, INK, True)},
+                 'horizontalAlignment,backgroundColor,textFormat')]
+        for key in ('now_head', 'perf_head', 'states_head', 'daily_head', 'reasons_head', 'manual_head'):
+            req.append(f(sid, ROW[key], ROW[key] + 1, 0, WIDTH, {'backgroundColor': _rgb(SECTION), 'textFormat': text(12, HEAD, True)},
+                         'backgroundColor,textFormat'))
+        for key, cols, rows in (('perf_cols', WIDTH, 3), ('states_cols', 2, 7), ('daily_cols', 5, DAYS),
+                                ('reasons_cols', 2, TOP), ('manual_cols', 2, TOP)):
+            req.append(f(sid, ROW[key], ROW[key] + 1, 0, cols,
+                         {'horizontalAlignment': 'CENTER', 'backgroundColor': _rgb(TABLE_HEAD), 'textFormat': text(10, INK, True)},
+                         'horizontalAlignment,backgroundColor,textFormat'))
+            req.append(f(sid, ROW[key] + 1, ROW[key] + 1 + rows, 1, cols, {'horizontalAlignment': 'CENTER'}, 'horizontalAlignment'))
+
+        def rng(r0, r1, c):
+            return {'sheetId': sid, 'startRowIndex': r0, 'endRowIndex': r1, 'startColumnIndex': c, 'endColumnIndex': c + 1}
+
+        def place(row):
+            return {'overlayPosition': {'anchorCell': {'sheetId': sid, 'rowIndex': row, 'columnIndex': WIDTH + 1},
+                                        'widthPixels': 560, 'heightPixels': 320}}
+
+        def bars(title, r_head, rows, colour, at):
+            return {'addChart': {'chart': {'position': place(at), 'spec': {'title': title, 'basicChart': {
+                'chartType': 'BAR', 'legendPosition': 'NO_LEGEND', 'headerCount': 1,
+                'axis': [{'position': 'BOTTOM_AXIS'}, {'position': 'LEFT_AXIS'}],
+                'domains': [{'domain': {'sourceRange': {'sources': [rng(r_head, r_head + 1 + rows, 0)]}}}],
+                'series': [{'series': {'sourceRange': {'sources': [rng(r_head, r_head + 1 + rows, 1)]}}, 'targetAxis': 'BOTTOM_AXIS',
+                            'colorStyle': {'rgbColor': _rgb(colour)}}]}}}}}
+
+        states = ROW['states_rows']
+        # four charts beside the tables, 17 rows apart (a 320 px chart is about 15 rows high)
+        req.append({'addChart': {'chart': {'position': place(3), 'spec': {
+            'title': 'درخواست‌های باز بر اساس وضعیت', 'pieChart': {
+                'legendPosition': 'RIGHT_LEGEND', 'pieHole': 0.45,
+                'domain': {'sourceRange': {'sources': [rng(states, states + 7, 0)]}},
+                'series': {'sourceRange': {'sources': [rng(states, states + 7, 1)]}}}}}}})
+        daily = ROW['daily_cols']
+        req.append({'addChart': {'chart': {'position': place(20), 'spec': {
+            'title': f'تصمیم‌های روزانه‌ی موتور ({DAYS} روز)', 'basicChart': {
+                'chartType': 'COLUMN', 'stackedType': 'STACKED', 'legendPosition': 'BOTTOM_LEGEND', 'headerCount': 1,
+                'axis': [{'position': 'BOTTOM_AXIS'}, {'position': 'LEFT_AXIS'}],
+                'domains': [{'domain': {'sourceRange': {'sources': [rng(daily, daily + 1 + DAYS, 0)]}}}],
+                'series': [{'series': {'sourceRange': {'sources': [rng(daily, daily + 1 + DAYS, c)]}}, 'targetAxis': 'LEFT_AXIS',
+                            'colorStyle': {'rgbColor': _rgb(ACTION_COLOURS[a])}}
+                           for c, a in enumerate(('APPROVE', 'EDIT', 'CANCEL', 'MANUAL'), start=1)]}}}}})
+        req.append(bars('پرتکرارترین دلیل‌های اصلاح و لغو (۳۰ روز)', ROW['reasons_cols'], TOP, ACTION_COLOURS['EDIT'], 37))
+        req.append(bars('علت‌های بررسی دستی (۳۰ روز)', ROW['manual_cols'], TOP, ACTION_COLOURS['MANUAL'], 54))
+        return req
 
     # ---- NBO execution receipts -----------------------------------------------------------------------------------------
     def upsert_execution(self, records):

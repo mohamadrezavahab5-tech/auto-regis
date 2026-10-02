@@ -420,10 +420,11 @@ def sheet_row(case, labels=None):
             when = jalali.jdate(online['at'], False)
         except (TypeError, ValueError):
             when = ''
+    code = case.get('state') or state(case)
     return dict(smr=case['smr'], site=case.get('site', ''), category=case.get('category', ''), online_date=when,
                 online_result=SHEET_RESULTS.get(action, ''), online_reasons=reasons_fa(codes) if codes else '',
-                online_by=online.get('actor', ''), state=case.get('state_fa') or STATES[state(case)],
-                revision=case.get('revision', 0))
+                online_by=online.get('actor', ''), state=case.get('state_fa') or STATES[code], state_code=code,
+                updated_at=case.get('updated_at', ''), revision=case.get('revision', 0))
 
 
 # ---- outbox ----------------------------------------------------------------------------------------------------------------

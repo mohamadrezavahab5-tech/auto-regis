@@ -319,6 +319,7 @@ class ConnectionsPage(ScrollPage):
                 created = google.ensure_tabs(list(labels['edit'].values()) + list(labels['cancel'].values()))
                 google.lock(cfg.get('sheet_editors') or ())
                 google.tidy()
+                google.style()
             return info, created
 
         def ok(res):
