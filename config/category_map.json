@@ -97,5 +97,7 @@
   "mismatch_allowed": false,
   "mismatch_allowed_note": "false = the engine never issues a category-mismatch EDIT from this mapping (result: MANUAL). Turn on only after the owner reviews the mapping; a live check on 2026-10-01 showed it misses valid pairs (fashion/bags/shoes title for NBO category کیف و کفش).",
   "match_mode": "action_test_4",
-  "_match_mode_note": "action_test_4 (owner 2026-10-02, default): an enamad activity that is a recognisable category counts as a match, exactly like the old engine (config/category_keywords.json). strict: only this file's table decides."
+  "_match_mode_note": "action_test_4 (owner 2026-10-02, default): an enamad activity that is a recognisable category counts as a match, exactly like the old engine (config/category_keywords.json). strict: only this file's table decides.",
+  "name_match_mode": "action_test_4",
+  "_name_match_mode_note": "action_test_4 (owner 2026-10-02, the old rules): when two names are not clearly equal or different, the old names_match decides (one inside the other, or >= 85 % alike = same). strict: such names go to a person."
 }

@@ -185,3 +185,11 @@ def test_a_lower_bound_count_proves_enough_but_never_too_few():
 def test_products_are_judged_before_the_cart():
     d = evaluate(good(product_count=5, can_add_to_cart=None), RULES, confirmed(ALL))
     assert d.action == EDIT and d.reason_keys == ["TOO_FEW_PRODUCTS"]
+
+
+def test_old_name_rule_only_ever_confirms_the_same_name():
+    from autoreview.facts import old_names_match
+    assert old_names_match("سيدداود يوسف زاده", "سید داوود یوسف زاده")
+    assert old_names_match("محمد حسن", "محمد حسن فردوسی")
+    assert not old_names_match("علی رضایی", "زهرا خیامی پور")
+    assert not old_names_match("", "علی")

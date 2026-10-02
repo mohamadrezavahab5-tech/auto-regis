@@ -110,6 +110,19 @@ class Session(QObject):
         finally:
             db.close()
 
+    def manual_again_rows(self):
+        """Open requests whose newest review is MANUAL and nobody decided by hand yet - to review again after the rules
+        changed (owner 2026-10-02: old 'unknown: category' results that the old rules now decide). Same order as 'all'."""
+        db = self.db()
+        try:
+            latest = store.latest_states(db)
+            human = {c['smr'] for c in workflow.cases(db)
+                     if (c.get('online') or {}).get('source') not in (None, 'engine') or c.get('online_hold')}
+        finally:
+            db.close()
+        return [r for r in self.queue_rows("all", False)
+                if latest.get(r["smr"], ("",))[0] == "MANUAL" and r["smr"] not in human]
+
     def queue_rows(self, kind, only_unreviewed=True):
         """Rows for a run: kind 'online' (direct NBO backlog), 'both' (Online-Instore sheet flow) or 'all' - both queues
         together, Online + Instore first: the Instore team cannot start on a request before its Online verdict (owner

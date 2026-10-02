@@ -41,3 +41,25 @@ def test_autopilot_switch_off(monkeypatch):
     settings.save_user({"rules": {"automation.autopilot": False}})
     monkeypatch.setattr(s, "start_run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not start")))
     assert s.autopilot_run() == "off"
+
+
+def test_manual_results_can_be_reviewed_again_unless_a_person_decided():
+    from autoreview import rules as R, store, workflow
+    s = make_session()
+    db = s.db()
+    try:
+        reference.import_nbo(db, [nbo_row("SMR-7"), nbo_row("SMR-8"), nbo_row("SMR-9")], "test")
+        store.start_run(db, "r1", 3)
+        for smr, action in (("SMR-7", "MANUAL"), ("SMR-8", "MANUAL"), ("SMR-9", "APPROVE")):
+            store.save_result(db, "r1", dict(smr=smr, site=f"{smr.lower()}.ir"), R.Decision(action), {})
+    finally:
+        db.close()
+    s._refresh_workflow_now()
+    db = s.db()
+    try:
+        case = workflow.get(db, "SMR-8")
+        workflow.decide(db, "SMR-8", "online", "APPROVE", "tester", "checked by hand", case["revision"],
+                        labels={"edit": {}, "cancel": {}})
+    finally:
+        db.close()
+    assert [r["smr"] for r in s.manual_again_rows()] == ["SMR-7"]

@@ -5,6 +5,7 @@ A 'blocker' stops the checks early when the site cannot be judged at all (a soci
 domain, a redirect to another domain) - the person reviewing gets that exact reason instead of a vague 'unknown'."""
 import asyncio
 import json
+import re
 from dataclasses import asdict
 
 from .collectors import detectors, enamad, site as sitec
@@ -36,6 +37,17 @@ def _apply_enamad(facts, ev, info, row, website, category_map):
     reg, holder = registrant_name(row), str(row.get("account_holder") or "").strip()
     facts.registrant_matches_account_holder = names_equal(reg, holder) if reg and holder else None
     ev["names"] = {"account_holder": holder, "registrant": reg, "enamad_owner": info.owner}
+    if category_map.get("name_match_mode", "action_test_4") == "action_test_4":
+        # Owner 2026-10-02 "all the old code's rules": where the strict comparison cannot tell (spelling variant, one name
+        # inside the other), Action Test 4's names_match decides - substring or >= 85 % alike counts as the same name. Only
+        # its 'same' is taken: where it says 'different' (e.g. 'علی قریشی' / 'علی اصغر قریشی') a person still decides,
+        # an EDIT for a name that is probably right would go to the merchant.
+        for attr, other in (("registrant_matches_account_holder", reg), ("owner_matches_account_holder", info.owner)):
+            if attr == "owner_matches_account_holder" and facts.has_enamad is not True:
+                continue                                 # no usable enamad (none, unreadable, another domain's profile)
+            if getattr(facts, attr) is None and other and holder and old_names_match(other, holder):
+                setattr(facts, attr, True)
+                ev.setdefault("name_rule", {})[attr] = f"Action Test 4: '{other}' ~ '{holder}'"
     if facts.category_relation == "unknown" and category_map.get("match_mode", "action_test_4") == "action_test_4":
         hit = old_category_match(info.activities)
         if hit:
@@ -47,6 +59,23 @@ def _apply_enamad(facts, ev, info, row, website, category_map):
 
 
 _KEYWORDS = None
+
+
+def old_names_match(name1, name2) -> bool:
+    """Action Test 4's names_match, as it was (Desktop/AUTO/PythonProject/action-test4.py)."""
+    from difflib import SequenceMatcher
+
+    def normalize(s):
+        s = "".join(str(s or "").split()).replace("\u200c", "")
+        for a, b in (("ي", "ی"), ("ك", "ک"), ("ة", "ه"), ("أ", "ا"), ("إ", "ا"),
+                     ("ى", "ی"), ("ئ", "ی"), ("آ", "ا"), ("ؤ", "و"), ("ء", "")):
+            s = s.replace(a, b)
+        s = re.sub(r"[^\w\s\u0600-\u06FF]", "", s).lower()
+        return re.sub(r"\b(و|and|&)\b", "", s).strip()
+    n1, n2 = normalize(name1), normalize(name2)
+    if not n1 or not n2:
+        return False
+    return n1 == n2 or n1 in n2 or n2 in n1 or SequenceMatcher(None, n1, n2).ratio() >= 0.85
 
 
 def old_category_match(activities):

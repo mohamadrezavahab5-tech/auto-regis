@@ -88,9 +88,13 @@ class ReviewPage(ScrollPage):
         self.b_pause.clicked.connect(self.toggle_pause)
         self.b_stop = button("توقف", "danger", "stop", icon_color=C["danger"])
         self.b_stop.clicked.connect(self.stop)
+        self.b_again = button("دوباره بررسی «دستی»ها با قوانین فعلی", None, "refresh")
+        self.b_again.setToolTip("درخواست‌های باز که آخرین نتیجه‌شان «بررسی دستی» بوده و هنوز کسی دستی تصمیم نگرفته")
+        self.b_again.clicked.connect(self.review_manual_again)
         for b in (self.b_start, self.b_pause, self.b_stop):
             ctl.addWidget(b)
         ctl.addStretch(1)
+        ctl.addWidget(self.b_again)
         q.lay.addLayout(ctl)
         for w in (self.q_all, self.q_online, self.q_both, self.only_new):
             w.toggled.connect(lambda *_: self._update_plan())
@@ -276,6 +280,29 @@ class ReviewPage(ScrollPage):
         self._started = time.time()
         self._sync_buttons()
 
+    def review_manual_again(self):
+        s = self.session
+        board = s.board()
+        if not board["nbo_meta"] or not board["crm_meta"]:
+            QMessageBox.warning(self, "منبع ناقص", "اول هر دو منبع را بارگذاری کن: خروجی NBO و داده‌ی CRM.")
+            return
+        rows = s.manual_again_rows()
+        if not rows:
+            QMessageBox.information(self, "دوباره بررسی", "درخواست بازی با نتیجه‌ی «بررسی دستی» نمانده است.")
+            return
+        if QMessageBox.question(self, "دوباره بررسی", f"{num(len(rows))} درخواست باز با نتیجه‌ی «بررسی دستی» دوباره با قوانین "
+                                "فعلی بررسی شوند؟ (هر نوبت حداکثر به اندازه‌ی «تعداد در این نوبت»)") != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            s.start_run(rows[: self.size.value()], "all", label=f"دوباره بررسی دستی‌ها — {num(min(len(rows), self.size.value()))}")
+        except Exception as e:
+            QMessageBox.warning(self, "دوباره بررسی", str(e))
+            return
+        self.feed.clear()
+        self._shown_ids = set()
+        self._started = time.time()
+        self._sync_buttons()
+
     def toggle_pause(self):
         r = self.session.runner
         if r:
@@ -293,6 +320,7 @@ class ReviewPage(ScrollPage):
         st = r.progress.state if r else "idle"
         active = st in ("running", "paused", "stopping")
         self.b_start.setEnabled(not active)
+        self.b_again.setEnabled(not active)
         self.b_pause.setEnabled(st in ("running", "paused"))
         self.b_pause.setText("ادامه" if st == "paused" else "توقف موقت")
         self.b_stop.setEnabled(st in ("running", "paused"))
