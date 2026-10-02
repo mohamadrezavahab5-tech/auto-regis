@@ -267,17 +267,23 @@ class Client:
 
     def batch(self, requests):
         if not requests: return
-        # Grow grids first in the SAME atomic batch. Never remove existing rows.
-        needed={}
+        # Grow grids first in the SAME atomic batch - rows and columns (live 2026-10-02: a Workflow tab made with exactly
+        # 17 columns had no room for the new 18th). Never remove existing rows or columns.
+        needed,cols={},{}
         for r in requests:
             u=r.get('updateCells',{})
             if u:
                 sid=u['start']['sheetId']; needed[sid]=max(needed.get(sid,0),u['start']['rowIndex']+len(u['rows']))
+                width=u['start'].get('columnIndex',0)+max((len(x.get('values',[])) for x in u['rows']),default=0)
+                cols[sid]=max(cols.get(sid,0),width)
         growth=[]
         for s in self.metadata()['sheets']:
             p=s['properties']; count=p['gridProperties']['rowCount']; target=needed.get(p['sheetId'],0)
             if target>count:
                 growth.append({'appendDimension':{'sheetId':p['sheetId'],'dimension':'ROWS','length':max(500,target-count)}})
+            have=p['gridProperties'].get('columnCount',0)
+            if cols.get(p['sheetId'],0)>have:
+                growth.append({'appendDimension':{'sheetId':p['sheetId'],'dimension':'COLUMNS','length':cols[p['sheetId']]-have}})
         self.request('POST',':batchUpdate',json={'requests':growth+requests})
         if growth: self.meta=None
 

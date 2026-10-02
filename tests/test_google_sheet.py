@@ -22,7 +22,7 @@ class Book:
         from urllib.parse import unquote
         if req.method=='GET' and '/values/' not in req.url.path:
             def props(n,v):
-                p={'sheetId':self.ids[n],'title':n,'gridProperties':{'rowCount':1000,'columnCount':max(len(v[0]),26)}}
+                p={'sheetId':self.ids[n],'title':n,'gridProperties':{'rowCount':1000,'columnCount':len(v[0])}}
                 for k,val in self.props.get(self.ids[n],{}).items():
                     if isinstance(val,dict): p.setdefault(k,{}).update(val)
                     else: p[k]=val
@@ -36,8 +36,21 @@ class Book:
         self.writes+=1
         if self.fail: return httpx.Response(503,json={})
         data=json.loads(req.content)
+        for request in data['requests']:                      # like Google: a cell past the grid's last column is refused
+            u=request.get('updateCells')
+            if u:
+                name=next(n for n,i in self.ids.items() if i==u['start']['sheetId'])
+                width=len(self.tabs[name][0])
+                grow=sum(r['appendDimension']['length'] for r in data['requests'] if r.get('appendDimension',{}).get('sheetId')==u['start']['sheetId']
+                         and r['appendDimension']['dimension']=='COLUMNS')
+                if u['start'].get('columnIndex',0)+max(len(x['values']) for x in u['rows'])>width+grow:
+                    return httpx.Response(400,json={'error':{'message':'GridCoordinate.columnIndex is after last column in grid'}})
         self.requests += data['requests']
         for request in data['requests']:
+            a=request.get('appendDimension')
+            if a and a['dimension']=='COLUMNS':
+                name=next(n for n,i in self.ids.items() if i==a['sheetId'])
+                for row in self.tabs[name]: row.extend(['']*a['length'])
             if 'addProtectedRange' in request:
                 p=dict(request['addProtectedRange']['protectedRange']); p['protectedRangeId']=len(self.protections)+100+self.writes*1000
                 self.protections.append(p)
@@ -408,3 +421,12 @@ def test_report_numbers_follow_the_app_logic():
         c.write_report(grid)
     assert b.tabs[gs.REPORT_TAB][0][0]=='گزارش AutoReview' and b.tabs[gs.REPORT_TAB][sheet_report.ROW['now_values']][0]==1
     db.close()
+
+
+def test_a_tab_made_exactly_as_wide_as_its_old_header_grows_for_the_new_column():
+    b=full_book()
+    b.tabs['Workflow']=[gs.WORKFLOW_HEAD[:-1]]                       # 17 columns, no spare one (the live sheet)
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        c.ensure_tabs([])
+        assert b.tabs['Workflow'][0]==gs.WORKFLOW_HEAD
+        assert any(r.get('appendDimension',{}).get('dimension')=='COLUMNS' for r in b.requests)
