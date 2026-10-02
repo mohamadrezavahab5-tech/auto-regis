@@ -87,12 +87,10 @@ def control_room(cases, evs, results, created_at, approved_statuses=(), now=None
             daily[d]["engine"] += 1
     people = Counter()
     week_ago = now - timedelta(days=7)
-    imported, finished = {}, {}
+    finished = {}
     for e in evs:
         kind, d = e.get("kind"), bucket(e.get("at"))
-        if kind == "WORKFLOW_IMPORTED":
-            imported.setdefault(e["smr"], _when(e["at"]))
-        elif kind == "WORKFLOW_HUMAN_DECISION":
+        if kind == "WORKFLOW_HUMAN_DECISION":
             if d in daily:
                 daily[d]["human"] += 1
             w = _when(e.get("at"))
@@ -126,7 +124,13 @@ def control_room(cases, evs, results, created_at, approved_statuses=(), now=None
         if created:
             waiting.append(((today - created).days, c["smr"], st, c.get("site", "")))
     waiting.sort(reverse=True)
-    spans = [(finished[s] - imported[s]).total_seconds() / 86400 for s in finished if s in imported and finished[s] and imported[s]]
+    # registration in NBO -> NBO's result. Not "first seen by the app": that made a request waiting 230 days look
+    # finished "in less than a day" (live 2026-10-03).
+    spans = []
+    for s, done in finished.items():
+        created = jalali.parse_jdate(created_at.get(s))
+        if done and created:
+            spans.append(max(0, (done.astimezone().date() - created).days))
     return dict(states=dict(states), open=sum(states.get(k, 0) for k in workflow.OPEN_STATES), undecided=undecided,
                 speed=speed, eta_days=eta_days, oldest=waiting[:10], avg_days_to_done=(sum(spans) / len(spans)) if spans else None,
                 people=people.most_common(10), daily=[(d, dict(daily[d])) for d in day_keys])
