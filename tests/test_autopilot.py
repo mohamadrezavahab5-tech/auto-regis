@@ -63,3 +63,17 @@ def test_manual_results_can_be_reviewed_again_unless_a_person_decided():
     finally:
         db.close()
     assert [r["smr"] for r in s.manual_again_rows()] == ["SMR-7"]
+
+
+def test_a_refresh_round_without_answer_is_given_up_after_a_while(monkeypatch):
+    from autoreview.app.automatic import AutomaticSources
+    s = make_session()
+    auto = AutomaticSources(s, nbo_client=None)
+    auto.timer.stop()
+    started = []
+    monkeypatch.setattr(auto, "_nbo_round", lambda sess, wait: started.append(wait))
+    monkeypatch.setattr(s, "refresh_crm", lambda **kw: None)
+    auto.nbo_active, auto.nbo_started = True, __import__("time").monotonic() - 3600   # no answer for an hour
+    auto.next_nbo = 0.0
+    auto.tick()
+    assert started and auto.nbo_active is False

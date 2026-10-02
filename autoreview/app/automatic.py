@@ -18,6 +18,7 @@ class AutomaticSources(QObject):
         self.status = 'دریافت خودکار آماده است'
         self.next_crm = self.next_nbo = 0.0
         self.crm_active = self.nbo_active = False
+        self.crm_started = self.nbo_started = 0.0
         self.enabled = True
         self.timer = QTimer(self)
         self.timer.setInterval(30_000)
@@ -37,6 +38,16 @@ class AutomaticSources(QObject):
         # Do not replace source snapshots halfway through a review.
         if s.runner and s.runner.is_active(): return
         now = time.monotonic()
+        # A round whose answer never comes must not stop the refresh for good (live 2026-10-02: the window thread was
+        # starved for most of an hour, NBO and CRM stayed 53 minutes old). A normal round takes a few minutes.
+        if self.crm_active and now - self.crm_started > self.STUCK:
+            log.warning("automatic CRM refresh gave no answer for %d min; starting a new one", self.STUCK // 60)
+            self.crm_active = False
+            s._busy('crm', False)
+        if self.nbo_active and now - self.nbo_started > self.STUCK:
+            log.warning("automatic NBO export gave no answer for %d min; starting a new one", self.STUCK // 60)
+            self.nbo_active = False
+            s._busy('nbo', False)
         every = settings.load_rules().get('automation', {})
         crm_wait, nbo_wait = 60 * int(every.get('crm_minutes', 5)), 60 * int(every.get('nbo_minutes', 15))
         if now >= self.next_crm and not self.crm_active and 'crm' not in s.busy:
@@ -44,7 +55,7 @@ class AutomaticSources(QObject):
                 self.update('برای دریافت خودکار CRM، یک بار وارد حساب خودت شو')
                 self.next_crm = now + 60
             else:
-                self.crm_active = True
+                self.crm_active, self.crm_started = True, now
                 def done(_result):
                     self.crm_active = False; self.next_crm = time.monotonic() + crm_wait
                     self.update('CRM خودکار به‌روز شد')
@@ -58,6 +69,7 @@ class AutomaticSources(QObject):
     # ---- NBO, gently (live 2026-10-02: the whole export timed out at NBO's gateway, and rapid retries / back-to-back
     # exports were answered 429 'too many requests'). The work queue every round; every status only every few hours.
     QUEUE = ("PENDING", "COMMERCIAL_IN_PROGRESS")
+    STUCK = 30 * 60                    # a round with no answer for this long is given up (a normal one: a few minutes)
     GAP_MS = 20_000                    # between two exports of one round
     FAILED_WAIT = 10 * 60              # after an error
     LIMITED_WAIT = 20 * 60             # after NBO said 429
@@ -72,7 +84,7 @@ class AutomaticSources(QObject):
         return last is None or reference.is_stale(last, hours)
 
     def _nbo_round(self, s, nbo_wait):
-        self.nbo_active = True
+        self.nbo_active, self.nbo_started = True, time.monotonic()
         s._busy('nbo', True)
         full = self._full_due(s)
         order = list(self.QUEUE) + ([x for x in ALL_NBO_STATUSES if x not in self.QUEUE] if full else [])
