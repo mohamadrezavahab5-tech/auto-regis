@@ -5,6 +5,7 @@ second time brings the running window to the front. Any unexpected error is writ
 instead of closing the app silently."""
 import ctypes
 import getpass
+import os
 import sys
 import traceback
 
@@ -169,6 +170,10 @@ def main():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)     # own taskbar icon/grouping
     except (AttributeError, OSError):
         pass
+    # Widgets draw through RHI from the start. Otherwise the first tab that holds a browser (NBO, CRM, manual review)
+    # makes Qt switch the window to RHI by destroying and recreating it: the window vanishes and comes back
+    # (owner 2026-10-03; reproduced: one PlatformSurface destroy/create on first showing a QWebEngineView).
+    os.environ.setdefault("QT_WIDGETS_RHI", "1")
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
     app.setApplicationName("AutoReview")
