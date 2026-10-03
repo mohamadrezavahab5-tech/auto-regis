@@ -93,13 +93,14 @@ class ResultsPage(QWidget):
         top = QHBoxLayout()
         top.addWidget(label("اجرا:", "h3"))
         self.runs = QComboBox()
-        self.runs.setMinimumWidth(480)
+        self.runs.setMinimumWidth(240)
+        self.runs.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.runs.currentIndexChanged.connect(self._run_selected)
-        top.addWidget(self.runs)
+        top.addWidget(self.runs, 1)
         top.addStretch(1)
-        b_xlsx = button("خروجی Excel", None, "download")
+        b_xlsx = button("Excel همین فهرست", None, "download")
         b_xlsx.clicked.connect(self.export_xlsx)
-        b_sheet = button("ارسال به شیت من", None, "send")
+        b_sheet = button("ارسال کل این اجرا به شیت", None, "send")
         b_sheet.clicked.connect(self.send_sheet)
         b_flow = button("نظر تیم‌ها", None, "list-check")
         b_flow.clicked.connect(lambda: self.shell.go("workflow"))
@@ -313,7 +314,8 @@ class ResultsPage(QWidget):
             return
         db = self.session.db()
         try:
-            res, sources = store.results_of(db, self.run_id), store.run_sources(db, self.run_id)
+            res = [self.model.rows[self.proxy.mapToSource(self.proxy.index(i, 0)).row()] for i in range(self.proxy.rowCount())]
+            sources = store.run_sources(db, self.run_id)
         finally:
             db.close()
         default = f"AutoReview_{jalali.jdate(datetime.now(), False).replace('/', '-')}_{self.run_id}.xlsx"

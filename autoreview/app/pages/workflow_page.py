@@ -319,6 +319,8 @@ class WorkflowPage(QWidget):
                                                                   if team == "instore" else ""), "muted", wrap=True))
             if r.get("active"):
                 b = button("ثبت / تغییر نظر " + title, "primary" if not verdict else None, "check")
+                b.setEnabled(team in workspace.allowed_teams(self.session.profile))
+                b.setToolTip('ثبت نظر فقط برای تیم خودتان یا مدیر مجاز است')
                 b.clicked.connect(lambda _=False, tm=team: self.decide(tm))
                 card.lay.addWidget(b, 0, Qt.AlignmentFlag.AlignRight)
             v.addWidget(card)
@@ -336,10 +338,7 @@ class WorkflowPage(QWidget):
             from .execution_page import apply_case
             b_apply = button({"APPROVE": "تأیید در NBO", "EDIT": "اصلاح در NBO", "CANCEL": "لغو در NBO"}[tgt[0]], "primary", "check")
             b_apply.clicked.connect(lambda: apply_case(self, self.shell.execution, r))
-            b_try = button("تمرین", None, "play", "همه‌ی مراحل در NBO جز ثبت نهایی؛ چیزی تغییر نمی‌کند")
-            b_try.clicked.connect(lambda: apply_case(self, self.shell.execution, r, rehearsal=True))
-            btns.addWidget(b_apply)
-            btns.addWidget(b_try)
+            btns.addWidget(b_apply)                     # no rehearsal button: the owner works for real only (2026-10-03)
         b_nbo = button("باز کردن در NBO", None, "nbo")
         b_nbo.clicked.connect(lambda: self.shell.open_in_nbo(r["smr"]))
         b_copy = button("کپی کد", None, "copy")
@@ -369,6 +368,9 @@ class WorkflowPage(QWidget):
 
     # ---- verdicts
     def decide(self, team):
+        if team not in workspace.allowed_teams(self.session.profile):
+            QMessageBox.information(self, 'دسترسی', 'ثبت نظر این تیم برای حساب شما مجاز نیست.')
+            return
         r = self.current
         if not r:
             return
@@ -406,6 +408,8 @@ class WorkflowPage(QWidget):
         box.rejected.connect(dlg.reject)
 
         def save():
+            if team not in workspace.allowed_teams(self.session.profile):
+                return
             choice, code, text = action.currentData(), reason.currentData() or "", note.toPlainText()
             if sheets.load().get("auth_mode") == "workspace":
                 box.setEnabled(False)

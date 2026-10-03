@@ -112,12 +112,13 @@ def _rgb(hex_colour):
 
 # ---- look (owner 2026-10-02: "pretty and clean") -------------------------------------------------------------------------
 # version 2: SnappPay's colours (blue #007DFA, navy) like the app; a new version restyles every sheet once
-STYLE_MARK, STYLE_VERSION = 'autoreview_style', '2'
+STYLE_MARK, STYLE_VERSION = 'autoreview_style', '3'
 INK, HEAD, TEAM, BAND, SECTION, TABLE_HEAD = '#101828', '#0B1A33', '#0F7C8C', '#F5F8FC', '#E6F2FF', '#D6E8FF'
 TURN, CONFLICT_BG, MUTED = '#FFF3D0', '#FDE2E1', '#8A94A6'
 ACTION_COLOURS = {'APPROVE': '#1C9553', 'EDIT': '#D99A00', 'CANCEL': '#C93A3A', 'MANUAL': '#6E59A5'}
 # column widths in pixels; None = hidden helper column. The team's own columns get a blue header.
 TABLE_LOOK = {
+    EXEC_TAB: dict(widths=[140, 100, 380, 180, 520], team=None, colours=()),
     OI_TAB: dict(widths=[130, 190, 150, 110, 120, 260, 120, 110, 130, 220, 220, 120, 270, None, None], team=(7, 12),
                  colours=(('1', TURN, None), ('2', CONFLICT_BG, None), ('8', None, MUTED), ('9', None, MUTED))),
     'Workflow': dict(widths=[130, 110, 190, 150, 120, 110, 110, 120, 220, 110, 120, 220, 230, None, 150, 160, None, None],
@@ -449,7 +450,7 @@ class Client:
     # Owner 2026-10-02: "are all these tabs needed? user friendly - Online works only in the app, the sheet is the record".
     # People see three tabs; the app's bookkeeping tabs (and the old template's) are hidden, never deleted - their data
     # stays, and they can be shown again from the sheet's tab list.
-    VISIBLE = (REPORT_TAB, OI_TAB, 'Workflow', LEGAL_TAB)
+    VISIBLE = (REPORT_TAB, OI_TAB, 'Workflow', EXEC_TAB, LEGAL_TAB)
     HIDDEN = frozenset(TABS) - set(VISIBLE) | {'Daily summary', 'Reasons', 'Guide'}
 
     def tidy(self):
@@ -595,7 +596,7 @@ class Client:
             return False
         tabs = {s['properties']['title']: s for s in meta.get('sheets', [])}
         req = []
-        for title in (REPORT_TAB, OI_TAB, 'Workflow', LEGAL_TAB):
+        for title in (REPORT_TAB, OI_TAB, 'Workflow', EXEC_TAB, LEGAL_TAB):
             s = tabs.get(title)
             if not s:
                 continue
@@ -631,7 +632,7 @@ class Client:
         look = TABLE_LOOK[title]
         widths = look['widths']
         width = len(widths)
-        key_letter = col_letter({OI_TAB: OI_KEY, 'Workflow': WF_KEY, LEGAL_TAB: LEGAL_KEY}[title] + 1)
+        key_letter = col_letter({OI_TAB: OI_KEY, 'Workflow': WF_KEY, LEGAL_TAB: LEGAL_KEY}.get(title, 0) + 1)
         head = {'backgroundColor': _rgb(HEAD), 'horizontalAlignment': 'CENTER', 'verticalAlignment': 'MIDDLE', 'wrapStrategy': 'WRAP',
                 'textFormat': {'bold': True, 'fontSize': 10, 'foregroundColor': _rgb('#FFFFFF')}}
         fields = 'backgroundColor,horizontalAlignment,verticalAlignment,wrapStrategy,textFormat'
@@ -646,6 +647,20 @@ class Client:
                {'addBanding': {'bandedRange': {'range': {'sheetId': sid, 'startRowIndex': 0, 'startColumnIndex': 0, 'endColumnIndex': width},
                                                'rowProperties': {'headerColor': _rgb(HEAD), 'firstBandColor': _rgb('#FFFFFF'),
                                                                  'secondBandColor': _rgb(BAND)}}}}]
+        notes = {
+            OI_TAB: {7: 'ورودی تیم Instore: تاریخ بررسی خودتان را ثبت کنید.',
+                     8: 'ورودی تیم Instore: نتیجه را از فهرست انتخاب کنید. این نظر به معنی ثبت نهایی در NBO نیست.',
+                     9: 'برای اصلاح یا لغو، دلیل معتبر NBO را انتخاب کنید.',
+                     10: 'توضیح بررسی و مرجع تصمیم خودتان را بنویسید.',
+                     11: 'نام بررسی‌کننده Instore را ثبت کنید.',
+                     12: 'نوبت Instore یعنی اقدام شما لازم است. آمادهٔ اعمال یعنی هنوز ثبت نهایی انجام نشده. نتیجهٔ ارسال در Execution است.'},
+            'Workflow': {12: 'آماده یعنی منتظر ثبت در NBO؛ انجام‌شده فقط وقتی وضعیت NBO تأیید شده باشد. نتیجهٔ ارسال را در Execution ببینید.'},
+            EXEC_TAB: {2: 'پیش‌نمایش: هیچ تغییر واقعی ثبت نشده. ارسال‌شده: منتظر تطبیق با NBO. نتیجه نامشخص: پیش از تکرار، NBO را بررسی کنید.',
+                       4: 'شرح نتیجهٔ آخرین اجرا؛ تاریخچهٔ کامل رویدادها در برنامه، صفحهٔ سابقه و جزئیات عملیات است.'},
+        }.get(title, {})
+        for column, note in notes.items():
+            req.append({'updateCells': {'start': {'sheetId': sid, 'rowIndex': 0, 'columnIndex': column},
+                                       'rows': [{'values': [{'note': note}]}], 'fields': 'note'}})
         if look['team']:
             req.append(self._fmt(sid, 0, 1, look['team'][0], look['team'][1], dict(head, backgroundColor=_rgb(TEAM)), fields))
         for i, w in enumerate(widths):

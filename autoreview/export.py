@@ -52,7 +52,7 @@ def write_xlsx(path, results: list, dry_run: bool = True, sources: dict = None):
     ws.write_string(6, 0, "مجموع")
     ws.write_number(6, 1, len(results))
     if dry_run:
-        ws.write_string(8, 0, "حالت Fake: هیچ تغییری در NBO اعمال نشده است.")
+        ws.write_string(8, 0, "این فایل فقط نتیجه‌ی بررسی است؛ ثبت در NBO از صفحه‌ی «ثبت در NBO» انجام می‌شود.")
     if sources:
         ws.write_string(9, 0, "تکراری‌ها با هر دو منبع بررسی شد — NBO: %s تاییدشده، CRM: %s تاییدشده" % (sources.get("nbo_approved"), sources.get("crm_approved")))
     ws.set_column(0, 0, 48)

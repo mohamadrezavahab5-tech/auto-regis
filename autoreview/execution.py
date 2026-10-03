@@ -9,7 +9,7 @@ from . import store, workflow
 from .workspace import ADMIN, username
 
 LABELS = {'PREVIEW': 'آماده؛ منتظر تأیید در NBO', 'SENDING': 'در حال ارسال',
-          'SENT': 'در NBO ثبت شد؛ منتظر دیده‌شدن در خروجی بعدی', 'REHEARSED': 'تمرین موفق (چیزی ثبت نشد)',
+          'SENT': 'ارسال شد؛ نتیجه نهایی هنوز با خروجی NBO تطبیق داده نشده', 'REHEARSED': 'پیش‌نمایش موفق؛ ثبت واقعی انجام نشده',
           'APPROVED_IN_NBO': 'در NBO تأیید شد',
           'VERIFIED': 'تأیید در NBO بررسی شد', 'BLOCKED': 'متوقف؛ نیازمند بررسی',
           'UNCERTAIN': 'نتیجه نامشخص؛ تکرار خودکار ممنوع'}
@@ -86,14 +86,15 @@ def note_nbo_outcomes(db):
     return n
 
 
-def record(db, case, state, detail=''):
+def record(db, case, state, detail='', *, actor='', mode=''):
     if state not in LABELS:
         raise ValueError('Unknown execution state')
     with db:
         db.execute('''INSERT INTO nbo_execution VALUES(?,?,?,?,?) ON CONFLICT(smr,revision)
           DO UPDATE SET state=excluded.state,updated_at=excluded.updated_at,detail=excluded.detail''',
                    (case['smr'], case['revision'], state, store.now(), detail))
-        store.log(db, case['smr'], 'NBO_' + state, {'revision': case['revision'], 'detail': detail})
+        store.log(db, case['smr'], 'NBO_' + state, {'revision': case['revision'], 'detail': detail,
+                  'actor': actor, 'mode': mode, 'source_status': case.get('source_status'), 'target': target(case)})
 
 
 def claim(db, case, require_synced=True):

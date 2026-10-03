@@ -12,7 +12,7 @@ KEEP = []
 
 def make():
     QApplication.instance() or QApplication([])
-    s = Session({"username": "SNAPP\tester", "display_name": "tester"})
+    s = Session({"username": "SNAPP\tester", "display_name": "tester", "workspace_role": "online"})
     db = s.db()
     try:
         rows = [dict(smr=f"SMR-{i}", site=f"s{i}.example", status="PENDING", has_online="true", has_instore="false") for i in range(3)]

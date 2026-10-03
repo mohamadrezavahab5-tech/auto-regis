@@ -108,7 +108,7 @@ class TriagePage(QWidget):
         self.b_edit.clicked.connect(lambda: self.ask_reason("EDIT"))
         self.b_cancel = button("لغو  (3)", "danger", "x")
         self.b_cancel.clicked.connect(lambda: self.ask_reason("CANCEL"))
-        self.b_skip = button("رد شدن  (4)", None, "back")
+        self.b_skip = button("بعداً بررسی می‌کنم  (4)", None, "back")
         self.b_skip.clicked.connect(lambda: self.move(1))
         self.reason = QComboBox()
         self.reason.setMinimumWidth(300)
@@ -268,6 +268,13 @@ class TriagePage(QWidget):
         if not self.items:
             return
         c = self.items[self.index]
+        if (c.get('state') or workflow.state(c)) == 'CONFLICT':
+            QMessageBox.information(self, 'اختلاف نظر', 'برای رفع اختلاف، در «وضعیت درخواست‌ها» مشخص کن نظر کدام تیم باید تغییر کند.')
+            self.shell.go('workflow')
+            return
+        if self.team not in workspace.allowed_teams(self.session.profile):
+            QMessageBox.information(self, 'دسترسی', 'ثبت نظر این تیم برای حساب شما مجاز نیست.')
+            return
         note = self.note.text().strip() or "بررسی سریع"
         if sheets.load().get("auth_mode") == "workspace":
             def ok(result):
@@ -282,9 +289,8 @@ class TriagePage(QWidget):
             return
         db = self.session.db()
         try:
-            fresh = workflow.get(db, c["smr"])
             workflow.decide(db, c["smr"], self.team, action, self.session.user_label(), note,
-                            fresh["revision"] if fresh else c["revision"], reason, self.labels)
+                            c["revision"], reason, self.labels)
         except ValueError as e:
             QMessageBox.warning(self, "ثبت نظر", str(e))
             return

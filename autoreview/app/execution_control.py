@@ -30,7 +30,7 @@ class ExecutionControl(QObject):
         self.batch = None                     # a running "rehearse all": {todo, done, ok, assign, failed, stop}
         self.last_batch = ''
         self._refreshing = self._again = False
-        self.summary = 'Fake — اپ خودش چیزی در NBO تغییر نمی‌دهد'
+        self.summary = 'ثبت خودکار خاموش است — فقط چیزی ثبت می‌شود که خودت بزنی'
         self.last_stop = ''
         self._first_run = False
         db = session.db()
@@ -119,6 +119,9 @@ class ExecutionControl(QObject):
                 db.close()
         view = self._watch(parent, case, tgt[0], rehearsal) if parent is not None else None
 
+        context = {'actor': self.session.user_label(),
+                   'mode': 'rehearsal' if rehearsal else ('automatic' if self.mode.live else 'manual')}
+
         def finished(res):
             if view is not None:
                 view.done_text(res)
@@ -126,11 +129,11 @@ class ExecutionControl(QObject):
             try:
                 if rehearsal:
                     if res['ok']:
-                        execution.record(db, case, 'REHEARSED', res.get('message') or 'همه‌ی مراحل تا قبل از ثبت نهایی درست بود')
+                        execution.record(db, case, 'REHEARSED', res.get('message') or 'همه‌ی مراحل تا قبل از ثبت نهایی درست بود', **context)
                 elif res['ok'] and res['sent']:
-                    execution.record(db, case, 'SENT', ACTION_FA[tgt[0]] + (f" — {reason}" if reason else ''))
+                    execution.record(db, case, 'SENT', ACTION_FA[tgt[0]] + (f" — {reason}" if reason else ''), **context)
                 else:
-                    execution.record(db, case, 'UNCERTAIN' if res['error'] in AFTER_SEND else 'BLOCKED', res['message'])
+                    execution.record(db, case, 'UNCERTAIN' if res['error'] in AFTER_SEND else 'BLOCKED', res['message'], **context)
             finally:
                 db.close()
             self.refresh()
@@ -325,7 +328,7 @@ class ExecutionControl(QObject):
         def done(res):
             self._refreshing = False
             if isinstance(res, tuple):
-                mode = 'Real — اپ خودش در NBO ثبت می‌کند' if self.mode.live else 'Fake — اپ خودش چیزی در NBO تغییر نمی‌دهد'
+                mode = 'ثبت خودکار روشن است — اپ خودش در NBO ثبت می‌کند' if self.mode.live else 'ثبت خودکار خاموش است — فقط چیزی ثبت می‌شود که خودت بزنی'
                 self.summary = f"{mode} • {fa_digits(res[0])} آماده‌ی تأیید، {fa_digits(res[1])} منتظر نظر Instore"
             self.changed.emit()
             if self._again:

@@ -89,6 +89,7 @@ class Book:
                 while len(target)<=row: target.append(['']*len(target[0]))
                 for j,cell in enumerate(r['values']):
                     while len(target[row])<=col+j: target[row].append('')
+                    if 'userEnteredValue' not in cell: continue          # a header note, not a value
                     target[row][col+j]=next(iter(cell['userEnteredValue'].values()))
         return httpx.Response(200,json={})
 
@@ -334,8 +335,8 @@ def test_people_see_three_tabs_the_rest_is_hidden_not_deleted():
         assert c.tidy()>0
         assert c.tidy()==0                                       # already tidy: nothing sent
     hidden={n for n,i in b.ids.items() if b.props.get(i,{}).get('hidden')}
-    assert hidden=={'Decisions','Audit','Execution','Updates','Results','Manual queue','Guide'}
-    assert [b.props[b.ids[n]]['index'] for n in (gs.OI_TAB,'Workflow',gs.LEGAL_TAB)]==[0,1,2]
+    assert hidden=={'Decisions','Audit','Updates','Results','Manual queue','Guide'}      # Execution is shown: what was sent to NBO
+    assert [b.props[b.ids[n]]['index'] for n in (gs.OI_TAB,'Workflow',gs.EXEC_TAB,gs.LEGAL_TAB)]==[0,1,2,3]
     assert set(b.tabs)>=hidden                                   # nothing deleted
 
 
@@ -391,7 +392,7 @@ def test_the_look_is_applied_once_per_version():
         c.ensure_tabs([])
         assert c.style() is True
         sent=[next(iter(r)) for r in b.requests]
-        assert sent.count('addChart')==4 and sent.count('addBanding')==3
+        assert sent.count('addChart')==4 and sent.count('addBanding')==4
         rules=[r['addConditionalFormatRule']['rule'] for r in b.requests if 'addConditionalFormatRule' in r]
         assert any('=LEFT($O2,1)="1"' in v['userEnteredValue'] for r in rules for v in r['booleanRule']['condition']['values'])
         n=len(b.requests)

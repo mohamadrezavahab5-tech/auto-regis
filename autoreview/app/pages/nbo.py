@@ -70,10 +70,10 @@ class NboPage(QWidget):
         h.addLayout(left, 1)
 
         panel = Card(padding=14)
-        panel.setFixedWidth(340)
+        panel.setFixedWidth(285)
         panel.lay.addWidget(label("AutoReview", "h2"))
-        panel.lay.addWidget(label("درخواست‌هایی که الان روی صفحه‌ی NBO هستند را بررسی می‌کند. "
-                                  "اعمال تصمیم در NBO فعلاً خاموش است؛ تصمیم‌ها فقط پیشنهاد و ثبت می‌شوند.", "caption", wrap=True))
+        panel.lay.addWidget(label("این پنل درخواست‌های روی صفحه را بررسی می‌کند. برای ثبت نتیجه در NBO، صفحه‌ی «ثبت در NBO» را باز کن.",
+                                  "caption", wrap=True))
         b_scan = button("بررسی درخواست‌های این صفحه", "primary", "review")
         b_scan.clicked.connect(self.review_page)
         panel.lay.addWidget(b_scan)
@@ -83,10 +83,18 @@ class NboPage(QWidget):
         self.list.itemDoubleClicked.connect(lambda it: (QGuiApplication.clipboard().setText(it.data(Qt.ItemDataRole.UserRole)),
                                                         toast(self.window(), "کد کپی شد")))
         panel.lay.addWidget(self.list, 1)
-        b_apply = button("اعمال در NBO (خاموش)", None, "lock", "در حالت Fake هیچ وضعیتی در NBO تغییر نمی‌کند")
-        b_apply.setEnabled(False)
+        b_apply = button("رفتن به ثبت در NBO", "primary", "check", "انتخاب درخواست‌ها و ثبت در NBO")
+        b_apply.clicked.connect(lambda: shell.go('execution'))
         panel.lay.addWidget(b_apply)
         h.addWidget(panel)
+        panel.hide()
+        toggle = button('پنل بررسی', None, 'review', 'نمایش یا پنهان کردن پنل بررسی کنار NBO')
+        toggle.setCheckable(True)
+        toggle.toggled.connect(panel.setVisible)
+        top.addWidget(toggle)
+        apply_shortcut = button('صف اعمال', 'primary', 'check')
+        apply_shortcut.clicked.connect(lambda: shell.go('execution'))
+        top.addWidget(apply_shortcut)
 
         self.view.urlChanged.connect(lambda _u: self._check_login())
         session.run_finished.connect(lambda _id: self._show_page_results())

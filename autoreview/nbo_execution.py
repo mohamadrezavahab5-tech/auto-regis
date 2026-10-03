@@ -56,7 +56,7 @@ def approve(db, case, backend, is_live):
 
     def check_before_send():
         if not is_live():
-            raise ValueError('ارسال بعدی با سوییچ Fake متوقف شد')
+            raise ValueError('ارسال بعدی با خاموش شدن ثبت خودکار متوقف شد')
         current = workflow.get(db, case['smr'])
         if not current or current['revision'] != case['revision'] or execution.eligibility(current):
             raise ValueError('تأییدهای پرونده تغییر کرده‌اند')

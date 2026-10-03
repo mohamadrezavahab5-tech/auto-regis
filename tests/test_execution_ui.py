@@ -148,3 +148,40 @@ def test_ready_cases_by_verdict_day_picked_ids_and_limit(monkeypatch):
     assert ids(control.ready_cases({'APPROVE'}, limit=2)) == ['SMR-1', 'SMR-2']
     assert control.ready_cases({'EDIT'}) == []
     control.stop()
+
+
+def test_filter_selection_never_silently_broadens(monkeypatch):
+    from PySide6.QtCore import Qt, QDate
+    from autoreview import execution, settings
+    QApplication.instance() or QApplication([])
+    control = ExecutionControl(Session())
+    cases = [dict(smr='SMR-1', revision=1, category='A', channel='online'),
+             dict(smr='SMR-2', revision=1, category='B', channel='online')]
+    monkeypatch.setattr(control, 'ready_cases', lambda *args, **kwargs: list(cases))
+    monkeypatch.setattr(execution, 'target', lambda case: ('APPROVE', ''))
+    monkeypatch.setattr(ExecutionPage, '_show_file', lambda self, *args: None)
+    writes = []
+    monkeypatch.setattr(settings, 'save_user', lambda value: writes.append(value))
+    page = ExecutionPage(control.session, type('Shell', (), {'execution': control})())
+    page.render()
+    assert page._days() == (None, None)
+    page.ready_list.item(0).setCheckState(Qt.CheckState.Checked)
+    assert [c['smr'] for c in page._chosen()] == ['SMR-1']
+    page.category.setCurrentIndex(page.category.findData('B'))
+    assert page._chosen() == [] and page._checked == {'SMR-1'}
+    page.category.setCurrentIndex(0)
+    assert [c['smr'] for c in page._chosen()] == ['SMR-1']
+    page._tick_all(False)
+    assert page._chosen() == [] and not page.b_apply.isEnabled()
+    page.category.setCurrentIndex(page.category.findData('A'))
+    cases[:] = [cases[1]]
+    page.render()
+    assert page.category.currentData() == 'A' and page._shown == []
+    page.kind_switches['EDIT'].setChecked(not page.kind_switches['EDIT'].isChecked())
+    assert writes == []
+    page.period.setCurrentIndex(page.period.findData('custom'))
+    page.date_range.start.setDate(QDate(2026, 10, 3))
+    page.date_range.end.setDate(QDate(2026, 10, 1))
+    assert page._days() is None and not page.b_apply.isEnabled()
+    control.stop()
+    page.close()

@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
-from ... import execution, jalali, reference, store, workflow
+from ... import activity, execution, jalali, reference, store, workflow
 from ...texts import ACTION_FA, notes_fa, reasons_fa, step_fa
 from ..theme import C
 from ..widgets import Card, action_pill, button, label, ltr, toast
@@ -98,6 +98,8 @@ def case_widget(session, shell, smr, on_close=None):
         result = store.latest_result(db, smr)
         ref = db.execute("SELECT status, site, category, created_at, brand_fa, has_instore FROM ref_nbo WHERE smr = ?", (smr,)).fetchone()
         timeline = _timeline(db, smr)
+        receipt = next((r for r in execution.records(db) if r['smr'] == smr and
+                        (not case or r['revision'] == case['revision'] or r['state'] in ('SENDING', 'UNCERTAIN'))), None)
         rel = reference.related(db, smr)
     finally:
         db.close()
@@ -130,6 +132,9 @@ def case_widget(session, shell, smr, on_close=None):
     head.lay.addWidget(label("  •  ".join(bits), "muted", wrap=True, selectable=True))
     if state:
         head.lay.addWidget(label(f"<b>وضعیت در اپ:</b> {html.escape(workflow.STATES[state])}", wrap=True))
+    if case:
+        progress, next_step = activity.status(case, receipt)
+        head.lay.addWidget(label('<b>' + html.escape(progress) + '</b><br>قدم بعدی: ' + html.escape(next_step), wrap=True))
     if ref:
         head.lay.addWidget(label(f"<b>وضعیت در NBO:</b> {html.escape(nbo_status_fa(ref[0]))}", wrap=True))
     btns = QHBoxLayout()

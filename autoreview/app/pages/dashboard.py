@@ -21,6 +21,21 @@ class DashboardPage(ScrollPage):
     def __init__(self, session, shell):
         super().__init__()
         self.session, self.shell = session, shell
+        start = Card()
+        start.header('از اینجا شروع کن', 'بررسی موتور، نظر تیم و ثبت در NBO سه کار جدا هستند؛ هر درخواست ممکن است فقط به یکی نیاز داشته باشد')
+        steps = QHBoxLayout()
+        for title, detail, target in (
+            ('۱. دریافت و بررسی', 'داده‌های NBO و CRM را به‌روز کن و نتیجهٔ بررسی موتور را بگیر.', 'review'),
+            ('۲. رسیدگی به موارد باز', 'موارد منتظر نظر، اختلاف و بررسی دستی را ببین.', 'workflow'),
+            ('۳. ثبت در NBO', 'آماده‌ها را انتخاب کن و ثبت کن؛ هر ثبت واقعی است و NBO را تغییر می‌دهد.', 'execution')):
+            column = QVBoxLayout()
+            go = button(title, 'primary' if target == 'review' else None)
+            go.clicked.connect(lambda _checked=False, key=target: shell.go(key))
+            column.addWidget(go)
+            column.addWidget(label(detail, 'caption', wrap=True))
+            steps.addLayout(column, 1)
+        start.lay.addLayout(steps)
+        self.body.addWidget(start)
 
         # hero: the four numbers that matter most, on the brand gradient
         hero = QFrame()

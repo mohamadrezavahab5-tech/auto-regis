@@ -16,6 +16,18 @@ STATE_HEAD = ['SMR','Revision','Case JSON']
 OPS_HEAD = ['Operation ID','User','Result JSON']
 
 
+def allowed_teams(profile):
+    try:
+        if username(profile.get('username')) == ADMIN:
+            return {'online', 'instore'}
+    except ValueError:
+        pass
+    role = profile.get('workspace_role')
+    if role == 'admin':
+        return {'online', 'instore'}
+    return {role} if role in ('online', 'instore') else set()
+
+
 def username(value):
     name = str(value or '').strip().lower().split('\\')[-1].split('@')[0]
     if not re.fullmatch(r'[a-z0-9][a-z0-9._-]{1,79}',name):
