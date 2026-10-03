@@ -319,11 +319,16 @@ class Shell(QMainWindow):
 
     def _mode_chip(self):
         live = self.execution.mode.live
-        self.mode_chip.setText("● Real — اپ در NBO ثبت می‌کند" if live else "● Fake")
-        fg, bg = (C["danger"], C["danger_soft"]) if live else (C["banner_text"], C["warn_soft"])
+        sending = bool(self.execution.batch and self.execution.batch.get("real"))
+        # The chip is about the AUTOMATIC mode. A bare "Fake" read as "nothing here is real" right after the owner had
+        # sent real changes by hand (2026-10-03), so it names what it describes.
+        self.mode_chip.setText("● Real — در حال ثبت در NBO" if sending else
+                               "● Autopilot: Real — خودش در NBO ثبت می‌کند" if live else "● Autopilot: Fake (خاموش)")
+        fg, bg = (C["danger"], C["danger_soft"]) if (live or sending) else (C["banner_text"], C["warn_soft"])
         self.mode_chip.setStyleSheet(f"QPushButton {{ color: {fg}; background: {bg}; border: 1px solid {bg}; border-radius: 13px; "
                                      f"padding: 4px 12px; font-weight: 600; }} QPushButton:hover {{ border-color: {fg}; }}")
-        self.mode_chip.setToolTip(self.execution.summary + " — برای کنترل اجرا کلیک کن")
+        self.mode_chip.setToolTip("این نشان فقط ثبتِ خودکار را می‌گوید. «ثبت در NBO» که خودت می‌زنی همیشه واقعی است، "
+                                  "چه Autopilot روشن باشد چه خاموش — برای کنترل اجرا کلیک کن")
 
     def toggle_theme(self):
         """Light <-> dark for the whole app; the palette is read when windows are built, so the app reopens itself."""
