@@ -64,6 +64,13 @@ class ExecutionPage(ScrollPage):
             w.editingFinished.connect(self.render)
             row.addWidget(w)
         row.addSpacing(14)
+        row.addWidget(label("دسته:", "muted"))
+        self.category = QComboBox()                         # owner 2026-10-03: "why can't I pick a category here"
+        self.category.setMinimumWidth(170)
+        self.category.addItem("همه‌ی دسته‌ها", None)
+        self.category.currentIndexChanged.connect(lambda _i: self.render())
+        row.addWidget(self.category)
+        row.addSpacing(14)
         row.addWidget(label("چند تا:", "muted"))
         self.limit = QSpinBox()
         self.limit.setRange(0, 5000)
@@ -287,7 +294,23 @@ class ExecutionPage(ScrollPage):
         self.d_from.setVisible(custom)
         self.d_to.setVisible(custom)
         days = self._days()
-        self._shown = self.control.ready_cases(allowed, days[0], days[1]) if days is not None else []
+        ready = self.control.ready_cases(allowed, days[0], days[1]) if days is not None else []
+        # the categories of what is ready now, with how many each has; the chosen one stays chosen while it exists
+        counts = {}
+        for c in ready:
+            name = c.get("category") or ""
+            counts[name] = counts.get(name, 0) + 1
+        chosen_cat = self.category.currentData()
+        self.category.blockSignals(True)
+        self.category.clear()
+        self.category.addItem(f"همه‌ی دسته‌ها ({len(ready)})", None)
+        for name in sorted(counts, key=lambda n: (-counts[n], n)):
+            self.category.addItem(f"{name or 'بدون دسته'} ({counts[name]})", name)
+        at = self.category.findData(chosen_cat) if chosen_cat is not None else 0
+        self.category.setCurrentIndex(max(0, at))
+        self.category.blockSignals(False)
+        picked = self.category.currentData()
+        self._shown = ready if picked is None else [c for c in ready if (c.get("category") or "") == picked]
         ticked = set(self._ticked())
         current = self._current_smr()
         self.ready_list.blockSignals(True)
