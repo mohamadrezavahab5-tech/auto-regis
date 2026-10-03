@@ -460,3 +460,16 @@ def test_the_people_log_goes_to_its_own_tab_and_says_where_it_was_done():
     online=[r for r in b.tabs[gs.LOG_TAB][1:] if r[1]]; both=[r for r in b.tabs[gs.LOG_BOTH_TAB][1:] if r[1]]
     assert {r[1] for r in both}=={'SMR-B'} and {r[1] for r in online}=={'SMR-A','SMR-C'}
     assert any(r[3].startswith('ثبت در NBO') and r[5]==sheet_log.APP for r in online)
+
+
+def test_a_header_typed_over_in_an_app_tab_is_put_back_not_a_reason_to_stop():
+    """Live 2026-10-03: an "X" typed into the guide tab's A1 stopped every sync for an hour."""
+    b=full_book(); b.tabs[gs.GUIDE_TAB][0][0]='X'; b.tabs[gs.LOG_TAB][0][0]='oops'
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        c.ensure_tabs([])                                         # no error: the app's own headers are put back
+        assert b.tabs[gs.GUIDE_TAB][0][:2]==gs.GUIDE_HEAD and b.tabs[gs.LOG_TAB][0][:len(gs.LOG_HEAD)]==gs.LOG_HEAD
+        b.tabs[gs.EXEC_TAB][0][0]='broken'
+        assert c.read(gs.EXEC_TAB,gs.EXEC_HEAD)==[] and b.tabs[gs.EXEC_TAB][0][:len(gs.EXEC_HEAD)]==gs.EXEC_HEAD
+    b=full_book(); b.tabs[gs.OI_TAB][0][0]='X'                       # a tab people fill stays strict
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        with pytest.raises(gs.GoogleSheetError): c.ensure_tabs([])

@@ -131,7 +131,8 @@ class ExecutionControl(QObject):
                     if res['ok']:
                         execution.record(db, case, 'REHEARSED', res.get('message') or 'همه‌ی مراحل تا قبل از ثبت نهایی درست بود', **context)
                 elif res['ok'] and res['sent']:
-                    execution.record(db, case, 'SENT', ACTION_FA[tgt[0]] + (f" — {reason}" if reason else ''), **context)
+                    said = f" — NBO: {res['notice']}" if res.get('notice') else ''
+                    execution.record(db, case, 'SENT', ACTION_FA[tgt[0]] + (f" — {reason}" if reason else '') + said, **context)
                 else:
                     execution.record(db, case, 'UNCERTAIN' if res['error'] in AFTER_SEND else 'BLOCKED', res['message'], **context)
             finally:

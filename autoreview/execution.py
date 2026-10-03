@@ -9,9 +9,9 @@ from . import store, workflow
 from .workspace import ADMIN, username
 
 LABELS = {'PREVIEW': 'آماده؛ منتظر تأیید در NBO', 'SENDING': 'در حال ارسال',
-          'SENT': 'ارسال شد؛ نتیجه نهایی هنوز با خروجی NBO تطبیق داده نشده', 'REHEARSED': 'پیش‌نمایش موفق؛ ثبت واقعی انجام نشده',
+          'SENT': 'در NBO ثبت شد', 'REHEARSED': 'پیش‌نمایش موفق؛ ثبت واقعی انجام نشده',
           'APPROVED_IN_NBO': 'در NBO تأیید شد',
-          'VERIFIED': 'تأیید در NBO بررسی شد', 'BLOCKED': 'متوقف؛ نیازمند بررسی',
+          'VERIFIED': 'در NBO ثبت شد و در خروجی NBO دیده شد', 'BLOCKED': 'متوقف؛ نیازمند بررسی',
           'UNCERTAIN': 'نتیجه نامشخص؛ تکرار خودکار ممنوع'}
 
 
@@ -84,6 +84,44 @@ def note_nbo_outcomes(db):
                else 'بدون تأیید کامل گردش کار؛ بررسی شود')
         n += 1
     return n
+
+
+VERIFY_AFTER = 180                 # seconds between the send and an NBO export that may judge it
+
+
+def verify_sent(db, now_loaded=None):
+    """After every NBO export: did what this app sent really change NBO? The screen flow reports "sent" when NBO's
+    dialog closes, which is not proof - a cancel was reported sent while NBO only kept the request assigned
+    (SMR-20869729, live 2026-10-03). A request this app sent that an export taken at least VERIFY_AFTER seconds later
+    still lists as pending / in progress is marked 'نتیجه نامشخص' with what NBO shows, so a person looks; one that
+    left the queue is marked verified. -> (verified, not applied)"""
+    loaded = now_loaded or (db.execute("SELECT loaded_at FROM ref_meta WHERE source='nbo'").fetchone() or [None])[0]
+    if not loaded:
+        return 0, 0
+    try:
+        loaded_at = datetime.fromisoformat(loaded.replace('Z', '+00:00'))
+    except ValueError:
+        return 0, 0
+    ok = bad = 0
+    for smr, revision, updated, detail in db.execute(
+            "SELECT smr, revision, updated_at, detail FROM nbo_execution WHERE state = 'SENT'").fetchall():
+        try:
+            sent_at = datetime.fromisoformat(updated.replace('Z', '+00:00'))
+        except (ValueError, AttributeError):
+            continue
+        if (loaded_at - sent_at).total_seconds() < VERIFY_AFTER:
+            continue                                    # the export is older than the send, or too close to judge
+        status = (db.execute('SELECT status FROM ref_nbo WHERE smr = ?', (smr,)).fetchone() or [None])[0]
+        case = dict(workflow.get(db, smr) or dict(smr=smr, active=False), revision=revision, source_status=status)
+        if status in ('PENDING', 'COMMERCIAL_IN_PROGRESS'):
+            record(db, case, 'UNCERTAIN', f"ارسال شد ({detail}) ولی NBO هنوز «{status}» نشان می‌دهد؛ تغییر ننشسته — در NBO نگاه کن",
+                   actor='AutoReview', mode='check')
+            bad += 1
+        elif status is not None:
+            shown = 'از صف انتظار بیرون رفت' if status == 'LEFT_QUEUE' else status
+            record(db, case, 'VERIFIED', f"{detail} — NBO: {shown}", actor='AutoReview', mode='check')
+            ok += 1
+    return ok, bad
 
 
 def record(db, case, state, detail='', *, actor='', mode=''):

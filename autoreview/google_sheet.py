@@ -77,6 +77,10 @@ GUIDE_ROWS = [
 TABS = {'Workflow': WORKFLOW_HEAD, OI_TAB: OI_HEAD, 'Decisions': COMMAND_HEAD, EXEC_TAB: EXEC_HEAD, 'Audit': EVENT_HEAD,
         'Results': RESULT_HEAD, 'Manual queue': MANUAL_HEAD, UPD_TAB: UPD_HEAD, LEGAL_TAB: LEGAL_HEAD,
         LOG_TAB: LOG_HEAD, LOG_BOTH_TAB: LOG_HEAD, GUIDE_TAB: GUIDE_HEAD}
+# Tabs only the app writes: nobody's work lives in their headers, so a header someone typed over is simply put back.
+# Stopping the whole sync for it cut the sheet off for an hour over one cell ("X" in the guide's A1, live 2026-10-03).
+# The tabs people fill (Online + Instore, Legal, Decisions) and Workflow stay strict: a reshaped one still stops.
+APP_OWNED = frozenset({LOG_TAB, LOG_BOTH_TAB, GUIDE_TAB, EXEC_TAB})
 REPORT_TAB = 'گزارش'                    # numbers and charts (sheet_report.py): app-owned, free layout, no header contract
 OI_KEY, WF_KEY, LEGAL_KEY = OI_HEAD.index('ترتیب'), WORKFLOW_HEAD.index('ترتیب'), LEGAL_HEAD.index('ترتیب')
 
@@ -262,6 +266,9 @@ class Client:
         rg = "'" + name.replace("'", "''") + f"'!A1:{col_letter(width)}"
         rows = self.request('GET', '/values/' + quote(rg, safe=''), params={'valueRenderOption': 'UNFORMATTED_VALUE'}).get('values', [])
         values = [(list(r) + [''] * width)[:width] for r in rows]
+        if (not values or values[0] != header) and name in APP_OWNED:
+            self.batch([self.update(name, 0, list(header))])       # the app's own tab: its header is restored
+            values = [list(header)] + values[1:]
         if not values or values[0] != header:
             raise GoogleSheetError('ستون‌های تب تغییر کرده: ' + name)
         while len(values) > 1 and not any(v != '' for v in values[-1]):
@@ -273,6 +280,9 @@ class Client:
         rg = "'" + name.replace("'", "''") + "'!A1:A"
         rows = self.request('GET', '/values/' + quote(rg, safe=''), params={'valueRenderOption': 'UNFORMATTED_VALUE'}).get('values', [])
         values = [str(r[0]) if r else '' for r in rows]
+        if (not values or values[0] != first_header) and name in APP_OWNED:
+            self.batch([self.update(name, 0, list(TABS[name]))])
+            values = [first_header] + values[1:]
         if not values or values[0] != first_header:
             raise GoogleSheetError('ستون‌های تب تغییر کرده: ' + name)
         return values[1:]
@@ -444,6 +454,9 @@ class Client:
                 filled -= 1
             if filled and current[:filled] == head[:filled]:
                 extended.append((name, filled))      # a newer app added columns at the end: only their titles are added
+                continue
+            if any(current) and name in APP_OWNED:
+                extended.append((name, 0))                # rewrite the whole header of the app's own tab
                 continue
             if any(current):
                 raise GoogleSheetError('ستون‌های تب تغییر کرده: ' + name)

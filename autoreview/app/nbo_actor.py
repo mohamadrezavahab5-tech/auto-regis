@@ -34,8 +34,10 @@ ERRORS = {
     "final_disabled": "دکمه‌ی نهایی Change Status غیرفعال بود؛ کاری انجام نشد",
     "timeout": "NBO در زمان مناسب پاسخ نداد",
 }
+# NBO answered the final click with an error message: its own words are shown
+REFUSED = "NBO تغییر را نپذیرفت — پیام خود NBO: "
 # errors after which NBO may already have changed: never retried automatically
-AFTER_SEND = {"sent_unconfirmed"}
+AFTER_SEND = {"sent_unconfirmed", "nbo_refused"}
 
 _HELPERS = r"""
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -139,13 +141,30 @@ def detail_js(smr: str, action: str, reason_label: str, rehearsal: bool, allow_a
     document.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Escape', bubbles: true}}));
     return {{rehearsed: true}};
   }}
+  // The dialog closing is not proof: NBO can close it and refuse the change (a cancel was "sent" while the request
+  // stayed in progress, live 2026-10-03). Whatever NBO says after the click - a toast, an alert - is read and returned.
+  const heard = () => {{
+    const seen = [];
+    document.querySelectorAll('[role="alert"], [role="status"], [class*="Toastify"], [class*="toast"], [class*="Toast"], '
+      + '[class*="snackbar"], [class*="Snackbar"], [class*="notification"], [class*="Notification"], [class*="alert"]')
+      .forEach(el => {{ const t = txt(el); if (t && t.length < 300 && !seen.includes(t)) seen.push(t); }});
+    return seen;
+  }};
+  const before = heard();                               // only what appears AFTER the click counts
+  const said = () => heard().filter(t => !before.includes(t)).join(' | ');
   final.click();
+  let notice = '', closed = false;
   for (const more = until(10000); more(); ) {{
     await sleep(250);
+    notice = said() || notice;
     const open = document.querySelector('[role="dialog"]');
-    if (!open || !buttons(open, 'Change Status').length) return {{sent: true}};
+    if (!open || !buttons(open, 'Change Status').length) {{ closed = true; break; }}
   }}
-  return {{error: 'sent_unconfirmed'}};
+  for (const more = until(2500); more(); ) {{ await sleep(250); notice = said() || notice; }}
+  if (/error|fail|invalid|denied|forbidden|unable|cannot|خطا|ناموفق|نامعتبر|مجاز نیست|امکان/i.test(notice))
+    return {{error: 'nbo_refused', message: notice}};
+  if (!closed) return {{error: 'sent_unconfirmed', message: notice}};
+  return {{sent: true, notice: notice}};
 """)
 
 
@@ -205,11 +224,17 @@ class NboActor(QObject):
             # a rehearsal on a request not yet assigned to this account ends at Assign (it never assigns): when the button
             # the real run will press is there and enabled, everything up to that point worked
             partial = rehearsal and code == "needs_assign"
+            said = str(result.get("message") or result.get("notice") or "").strip()
+            if code == "nbo_refused":
+                message = REFUSED + said
+            elif code == "sent_unconfirmed":
+                message = "ثبت نهایی زده شد ولی بسته شدن پنجره دیده نشد؛ در NBO نگاه کن" + (f" (NBO: {said})" if said else "")
+            else:
+                message = ERRORS.get(code, "" if not code else (said or code))
             out = {"ok": not code or partial, "sent": bool(result.get("sent")), "rehearsed": bool(result.get("rehearsed")) or partial,
-                   "error": code or "", "message": ERRORS.get(code, "" if not code else
-                                                             ("ثبت نهایی زده شد ولی بسته شدن پنجره دیده نشد؛ در NBO نگاه کن"
-                                                              if code == "sent_unconfirmed" else str(result.get("message") or code)))}
-            log.info("NBO %s %s for %s -> %s", "rehearsal" if rehearsal else "action", action, smr, code or "ok")
+                   "error": code or "", "message": message, "notice": said if not code else ""}
+            log.info("NBO %s %s for %s -> %s%s", "rehearsal" if rehearsal else "action", action, smr, code or "ok",
+                     f" | NBO said: {said}" if said else "")
             on_done(out)
 
         def on_list(ok):

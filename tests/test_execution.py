@@ -113,3 +113,22 @@ def test_a_sent_case_is_not_sent_again_but_a_new_revision_may_be(db):
     execution.record(db, case, 'SENT')
     with pytest.raises(ValueError):
         execution.claim(db, case)
+
+def test_a_send_nbo_did_not_take_is_flagged_and_a_real_one_is_verified():
+    """Live 2026-10-03: a cancel was reported sent while NBO only kept the request assigned (SMR-20869729)."""
+    from datetime import datetime, timedelta, timezone
+    from autoreview import reference, store, workflow
+    db = store.connect(); reference.ensure(db); workflow.ensure(db); execution.ensure(db)
+    row = lambda smr, status: dict(smr=smr, status=status, site=smr.lower() + '.ir', ownership='INDIVIDUAL',
+                                   has_online='true', has_instore='false', created_at='1405/07/09')
+    reference.import_nbo(db, [row('SMR-1', 'COMMERCIAL_IN_PROGRESS'), row('SMR-2', 'CANCELLED'), row('SMR-3', 'PENDING')], 'full')
+    old = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(timespec='seconds')
+    for smr in ('SMR-1', 'SMR-2'):
+        db.execute("INSERT INTO nbo_execution VALUES (?,?,?,?,?)", (smr, 1, 'SENT', old, 'لغو'))
+    db.execute("INSERT INTO nbo_execution VALUES (?,?,?,?,?)", ('SMR-3', 1, 'SENT', store.now(), 'تأیید'))   # just sent: too early
+    db.commit()
+    assert execution.verify_sent(db) == (1, 1)
+    state = dict(db.execute("SELECT smr, state FROM nbo_execution"))
+    assert state == {'SMR-1': 'UNCERTAIN', 'SMR-2': 'VERIFIED', 'SMR-3': 'SENT'}
+    assert 'COMMERCIAL_IN_PROGRESS' in db.execute("SELECT detail FROM nbo_execution WHERE smr='SMR-1'").fetchone()[0]
+    assert execution.verify_sent(db) == (0, 0)

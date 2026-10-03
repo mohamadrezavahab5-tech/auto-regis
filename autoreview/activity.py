@@ -11,12 +11,15 @@ def status(case, receipt=None):
         return 'نتیجه نامشخص', 'وضعیت را در NBO بررسی کنید؛ دوباره ارسال نکنید'
     if code == 'SENDING':
         return 'در حال ارسال', 'منتظر پایان عملیات بمانید'
+    if code in ('SENT', 'VERIFIED') and case and not case.get('active'):
+        # this app sent it and NBO no longer lists it as pending: the change took effect
+        return 'انجام شد — از همین اپ در NBO ثبت شد', 'اقدامی لازم نیست'
     if state == 'DONE_APPROVED':
         return 'انجام شده — تأیید در NBO', 'اقدامی لازم نیست'
     if state == 'DONE_CLOSED':
         return 'بسته شده در NBO', 'وضعیت نهایی NBO را در جزئیات ببینید'
     if code == 'SENT':
-        return 'ارسال شده — منتظر تطبیق', 'با دریافت بعدی NBO، نتیجهٔ نهایی تطبیق داده می‌شود'
+        return 'در NBO ثبت شد — اپ در دریافت بعدی NBO (تا ۱۰ دقیقه) دوباره نگاه می‌کند', 'اقدامی لازم نیست'
     if code == 'BLOCKED':
         return 'انجام نشده — اجرا متوقف شد', 'علت توقف را در سابقه بررسی کنید'
     if code == 'REHEARSED':

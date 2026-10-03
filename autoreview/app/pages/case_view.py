@@ -56,37 +56,36 @@ EVENT_FA = {"WORKFLOW_IMPORTED": "وارد صف اپ شد", "WORKFLOW_ENGINE_VER
 
 
 def _timeline(db, smr):
-    """Everything that happened to one request, oldest first: engine reviews, verdicts, NBO status changes, what the app
-    did in NBO. -> [(iso time, Persian sentence)]"""
-    import json
+    """Everything that happened to one request, oldest first, each thing once and in Persian: engine reviews, verdicts,
+    NBO status changes, what the app did in NBO and who did it. -> [(iso time, Persian sentence)]
+    One source - the audit table, which records all of these; reading the workflow events and the execution table as
+    well showed every step two or three times, some under their internal names (owner 2026-10-03)."""
+    modes = {"manual": "دستی", "automatic": "خودکار"}
     out = []
     for e in store.history(db, smr):
-        if e["kind"] == "DECISION":
+        kind, d = e["kind"], e.get("detail") or {}
+        who = d.get("actor") or d.get("user") or ""
+        if kind == "DECISION":
             text = f"بررسی موتور: {ACTION_FA.get(e['action'], e['action'])}" + (f" — {reasons_fa(e['codes'])}" if e["codes"] else "")
-        else:
-            text = EVENT_FA.get(e["kind"], e["kind"]) + (f" — {e['detail'].get('user')}" if e.get("detail", {}).get("user") else "")
-        out.append((e["ts"], text))
-    try:
-        rows = db.execute("SELECT body FROM workflow_events WHERE smr = ? ORDER BY rowid", (smr,)).fetchall()
-    except Exception:
-        rows = []
-    for (body,) in rows:
-        e = json.loads(body)
-        kind, d = e.get("kind"), e.get("detail") or {}
-        if kind == "WORKFLOW_SUGGESTED":
-            continue                                        # the engine review itself is already in the list
-        if kind == "WORKFLOW_HUMAN_DECISION":
+        elif kind in ("WORKFLOW_SUGGESTED", "NBO_PREVIEW", "NBO_REHEARSED"):
+            continue                                        # the review itself is listed; "ready" and rehearsals are not events
+        elif kind == "WORKFLOW_HUMAN_DECISION":
             team = {"online": "Online", "instore": "Instore"}.get(d.get("team"), d.get("team") or "")
-            text = f"نظر تیم {team}: {ACTION_FA.get(d.get('action'), d.get('action') or '')} — {e.get('actor') or ''}"
+            text = f"نظر تیم {team}: {ACTION_FA.get(d.get('action'), d.get('action') or '')}" + (f" — {who}" if who else "")
         elif kind == "WORKFLOW_NBO_STATUS":
-            text = "وضعیت در NBO شد: " + nbo_status_fa(d.get("status"))
+            text = "وضعیت در NBO شد: " + activity.NBO_FA.get(d.get("status"), nbo_status_fa(d.get("status")))
+        elif kind == "NBO_SENDING":
+            text = "ارسال به NBO شروع شد" + (f" — {who}" if who else "")
+        elif kind == "NBO_SENT":
+            how = " — ".join(x for x in (who, modes.get(d.get("mode"), "")) if x)
+            text = "در NBO ثبت شد: " + str(d.get("detail") or "") + (f" ({how})" if how else "")
+        elif kind.startswith("NBO_"):
+            text = execution.LABELS.get(kind[4:], kind) + (f" — {d.get('detail')}" if d.get("detail") else "")
         else:
-            text = EVENT_FA.get(kind, kind or "")
-        out.append((e.get("at") or "", text))
-    for r in execution.records(db):
-        if r["smr"] == smr and r["state"] != "PREVIEW":
-            out.append((r["updated_at"], f"NBO: {r['label']}" + (f" — {r['detail']}" if r["detail"] else "")))
-    return sorted((x for x in out if x[0]), key=lambda x: x[0])
+            text = EVENT_FA.get(kind, kind) + (f" — {who}" if who and who != "AutoReview" else "")
+        if e["ts"] and (not out or out[-1][1] != text or out[-1][0][:16] != e["ts"][:16]):
+            out.append((e["ts"], text))
+    return out
 
 
 def case_widget(session, shell, smr, on_close=None):

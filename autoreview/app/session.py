@@ -379,6 +379,7 @@ class Session(QObject):
             workflow.adopt_engine_verdicts(db, engine_counts)        # follows the switch in Settings both ways
             workflow.hold_manual_categories(db, rules)                # always-manual categories never ride on the engine
             execution.note_nbo_outcomes(db)
+            execution.verify_sent(db)                                 # did what the app sent really change NBO?
         finally:
             db.close()
 
