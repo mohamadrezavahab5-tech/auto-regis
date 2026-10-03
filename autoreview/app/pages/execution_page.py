@@ -17,6 +17,7 @@ from .common import ScrollPage
 
 
 KINDS = ((None, "همه‌ی نوع‌ها"), ("APPROVE", "فقط تأیید"), ("EDIT", "فقط نیاز به اصلاح"), ("CANCEL", "فقط لغو"))
+PATHS = ((None, "هر دو مسیر"), ("online", "فقط Online"), ("both", "Online + Instore"))
 PERIODS = (("today", "امروز"), ("2", "دیروز و امروز"), ("7", "7 روز اخیر"), ("all", "همه"), ("custom", "بازه‌ی دلخواه"))
 
 
@@ -53,6 +54,15 @@ class ExecutionPage(ScrollPage):
         self.kind.setCurrentIndex(self.kind.findData("APPROVE"))
         self.kind.currentIndexChanged.connect(self._kinds_changed)
         row.addWidget(self.kind)
+        row.addSpacing(14)
+        row.addWidget(label("مسیر:", "muted"))
+        self.path = QComboBox()                             # owner 2026-10-03: "why can't Online be set apart here"
+        self.path.setMinimumWidth(190)
+        self.path.setAccessibleName('مسیر درخواست')
+        for key, text in PATHS:
+            self.path.addItem(text, key)
+        self.path.currentIndexChanged.connect(lambda _i: self.render())
+        row.addWidget(self.path)
         row.addStretch(1)
         pick.lay.addLayout(row)
         dates = QHBoxLayout()
@@ -344,7 +354,15 @@ class ExecutionPage(ScrollPage):
         for i, (key, text) in enumerate(KINDS):
             self.kind.setItemText(i, f"{text} ({len(every) if key is None else per_kind.get(key, 0)})")
         self.kind.blockSignals(False)
-        ready = [c for c in every if execution.target(c)[0] in allowed]
+        per_path = {}
+        for c in every:
+            per_path[c.get("channel") or "online"] = per_path.get(c.get("channel") or "online", 0) + 1
+        self.path.blockSignals(True)
+        for i, (key, text) in enumerate(PATHS):
+            self.path.setItemText(i, f"{text} ({len(every) if key is None else per_path.get(key, 0)})")
+        self.path.blockSignals(False)
+        path = self.path.currentData()
+        ready = [c for c in every if execution.target(c)[0] in allowed and (path is None or (c.get("channel") or "online") == path)]
         # the categories of what is ready now, with how many each has; the chosen one stays chosen while it exists
         counts = {}
         for c in ready:
