@@ -111,13 +111,13 @@ def test_a_real_batch_stops_at_the_first_failure_and_is_the_owners(monkeypatch):
     seen = []
     monkeypatch.setattr(control, 'apply', lambda case, done, rehearsal=False, parent=None: (seen.append((case['smr'], rehearsal)),
                                                                                              done(next(answers))))
-    monkeypatch.setattr(control, 'owner', lambda: False)
+    monkeypatch.setattr(control, 'may_apply', lambda: False)      # no Online role
     try:
         control.start_batch(cases, rehearsal=False)
         raise AssertionError('a colleague started a real batch')
     except PermissionError:
         pass
-    monkeypatch.setattr(control, 'owner', lambda: True)
+    monkeypatch.setattr(control, 'may_apply', lambda: True)       # the owner or an Online colleague
     assert control.start_batch([], rehearsal=False) == 0
     assert control.start_batch(cases, rehearsal=False) == 4
     loop = QEventLoop()

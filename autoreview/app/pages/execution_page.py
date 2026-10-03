@@ -265,7 +265,7 @@ class ExecutionPage(ScrollPage):
                 self.count.setText(text + f' — {len(hidden)} انتخاب خارج از این فیلتر است و ارسال نمی‌شود')
         self.b_apply.setText(f'ثبت واقعی {len(chosen)} درخواست' if chosen else 'ثبت واقعی در NBO')
         busy = bool(self.control.batch) or self.control.mode.live or self.control.actor.busy
-        self.b_apply.setEnabled(self.control.owner() and not busy and bool(chosen))
+        self.b_apply.setEnabled(self.control.may_apply() and not busy and bool(chosen))
         self.b_rehearse.setEnabled(not busy and bool(chosen))
         self.b_stop.setEnabled(busy)
 

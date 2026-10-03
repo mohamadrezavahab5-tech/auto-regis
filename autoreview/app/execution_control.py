@@ -218,8 +218,10 @@ class ExecutionControl(QObject):
         stops the rest. -> how many are queued, 0, or 'busy'. A real batch is the owner's, like the automatic mode."""
         if self.batch or self.actor.busy or self.mode.live:
             return 'busy'
-        if not rehearsal and not self.owner():
-            raise PermissionError('ثبت گروهی در NBO فقط برای مدیر است')
+        # Who may send by hand may send a chosen set too, with their own NBO account (owner 2026-10-03: "I gave someone
+        # Online access - reviews work but sending is refused"). Only the automatic mode stays the owner's.
+        if not rehearsal and not self.may_apply():
+            raise PermissionError('ثبت در NBO برای مدیر و تیم Online است')
         todo = list(cases)
         if not todo:
             return 0

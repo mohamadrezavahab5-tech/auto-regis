@@ -283,7 +283,7 @@ class WorkflowPage(QWidget):
         where = "ردیف‌های انتخاب‌شده" if picked else "این فهرست"
         self.send_text.setText(f"از {where}: {num(len(cases))} درخواست آماده‌ی ثبت در NBO" + (f" ({parts})" if parts else ""))
         ex = self.shell.execution
-        self.b_send.setEnabled(bool(cases) and ex.owner() and not ex.batch and not ex.mode.live)
+        self.b_send.setEnabled(bool(cases) and ex.may_apply() and not ex.batch and not ex.mode.live)
         self.b_send.setText(f"ثبت {num(len(cases))} درخواست در NBO" if cases else "ثبت در NBO")
 
     def _send(self):
