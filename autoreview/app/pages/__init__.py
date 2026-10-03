@@ -16,8 +16,10 @@ def build_pages(session, shell):
     from .triage import TriagePage
     from .users import UsersPage
     from .execution_page import ExecutionPage
+    from .backlog_page import BacklogPage
     return {
         "dashboard": DashboardPage(session, shell),
+        "backlog": BacklogPage(session, shell),
         "review": ReviewPage(session, shell),
         "results": ResultsPage(session, shell),
         "workflow": WorkflowPage(session, shell),

@@ -240,8 +240,11 @@ def both_channel_rows(db, rules, include_optional=None):
     cfg = rules["backlog"]
     opt = cfg.get("include_optional") if include_optional is None else include_optional
     statuses = set(cfg["statuses"]) | (set(cfg.get("optional_statuses", [])) if opt else set())
+    # the same ownership as the Online-only queue: NBO's legal (company) requests are not this team's work - they are
+    # the Legal flow's (owner 2026-10-03: "we have nothing to do with them, in reviews and approvals too")
+    owner = cfg.get("ownership")
     return [r for r in all_nbo_rows(db) if r["status"] in statuses and str(r["has_online"]).lower() == "true"
-            and str(r["has_instore"]).lower() == "true"]
+            and str(r["has_instore"]).lower() == "true" and (not owner or r.get("ownership") == owner)]
 
 
 def related(db, smr, limit=8):

@@ -139,6 +139,25 @@ def test_a_request_that_left_the_queue_is_kept_until_the_full_export_tells_its_o
     assert status == {"SMR-1": reference.LEFT_QUEUE, "SMR-2": "COMPLETED", "SMR-3": "PENDING"}
     assert [r["smr"] for r in reference.left_queue_rows(db)] == ["SMR-1"]
     workflow.refresh(db, reference.all_nbo_rows(db), {"SMR-3"}, complete=False)
-    assert workflow.get(db, "SMR-1")["active"] and workflow.get(db, "SMR-1")["outcome"] is None   # not guessed 'closed'
+    left = workflow.get(db, "SMR-1")
+    assert not left["active"] and left["outcome"] is None and left["state"] == "OUT_OF_SCOPE"     # out of the open list,
+    #                                                                                              not guessed 'closed'
+    reference.import_nbo(db, [row("SMR-1", "COMMERCIAL_APPROVED", "a.ir"), row("SMR-2", "COMPLETED", "b.ir"),
+                              row("SMR-3", "PENDING", "c.ir")], "full")
+    workflow.refresh(db, reference.all_nbo_rows(db), {"SMR-3"}, approved_statuses=("COMMERCIAL_APPROVED",))
+    assert workflow.get(db, "SMR-1")["state"] == "DONE_APPROVED"                                   # the full export settles it
     note = sibling_decision(["SMR-1"], {"SMR-1"}).notes[0]
     assert "just decided" in note
+
+
+def test_legal_requests_never_enter_either_queue():
+    """Owner 2026-10-03: NBO's legal (company) requests are not the Online team's - not reviewed, not approved here."""
+    from autoreview import settings, store
+    db = store.connect(); reference.ensure(db)
+    row = lambda smr, owner, instore: dict(smr=smr, status='PENDING', site=smr.lower() + '.ir', ownership=owner,
+                                           has_online='true', has_instore=instore, created_at='1405/07/09')
+    reference.import_nbo(db, [row('SMR-1', 'INDIVIDUAL', 'false'), row('SMR-2', 'LEGAL', 'false'),
+                              row('SMR-3', 'INDIVIDUAL', 'true'), row('SMR-4', 'LEGAL', 'true')], 'full')
+    rules = settings.load_rules()
+    assert [r['smr'] for r in reference.backlog_rows(db, rules)[0]] == ['SMR-1']
+    assert [r['smr'] for r in reference.both_channel_rows(db, rules)] == ['SMR-3']

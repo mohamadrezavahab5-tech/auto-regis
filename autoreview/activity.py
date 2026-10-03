@@ -81,7 +81,8 @@ def detail_text(row):
 
 NBO_FA = {'PENDING': 'در انتظار', 'COMMERCIAL_IN_PROGRESS': 'در حال بررسی تجاری', 'COMMERCIAL_APPROVED': 'تأیید تجاری',
           'REQUIRED_EDITING': 'نیاز به اصلاح', 'CANCELLED': 'لغو شده', 'ACTIVATING': 'در حال فعال‌سازی',
-          'PENDING_ACTIVATION': 'منتظر فعال‌سازی', 'COMPLETED': 'تکمیل شده'}
+          'PENDING_ACTIVATION': 'منتظر فعال‌سازی', 'COMPLETED': 'تکمیل شده',
+          'LEFT_QUEUE': 'از صف انتظار NBO بیرون رفت (وضعیت دقیق با دریافت کامل بعدی)'}
 NBO_OPEN = ('PENDING', 'COMMERCIAL_IN_PROGRESS')
 
 

@@ -86,10 +86,12 @@ class FlowModel(QAbstractTableModel):
 class FlowFilter(QSortFilterProxyModel):
     def __init__(self):
         super().__init__()
-        self.states, self.text = set(workflow.OPEN_STATES), ""
+        self.states, self.text, self.path = set(workflow.OPEN_STATES), "", None
         self.setSortRole(Qt.ItemDataRole.EditRole)
 
-    def set(self, states=None, text=None):
+    def set(self, states=None, text=None, path=...):
+        if path is not ...:
+            self.path = path                            # None = both paths, 'online', or 'both' (Online + Instore)
         if states is not None:
             self.states = states
         if text is not None:
@@ -99,6 +101,8 @@ class FlowFilter(QSortFilterProxyModel):
     def filterAcceptsRow(self, row, parent):
         r = self.sourceModel().rows[row]
         if self.states and (r.get("state") or workflow.state(r)) not in self.states:
+            return False
+        if self.path and (r.get("channel") or "online") != self.path:
             return False
         if self.text:
             return self.text in " ".join([r["smr"], r.get("site") or "", r.get("category") or ""]).lower()
@@ -144,6 +148,22 @@ class WorkflowPage(QWidget):
                 row.addWidget(b)
                 self.chips[key] = b
             return row
+        # the two backlogs apart (owner 2026-10-03: "I want to see Online's backlog"): which path, then which state
+        paths = QHBoxLayout()
+        paths.setSpacing(8)
+        paths.addWidget(label("مسیر:", "muted"))
+        self.path_chips = {}
+        for key, text in ((None, "هر دو"), ("online", "فقط Online"), ("both", "Online + Instore")):
+            b = QPushButton(text)
+            b.setProperty("kind", "chip")
+            b.setCheckable(True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _=False, k=key: self._path(k))
+            self.path_chips[key] = b
+            paths.addWidget(b)
+        self.path_chips[None].setChecked(True)
+        paths.addStretch(1)
+        main.addLayout(paths)
         bar = chip_row(CHIPS_OPEN)
         bar.addStretch(1)
         main.addLayout(bar)
@@ -228,16 +248,7 @@ class WorkflowPage(QWidget):
             db.close()
         keep = self.current["smr"] if self.current else None
         self.model.set_rows(rows)
-        counts = {k: 0 for k in workflow.STATES}
-        for r in rows:
-            counts[r.get("state") or workflow.state(r)] += 1
-        open_n = sum(counts[k] for k in workflow.OPEN_STATES)
-        for key, text in CHIPS:
-            n = open_n if key == "OPEN" else (len(rows) if key == "ALL" else counts.get(key, 0))
-            self.chips[key].setText(f"{text}  {num(n)}")
-        self.summary.setText(f"{num(open_n)} درخواست باز — {num(counts['READY'])} آماده‌ی تأیید، "
-                             f"{num(counts['WAIT_INSTORE'])} منتظر تیم حضوری، {num(counts['DONE_APPROVED'])} تأییدشده، "
-                             f"{num(counts['DONE_CLOSED'])} بسته‌شده")
+        self._counts()
         self._pending = pending
         self.show_status()
         self._send_summary()
@@ -307,6 +318,33 @@ class WorkflowPage(QWidget):
         else:
             self.sync_pill.set(ltr("Sheet · synced"), C["approve"], C["approve_soft"])
         self.sync_text.setText(s.workflow_sync_status + (f" — {num(pending)} پرونده منتظر ارسال" if pending else ""))
+
+    def _path(self, key):
+        for k, b in self.path_chips.items():
+            b.setChecked(k == key)
+        self.proxy.set(path=key)
+        self._counts()
+        self._send_summary()
+
+    def _counts(self):
+        """The numbers on the chips and in the summary line, for the chosen path."""
+        rows = [r for r in self.model.rows if not self.proxy.path or (r.get("channel") or "online") == self.proxy.path]
+        counts = {k: 0 for k in workflow.STATES}
+        for r in rows:
+            counts[r.get("state") or workflow.state(r)] += 1
+        open_n = sum(counts[k] for k in workflow.OPEN_STATES)
+        for key, text in CHIPS:
+            n = open_n if key == "OPEN" else (len(rows) if key == "ALL" else counts.get(key, 0))
+            self.chips[key].setText(f"{text}  {num(n)}")
+        every = self.model.rows
+        for key, b in self.path_chips.items():
+            n = sum(1 for r in every if (r.get("state") or workflow.state(r)) in workflow.OPEN_STATES
+                    and (key is None or (r.get("channel") or "online") == key))
+            b.setText({None: "هر دو", "online": "فقط Online", "both": "Online + Instore"}[key] + f"  {num(n)} باز")
+        where = {None: "", "online": " (فقط Online)", "both": " (Online + Instore)"}[self.proxy.path]
+        self.summary.setText(f"{num(open_n)} درخواست باز{where} — {num(counts['READY'])} آماده‌ی تأیید، "
+                             f"{num(counts['WAIT_INSTORE'])} منتظر تیم حضوری، {num(counts['DONE_APPROVED'])} تأییدشده، "
+                             f"{num(counts['DONE_CLOSED'])} بسته‌شده")
 
     def _chip(self, key):
         for k, b in self.chips.items():

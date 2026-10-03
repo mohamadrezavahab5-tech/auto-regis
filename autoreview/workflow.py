@@ -163,6 +163,13 @@ def refresh(db, rows, eligible_ids, source_loaded_at=None, approved_statuses=(),
             smr = row['smr']
             seen.add(smr)
             if row.get('status') == 'LEFT_QUEUE':          # reference.LEFT_QUEUE: decided in NBO, outcome not known yet
+                # It is no longer pending in NBO, so it is not open work here either: showing it as "ready" had 217
+                # requests in the open list that someone had already handled in NBO, and a batch stops on the first
+                # of them (live 2026-10-03). Its verdicts stay; the next full export gives the real outcome.
+                old = get(db, smr)
+                if old and old.get('active'):
+                    old.update(active=False, outcome=None, source_status='LEFT_QUEUE', source_loaded_at=loaded)
+                    _save(db, old, 'WORKFLOW_NBO_STATUS', detail={'status': 'LEFT_QUEUE'})
                 continue
             old = get(db, smr)
             active = smr in eligible_ids

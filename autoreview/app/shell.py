@@ -21,7 +21,8 @@ from .widgets import LiveChart, Pill, label, ltr, toast
 # The work, step by step, in the order it happens (owner 2026-10-02: "it is not clear how Workflow and Review differ";
 # "there is no clear place to apply all / automatically"). The page titles say the same step.
 NAV = [
-    ("خلاصه", [("dashboard", "داشبورد", "dashboard"), ("control", "اتاق کنترل", "clock"), ("accuracy", "دقت موتور", "check")]),
+    ("خلاصه", [("dashboard", "داشبورد", "dashboard"), ("backlog", "بک‌لاگ NBO", "list-check"), ("control", "اتاق کنترل", "clock"),
+               ("accuracy", "دقت موتور", "check")]),
     ("کار روزانه", [("review", "دریافت و بررسی", "review"), ("workflow", "وضعیت درخواست‌ها", "list-check"),
                    ("triage", "رسیدگی دستی", "play"), ("execution", "ثبت در NBO", "shield"),
                    ("results", "نتایج بررسی موتور", "results")]),
