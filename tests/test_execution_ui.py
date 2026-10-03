@@ -177,7 +177,7 @@ def test_filter_selection_never_silently_broadens(monkeypatch):
     cases[:] = [cases[1]]
     page.render()
     assert page.category.currentData() == 'A' and page._shown == []
-    page.kind_switches['EDIT'].setChecked(not page.kind_switches['EDIT'].isChecked())
+    page.kind.setCurrentIndex(page.kind.findData('EDIT'))
     assert writes == []
     page.period.setCurrentIndex(page.period.findData('custom'))
     page.date_range.start.setDate(QDate(2026, 10, 3))

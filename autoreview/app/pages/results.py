@@ -8,14 +8,15 @@ from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QMessageBox, QPushButton,
                                QScrollArea, QSizePolicy, QSplitter, QTableView, QVBoxLayout, QWidget)
 
-from ... import export, jalali, reference, sheets, store
+from ... import activity, export, jalali, reference, sheets, store
 from ...texts import ACTION_FA, notes_fa, reasons_fa
 from .. import theme
 from ..theme import C
 from ..widgets import Card, EmptyState, SearchBox, action_pill, button, label, ltr, num, toast
 from .common import related_card
 
-COLS = ("کد درخواست", "وب‌سایت", "دسته‌بندی", "تصمیم", "دلیل", "توضیح")
+# "نظر موتور" is only the engine's verdict; "در NBO" says whether anything was really done there, and by whom
+COLS = ("کد درخواست", "وب‌سایت", "دسته‌بندی", "نظر موتور", "در NBO", "دلیل", "توضیح")
 
 
 class ResultModel(QAbstractTableModel):
@@ -44,13 +45,13 @@ class ResultModel(QAbstractTableModel):
         c = index.column()
         if role == Qt.ItemDataRole.DisplayRole:
             return (ltr(r["smr"]), ltr(r.get("site") or ""), r.get("category") or "", ACTION_FA.get(r["action"], r["action"]),
-                    reasons_fa(r["reason_codes"]), notes_fa(r["notes"]))[c]
+                    r.get("nbo") or "", reasons_fa(r["reason_codes"]), notes_fa(r["notes"]))[c]
         if role == Qt.ItemDataRole.BackgroundRole and c == 3:
             return QColor(theme.ACTION.get(r["action"], (C["text2"], C["surface2"]))[1])
         if role == Qt.ItemDataRole.ForegroundRole and c == 3:
             return QColor(theme.ACTION.get(r["action"], (C["text2"], C["surface2"]))[0])
-        if role == Qt.ItemDataRole.ToolTipRole and c in (4, 5):
-            return notes_fa(r["notes"]) if c == 5 else reasons_fa(r["reason_codes"])
+        if role == Qt.ItemDataRole.ToolTipRole and c in (4, 5, 6):
+            return notes_fa(r["notes"]) if c == 6 else (reasons_fa(r["reason_codes"]) if c == 5 else r.get("nbo") or "")
         if role == Qt.ItemDataRole.UserRole:
             return r
         return None
@@ -140,7 +141,7 @@ class ResultsPage(QWidget):
         self.table.setShowGrid(False)
         hh = self.table.horizontalHeader()
         hh.setStretchLastSection(True)
-        for i, w in enumerate((124, 170, 120, 104, 220)):
+        for i, w in enumerate((124, 170, 120, 96, 230, 200)):
             self.table.setColumnWidth(i, w)
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
@@ -195,8 +196,11 @@ class ResultsPage(QWidget):
         db = self.session.db()
         try:
             rows = store.results_of(db, self.run_id)
+            places = activity.nbo_places(db)
         finally:
             db.close()
+        for r in rows:
+            r["nbo"] = places.get(r["smr"], "در خروجی NBO نیست")
         self.model.set_rows(rows)
         c = {k: sum(1 for r in rows if r["action"] == k) for k in ("APPROVE", "EDIT", "CANCEL", "MANUAL")}
         self.summary.setText(f"{num(len(rows))} درخواست — تایید {num(c['APPROVE'])} • اصلاح {num(c['EDIT'])} • لغو {num(c['CANCEL'])} • "

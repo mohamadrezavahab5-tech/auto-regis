@@ -5,7 +5,7 @@ import html
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
 from PySide6.QtGui import QColor, QGuiApplication
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame, QHBoxLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QSpinBox, QDialogButtonBox, QFormLayout, QFrame, QHBoxLayout,
                                QHeaderView, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter,
                                QTableView, QVBoxLayout, QWidget)
 
@@ -150,12 +150,33 @@ class WorkflowPage(QWidget):
         row2 = chip_row(CHIPS_DONE)
         row2.addSpacing(10)
         self.search = SearchBox("جستجو در کد، سایت، دسته…")
-        self.search.textChanged.connect(lambda t: self.proxy.set(text=t))
+        self.search.textChanged.connect(lambda t: (self.proxy.set(text=t), self._send_summary()))
         row2.addWidget(self.search, 1)
         main.addLayout(row2)
         self.chips["OPEN"].setChecked(True)
         self.summary = label("", "muted")
         main.addWidget(self.summary)
+        # Send from here too (owner 2026-10-03: "why is there no 'all / how many' on this page"): the rows the filter
+        # shows - or the rows selected with Ctrl / Shift - that are ready for NBO, as many as the box says.
+        send = QHBoxLayout()
+        send.setSpacing(10)
+        self.send_text = label("", "h3")
+        send.addWidget(self.send_text, 1)
+        send.addWidget(label("چند تا:", "muted"))
+        self.send_limit = QSpinBox()
+        self.send_limit.setRange(0, 5000)
+        self.send_limit.setValue(10)
+        self.send_limit.setSpecialValueText("همه")
+        self.send_limit.setFixedWidth(90)
+        self.send_limit.valueChanged.connect(lambda _v: self._send_summary())
+        send.addWidget(self.send_limit)
+        self.b_send = button("ثبت در NBO", "primary", "check")
+        self.b_send.clicked.connect(self._send)
+        send.addWidget(self.b_send)
+        b_auto = button("ثبت خودکار…", None, "play", "کلید ثبت خودکار (Autopilot) در صفحه‌ی «ثبت در NBO» است")
+        b_auto.clicked.connect(lambda: self.shell.go("execution"))
+        send.addWidget(b_auto)
+        main.addLayout(send)
 
         split = QSplitter(Qt.Orientation.Horizontal)
         self.model, self.proxy = FlowModel(), FlowFilter()
@@ -165,7 +186,7 @@ class WorkflowPage(QWidget):
         self.table.setSortingEnabled(True)
         self.table.sortByColumn(6, Qt.SortOrder.DescendingOrder)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)   # Ctrl / Shift: several to send
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(36)
@@ -219,6 +240,7 @@ class WorkflowPage(QWidget):
                              f"{num(counts['DONE_CLOSED'])} بسته‌شده")
         self._pending = pending
         self.show_status()
+        self._send_summary()
         if keep:
             for i in range(self.proxy.rowCount()):
                 if self.proxy.data(self.proxy.index(i, 0), Qt.ItemDataRole.UserRole)["smr"] == keep:
@@ -228,6 +250,49 @@ class WorkflowPage(QWidget):
         if not rows:
             self.detail.setWidget(EmptyState("list-check", "هنوز درخواستی در گردش کار نیست",
                                              "بعد از دریافت خروجی NBO، درخواست‌های صف اینجا می‌آیند و با هر بررسی نظر موتور ثبت می‌شود."))
+
+    # ---- sending the shown / selected rows to NBO
+    def _sendable(self):
+        """The cases a press of «ثبت در NBO» takes: selected rows when several are selected, else every row the filter
+        shows; only those ready for NBO now (complete verdicts, pending in fresh NBO data, not tried yet), oldest first."""
+        rows = sorted({i.row() for i in self.table.selectionModel().selectedRows()})
+        if len(rows) < 2:
+            rows = range(self.proxy.rowCount())
+        shown = [self.proxy.data(self.proxy.index(r, 0), Qt.ItemDataRole.UserRole)["smr"] for r in rows]
+        ready = self.shell.execution.ready_cases(set(ACTION_FA) - {"MANUAL"}, smrs=shown)
+        return ready[:self.send_limit.value()] if self.send_limit.value() else ready
+
+    def _send_summary(self):
+        picked = len({i.row() for i in self.table.selectionModel().selectedRows()}) > 1
+        cases = self._sendable()
+        kinds = {}
+        for c in cases:
+            kinds[execution.target(c)[0]] = kinds.get(execution.target(c)[0], 0) + 1
+        parts = "، ".join(f"{num(n)} {ACTION_FA[k]}" for k, n in kinds.items())
+        where = "ردیف‌های انتخاب‌شده" if picked else "این فهرست"
+        self.send_text.setText(f"از {where}: {num(len(cases))} درخواست آماده‌ی ثبت در NBO" + (f" ({parts})" if parts else ""))
+        ex = self.shell.execution
+        self.b_send.setEnabled(bool(cases) and ex.owner() and not ex.batch and not ex.mode.live)
+        self.b_send.setText(f"ثبت {num(len(cases))} درخواست در NBO" if cases else "ثبت در NBO")
+
+    def _send(self):
+        cases = self._sendable()
+        if not cases:
+            return
+        if QMessageBox.question(self, "ثبت در NBO",
+                                f"{num(len(cases))} درخواست با حساب NBO که داخل اپ وارد شده، یکی‌یکی واقعاً در NBO ثبت می‌شود.\n"
+                                "با اولین خطا می‌ایستد. شروع کنم؟") != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            n = self.shell.execution.start_batch(cases, rehearsal=False)
+        except (PermissionError, ValueError) as e:
+            QMessageBox.information(self, "NBO", str(e))
+            return
+        if n == 'busy':
+            QMessageBox.information(self, "NBO", "یک ثبت دیگر در جریان است؛ اول تمام شود یا در «ثبت در NBO» توقف را بزن.")
+            return
+        toast(self.window(), f"ثبت {num(len(cases))} درخواست شروع شد؛ پیشرفت در نوار بالا و صفحه‌ی «ثبت در NBO»", "info")
+        self._send_summary()
 
     def show_status(self):
         s = self.session
@@ -247,6 +312,7 @@ class WorkflowPage(QWidget):
         for k, b in self.chips.items():
             b.setChecked(k == key)
         self.proxy.set(states=set(workflow.OPEN_STATES) if key == "OPEN" else (set() if key == "ALL" else {key}))
+        self._send_summary()
 
     def _open_sheet(self):
         from PySide6.QtCore import QUrl
@@ -260,6 +326,7 @@ class WorkflowPage(QWidget):
 
     def _selected(self, *_):
         rows = self.table.selectionModel().selectedRows()
+        self._send_summary()
         if not rows:
             return
         self.current = self.proxy.data(rows[0], Qt.ItemDataRole.UserRole)

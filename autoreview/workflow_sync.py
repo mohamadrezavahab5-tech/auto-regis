@@ -55,6 +55,10 @@ def sync_direct(db, google):
     from .google_sheet import workflow_key
     every = workflow.cases(db)
     sent = workflow.pending(db, limit=400)          # one atomic batch; a large first upload takes a few rounds, not dozens
+    from . import sheet_log
+    from . import activity
+    mine = activity.sent_from_app(db)
+    sent['log'] = {e['event_id']: sheet_log.event_row(db, e, mine) for e in sent['events']}
     result = google.sync(sent, keys={c['smr']: workflow_key(c) for c in every})
     if result.get('cases') != len(sent['cases']) or result.get('events') != len(sent['events']):
         raise sheets.SheetError('رسید ارسال کامل نیست؛ صف محفوظ می‌ماند')
@@ -72,6 +76,9 @@ def sync_direct(db, google):
     if receipts:
         google.ack(receipts)
     google.upsert_execution(execution.records(db, limit=500))
+    nbo_log, last = sheet_log.nbo_rows(db)          # what the app did in NBO: who, by hand or automatic, the outcome
+    google.append_log(nbo_log)
+    sheet_log.remember(db, last)
     global _LEGAL_NEXT, _LEGAL_PENDING, _REPORT_NEXT
     if time.monotonic() >= _LEGAL_NEXT:              # ~25,000 rows: every 5 minutes, not every 30-second round
         from . import reference, settings

@@ -1,6 +1,8 @@
 """NBO inside the app: the real NBO pages (the person's own login, OTP typed by them), with an AutoReview panel beside it that
 reviews the requests visible on the current NBO page and suggests a decision for each. Applying anything in NBO stays off
 (dry-run) - when it is switched on, every change will need the person's confirmation."""
+import json
+
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -13,15 +15,20 @@ from ..theme import C
 from ..web import LOGGED_IN_JS, NBO_REGISTRATIONS, Page, nbo_profile
 from ..widgets import Card, Pill, button, label, num, toast
 
+# Every request ID written anywhere on the page. It used to look only at childless td / span / a / div / p elements with
+# exactly the ID as their text, so a cell holding the ID next to an icon (or inside another tag) was missed and the panel
+# said "no request on this page" with the list in plain sight (owner 2026-10-03). Now every text node is read.
+# The result travels as JSON text: this Qt hands a JavaScript array back as an empty value, so the panel found nothing.
 SCAN_JS = r"""(function () {
-  var seen = {}, out = [], els = document.querySelectorAll('td, span, a, div, p');
-  for (var i = 0; i < els.length && i < 30000; i++) {
-    var e = els[i];
-    if (e.childElementCount) continue;
-    var t = (e.textContent || '').trim();
-    if (/^SMR-\d{5,}$/.test(t) && !seen[t]) { seen[t] = 1; out.push(t); }
+  var seen = {}, out = [], re = /SMR-\d{5,}/g;
+  function take(text) {
+    var m = (text || '').match(re);
+    for (var k = 0; m && k < m.length; k++) if (!seen[m[k]]) { seen[m[k]] = 1; out.push(m[k]); }
   }
-  return out;
+  var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null), node, n = 0;
+  while ((node = walker.nextNode()) && n++ < 200000) take(node.nodeValue);
+  if (!out.length) take(document.body.innerText);
+  return JSON.stringify(out);
 })()"""
 def browser_toolbar(view, home_url):
     bar = QHBoxLayout()
@@ -132,7 +139,10 @@ class NboPage(QWidget):
         self.view.page().runJavaScript(SCAN_JS, 0, self._scanned)
 
     def _scanned(self, smrs):
-        smrs = list(smrs or [])
+        try:
+            smrs = list(json.loads(smrs)) if isinstance(smrs, str) and smrs else list(smrs or [])
+        except ValueError:
+            smrs = []
         if not smrs:
             QMessageBox.information(self, "AutoReview", "روی این صفحه کد درخواستی (SMR-…) پیدا نشد. فهرست ثبت‌نام‌ها را باز کن.")
             return

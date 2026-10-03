@@ -173,7 +173,7 @@ def full_book():
 def test_missing_tabs_are_created_with_dropdowns_and_existing_ones_left_alone():
     b=Book()
     with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
-        assert set(c.ensure_tabs(['دلیل الف']))=={gs.OI_TAB,gs.EXEC_TAB,gs.UPD_TAB,gs.LEGAL_TAB,gs.REPORT_TAB}
+        assert set(c.ensure_tabs(['دلیل الف']))=={gs.OI_TAB,gs.EXEC_TAB,gs.UPD_TAB,gs.LEGAL_TAB,gs.REPORT_TAB,gs.LOG_TAB,gs.LOG_BOTH_TAB,gs.GUIDE_TAB}
         assert c.ensure_tabs([])==[]
     assert b.tabs[gs.OI_TAB][0][:len(gs.OI_HEAD)]==gs.OI_HEAD
     rules=[r['setDataValidation'] for r in b.requests if 'setDataValidation' in r]
@@ -336,7 +336,8 @@ def test_people_see_three_tabs_the_rest_is_hidden_not_deleted():
         assert c.tidy()==0                                       # already tidy: nothing sent
     hidden={n for n,i in b.ids.items() if b.props.get(i,{}).get('hidden')}
     assert hidden=={'Decisions','Audit','Updates','Results','Manual queue','Guide'}      # Execution is shown: what was sent to NBO
-    assert [b.props[b.ids[n]]['index'] for n in (gs.OI_TAB,'Workflow',gs.EXEC_TAB,gs.LEGAL_TAB)]==[0,1,2,3]
+    order=[n for n in (gs.GUIDE_TAB,gs.REPORT_TAB,gs.OI_TAB,'Workflow',gs.LOG_TAB,gs.LOG_BOTH_TAB,gs.EXEC_TAB,gs.LEGAL_TAB) if n in b.ids]
+    assert [b.props[b.ids[n]]['index'] for n in order]==list(range(len(order))) and {gs.OI_TAB,'Workflow',gs.EXEC_TAB}<=set(order)
     assert set(b.tabs)>=hidden                                   # nothing deleted
 
 
@@ -392,7 +393,7 @@ def test_the_look_is_applied_once_per_version():
         c.ensure_tabs([])
         assert c.style() is True
         sent=[next(iter(r)) for r in b.requests]
-        assert sent.count('addChart')==4 and sent.count('addBanding')==4
+        assert sent.count('addChart')==4 and sent.count('addBanding')==7      # tables: guide, Online + Instore, Workflow, two logs, Execution, Legal
         rules=[r['addConditionalFormatRule']['rule'] for r in b.requests if 'addConditionalFormatRule' in r]
         assert any('=LEFT($O2,1)="1"' in v['userEnteredValue'] for r in rules for v in r['booleanRule']['condition']['values'])
         n=len(b.requests)
@@ -431,3 +432,31 @@ def test_a_tab_made_exactly_as_wide_as_its_old_header_grows_for_the_new_column()
         c.ensure_tabs([])
         assert b.tabs['Workflow'][0]==gs.WORKFLOW_HEAD
         assert any(r.get('appendDimension',{}).get('dimension')=='COLUMNS' for r in b.requests)
+
+
+def test_the_people_log_goes_to_its_own_tab_and_says_where_it_was_done():
+    """Owner 2026-10-03: Online and Online + Instore apart; approved from this app or from outside."""
+    from autoreview import activity, execution, sheet_log
+    db=store.connect(); workflow.ensure(db); execution.ensure(db)
+    rows=[dict(smr='SMR-A',site='a.ir',status='PENDING',has_instore='false'),dict(smr='SMR-B',site='b.ir',status='PENDING',has_instore='true'),
+          dict(smr='SMR-C',site='c.ir',status='PENDING',has_instore='false')]
+    workflow.refresh(db,rows,{'SMR-A','SMR-B','SMR-C'})
+    workflow.suggest(db,'SMR-A',dict(action='APPROVE',reason_codes=[],notes=[],decided_at='2026-10-03T08:00:00+00:00'),engine_counts=True)
+    execution.record(db,workflow.get(db,'SMR-A'),'SENT','تأیید',actor='owner',mode='manual')          # this app approved A
+    for r in rows: r['status']='COMMERCIAL_APPROVED'                                                  # NBO now shows A and C approved
+    workflow.refresh(db,[rows[0],rows[2]],set(),approved_statuses=('COMMERCIAL_APPROVED',),complete=False)
+    sent=workflow.pending(db,limit=400); mine=activity.sent_from_app(db)
+    sent['log']={e['event_id']:sheet_log.event_row(db,e,mine) for e in sent['events']}
+    by={(e['smr'],e['kind']):sent['log'][e['event_id']] for e in sent['events']}
+    assert by[('SMR-B','WORKFLOW_IMPORTED')][0]=='both' and by[('SMR-A','WORKFLOW_IMPORTED')][0]=='online'
+    assert by[('SMR-A','WORKFLOW_NBO_STATUS')][1][5]==sheet_log.APP
+    assert by[('SMR-C','WORKFLOW_NBO_STATUS')][1][5]==sheet_log.OUTSIDE
+    b=full_book()
+    with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
+        c.sync(sent)
+        nbo,last=sheet_log.nbo_rows(db)
+        assert c.append_log(nbo)==1 and 'owner' in nbo[0][1][6] and 'دستی' in nbo[0][1][6]
+        sheet_log.remember(db,last); assert sheet_log.nbo_rows(db)[0]==[]                             # written once
+    online=[r for r in b.tabs[gs.LOG_TAB][1:] if r[1]]; both=[r for r in b.tabs[gs.LOG_BOTH_TAB][1:] if r[1]]
+    assert {r[1] for r in both}=={'SMR-B'} and {r[1] for r in online}=={'SMR-A','SMR-C'}
+    assert any(r[3].startswith('ثبت در NBO') and r[5]==sheet_log.APP for r in online)

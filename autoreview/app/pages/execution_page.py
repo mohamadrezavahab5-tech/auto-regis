@@ -16,6 +16,7 @@ from .case_view import case_widget, open_case
 from .common import ScrollPage
 
 
+KINDS = ((None, "همه‌ی نوع‌ها"), ("APPROVE", "فقط تأیید"), ("EDIT", "فقط نیاز به اصلاح"), ("CANCEL", "فقط لغو"))
 PERIODS = (("today", "امروز"), ("2", "دیروز و امروز"), ("7", "7 روز اخیر"), ("all", "همه"), ("custom", "بازه‌ی دلخواه"))
 
 
@@ -41,17 +42,17 @@ class ExecutionPage(ScrollPage):
         pick.header("۱. انتخاب درخواست‌ها", "فقط درخواست‌هایی نمایش داده می‌شوند که تصمیمشان کامل و قابل اجراست")
         row = QHBoxLayout()
         row.setSpacing(10)
-        row.addWidget(label("چه چیزی:", "muted"))
-        self.kind_switches = {}
-        for key, text in (("APPROVE", "تأیید"), ("EDIT", "نیاز به اصلاح"), ("CANCEL", "لغو")):
-            sw = Switch()
-            sw.setChecked(key in self.control.auto_actions())
-            sw.setAccessibleName('فیلتر ' + text)
-            sw.toggled.connect(self._kinds_changed)
-            self.kind_switches[key] = sw
-            row.addWidget(sw)
-            row.addWidget(label(text))
-            row.addSpacing(8)
+        # One list instead of three look-alike switches (owner 2026-10-03: "the filters are not clear - I want only the
+        # ones that need approving and cannot"). It opens on approvals only.
+        row.addWidget(label("نوع تصمیم:", "muted"))
+        self.kind = QComboBox()
+        self.kind.setMinimumWidth(230)
+        self.kind.setAccessibleName('نوع تصمیم')
+        for key, text in KINDS:
+            self.kind.addItem(text, key)
+        self.kind.setCurrentIndex(self.kind.findData("APPROVE"))
+        self.kind.currentIndexChanged.connect(self._kinds_changed)
+        row.addWidget(self.kind)
         row.addStretch(1)
         pick.lay.addLayout(row)
         dates = QHBoxLayout()
@@ -327,14 +328,23 @@ class ExecutionPage(ScrollPage):
         self.switch.blockSignals(False)
         self.mode_text.setText("ثبت خودکار روشن است (Real): هر درخواست آماده خودش در NBO ثبت می‌شود" if live
                                else "ثبت خودکار (Autopilot): خاموش — فقط چیزی ثبت می‌شود که خودت «ثبت در NBO» بزنی")
-        allowed = {key for key, sw in self.kind_switches.items() if sw.isChecked()}
+        kind = self.kind.currentData()
+        allowed = set(ACTION_FA) if kind is None else {kind}
         for key, sw in self.auto_kind_switches.items():
             sw.blockSignals(True)
             sw.setChecked(key in self.control.auto_actions())
             sw.setEnabled(owner and not live and not self.control.batch)
             sw.blockSignals(False)
         days = self._days()
-        ready = self.control.ready_cases(allowed, days[0], days[1]) if days is not None else []
+        every = self.control.ready_cases(set(ACTION_FA), days[0], days[1]) if days is not None else []
+        per_kind = {}
+        for c in every:
+            per_kind[execution.target(c)[0]] = per_kind.get(execution.target(c)[0], 0) + 1
+        self.kind.blockSignals(True)                     # each choice shows how many requests it holds right now
+        for i, (key, text) in enumerate(KINDS):
+            self.kind.setItemText(i, f"{text} ({len(every) if key is None else per_kind.get(key, 0)})")
+        self.kind.blockSignals(False)
+        ready = [c for c in every if execution.target(c)[0] in allowed]
         # the categories of what is ready now, with how many each has; the chosen one stays chosen while it exists
         counts = {}
         for c in ready:

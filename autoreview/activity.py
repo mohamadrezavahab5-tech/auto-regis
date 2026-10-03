@@ -77,3 +77,29 @@ def detail_text(row):
             value = json.dumps(value, ensure_ascii=False, indent=2)
         lines.append(f"{names.get(key, key)}: {value}")
     return '\n\n'.join(lines)
+
+
+NBO_FA = {'PENDING': 'در انتظار', 'COMMERCIAL_IN_PROGRESS': 'در حال بررسی تجاری', 'COMMERCIAL_APPROVED': 'تأیید تجاری',
+          'REQUIRED_EDITING': 'نیاز به اصلاح', 'CANCELLED': 'لغو شده', 'ACTIVATING': 'در حال فعال‌سازی',
+          'PENDING_ACTIVATION': 'منتظر فعال‌سازی', 'COMPLETED': 'تکمیل شده'}
+NBO_OPEN = ('PENDING', 'COMMERCIAL_IN_PROGRESS')
+
+
+def sent_from_app(db):
+    """Request IDs this app itself changed in NBO (a real send was recorded)."""
+    return {r[0] for r in db.execute("SELECT DISTINCT smr FROM audit WHERE stage IN ('NBO_SENT', 'NBO_VERIFIED')")}
+
+
+def where_done(status, by_app):
+    """Owner 2026-10-03: "did WE approve these or did they?" -> what NBO shows now and who did it."""
+    if status is None:
+        return 'در خروجی NBO نیست'
+    if status in NBO_OPEN:
+        return 'از این اپ ارسال شد؛ NBO هنوز نشان نداده' if by_app else 'هنوز در NBO ثبت نشده'
+    return NBO_FA.get(status, status) + (' — از این اپ' if by_app else ' — بیرون از اپ (مستقیم در NBO)')
+
+
+def nbo_places(db):
+    """{smr: where_done text} for every request of the NBO reference."""
+    mine = sent_from_app(db)
+    return {smr: where_done(status, smr in mine) for smr, status in db.execute('SELECT smr, status FROM ref_nbo')}

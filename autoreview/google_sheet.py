@@ -45,8 +45,38 @@ LEGAL_TAB = 'Legal'
 LEGAL_HEAD = ['کد درخواست CRM','تاریخ ایجاد','نام تجاری','وب‌سایت','وضعیت CRM','آخرین تغییر در CRM','اضافه شده در',
               'نتیجه بررسی Legal','توضیح','بررسی‌کننده','ترتیب']
 LEGAL_APP_COLS = 7
+# The readable log (sheet_log.py) and a short guide to the tabs (owner 2026-10-03: "the sheet is not clear at all",
+# "the log in the sheet must be recorded exactly").
+# One log per path (owner: "the Online log apart, the Online + Instore log apart") and where each thing was done -
+# in this app or outside it, straight in NBO.
+LOG_TAB, LOG_BOTH_TAB = 'لاگ Online', 'لاگ Online + Instore'
+LOG_TABS = {'online': LOG_TAB, 'both': LOG_BOTH_TAB}
+LOG_HEAD = ['زمان', 'کد درخواست', 'سایت', 'چه شد', 'نتیجه', 'از کجا', 'چه کسی', 'دلیل / توضیح', 'شناسه']
+GUIDE_TAB = 'راهنما'
+GUIDE_HEAD = ['بخش', 'توضیح']
+GUIDE_ROWS = [
+    ['این شیت چیست', 'دفترِ کارِ AutoReview: اپ همه‌چیز را اینجا ثبت می‌کند. تیم Online در خود اپ کار می‌کند؛ در این شیت فقط '
+                     'تیم Instore (ستون‌های آبیِ تب «Online + Instore») و همکار Legal (سه ستون آخر تب «Legal») چیزی می‌نویسند. '
+                     'بقیه‌ی خانه‌ها قفل است.'],
+    ['تب «گزارش»', 'عددها و نمودارها: چه چیزی الان منتظر کیست، و موتور امروز / ۷ روز / ۳۰ روز چه تصمیم‌هایی گرفته. فقط خواندنی.'],
+    ['تب «Online + Instore»', 'درخواست‌هایی که هم آنلاین‌اند هم حضوری. ستون «وضعیت» می‌گوید نوبت کیست. تیم Instore فقط ستون‌های '
+                              'آبی را پر می‌کند: تاریخ، نتیجه، دلیل، توضیح، نام بررسی‌کننده. ردیف‌هایی که نوبت Instore است بالای فهرست‌اند.'],
+    ['تب «Workflow»', 'همه‌ی درخواست‌های باز، با پیشنهاد موتور، نظر Online، نظر Instore و وضعیت. فقط خواندنی.'],
+    ['تب‌های «لاگ Online» و «لاگ Online + Instore»', 'هر اتفاق برای هر درخواست، یک ردیف، به ترتیب زمان: بررسی موتور و '
+     'نتیجه‌اش، نظر هر تیم، عوض شدن وضعیت در NBO، و هر ثبتی که در NBO انجام شده. ستون «از کجا» می‌گوید کار از همین اپ انجام شده '
+     'یا بیرون از اپ (مستقیم در NBO)، و «چه کسی» می‌گوید چه کسی و دستی یا خودکار. درخواست‌های فقط‌آنلاین در لاگ Online و '
+     'درخواست‌های آنلاین + حضوری در لاگ دیگر است. برای پیدا کردن یک درخواست: Ctrl+F و کد آن.'],
+    ['تب «Execution»', 'آخرین نتیجه‌ی ثبت هر درخواست در NBO: آماده، ارسال‌شده، متوقف، یا تأییدشده در NBO.'],
+    ['تب «Legal»', 'درخواست‌های حقوقی CRM برای بررسی دستی. همکار Legal سه ستون آخر را پر می‌کند؛ بررسی‌نشده‌ها بالای فهرست‌اند.'],
+    ['وضعیت‌ها یعنی چه', 'منتظر Online: موتور هنوز بررسی نکرده • نیازمند بررسی دستی: موتور مطمئن نبود، یک نفر باید نگاه کند • '
+                        'نوبت Instore: Online نظر داده، Instore باید نظر بدهد • آماده‌ی تأیید: همه‌ی نظرها کامل است ولی هنوز در NBO '
+                        'ثبت نشده • تأییدشده در NBO / بسته‌شده در NBO: کار تمام است.'],
+    ['«انجام شده» یعنی چه', 'فقط وقتی کاری «انجام شده» است که وضعیت NBO عوض شده باشد. «آماده» و «پیشنهاد» یعنی هنوز کسی باید '
+                           'در اپ «ثبت در NBO» را بزند.'],
+]
 TABS = {'Workflow': WORKFLOW_HEAD, OI_TAB: OI_HEAD, 'Decisions': COMMAND_HEAD, EXEC_TAB: EXEC_HEAD, 'Audit': EVENT_HEAD,
-        'Results': RESULT_HEAD, 'Manual queue': MANUAL_HEAD, UPD_TAB: UPD_HEAD, LEGAL_TAB: LEGAL_HEAD}
+        'Results': RESULT_HEAD, 'Manual queue': MANUAL_HEAD, UPD_TAB: UPD_HEAD, LEGAL_TAB: LEGAL_HEAD,
+        LOG_TAB: LOG_HEAD, LOG_BOTH_TAB: LOG_HEAD, GUIDE_TAB: GUIDE_HEAD}
 REPORT_TAB = 'گزارش'                    # numbers and charts (sheet_report.py): app-owned, free layout, no header contract
 OI_KEY, WF_KEY, LEGAL_KEY = OI_HEAD.index('ترتیب'), WORKFLOW_HEAD.index('ترتیب'), LEGAL_HEAD.index('ترتیب')
 
@@ -112,13 +142,16 @@ def _rgb(hex_colour):
 
 # ---- look (owner 2026-10-02: "pretty and clean") -------------------------------------------------------------------------
 # version 2: SnappPay's colours (blue #007DFA, navy) like the app; a new version restyles every sheet once
-STYLE_MARK, STYLE_VERSION = 'autoreview_style', '3'
+STYLE_MARK, STYLE_VERSION = 'autoreview_style', '4'
 INK, HEAD, TEAM, BAND, SECTION, TABLE_HEAD = '#101828', '#0B1A33', '#0F7C8C', '#F5F8FC', '#E6F2FF', '#D6E8FF'
 TURN, CONFLICT_BG, MUTED = '#FFF3D0', '#FDE2E1', '#8A94A6'
 ACTION_COLOURS = {'APPROVE': '#1C9553', 'EDIT': '#D99A00', 'CANCEL': '#C93A3A', 'MANUAL': '#6E59A5'}
 # column widths in pixels; None = hidden helper column. The team's own columns get a blue header.
 TABLE_LOOK = {
     EXEC_TAB: dict(widths=[140, 100, 380, 180, 520], team=None, colours=()),
+    LOG_TAB: dict(widths=[140, 130, 200, 290, 170, 190, 200, 460, None], team=None, colours=()),
+    LOG_BOTH_TAB: dict(widths=[140, 130, 200, 290, 170, 190, 200, 460, None], team=None, colours=()),
+    GUIDE_TAB: dict(widths=[200, 1000], team=None, colours=()),
     OI_TAB: dict(widths=[130, 190, 150, 110, 120, 260, 120, 110, 130, 220, 220, 120, 270, None, None], team=(7, 12),
                  colours=(('1', TURN, None), ('2', CONFLICT_BG, None), ('8', None, MUTED), ('9', None, MUTED))),
     'Workflow': dict(widths=[130, 110, 190, 150, 120, 110, 110, 120, 220, 110, 120, 220, 230, None, 150, 160, None, None],
@@ -323,9 +356,14 @@ class Client:
                 req.append(self.update('Workflow',i+1,[k],WF_KEY)); current[i][WF_KEY]=k
         known={e for e in event_ids if e}
         index=len(event_ids)+1
+        readable=payload.get('log') or {}                # {event_id: (path, row)} for the people's log tabs - same batch, same dedupe
+        log_index={LOG_TABS[k]: len(self.column(LOG_TABS[k],LOG_HEAD[0]))+1 for k in {p for p,_r in readable.values()}}
         for e in payload['events']:
             if e['event_id'] in known: continue
             req.append(self.update('Audit',index,[e['event_id'],e['at'],e['smr'],e['kind'],e['actor'],e['revision'],json.dumps(e['detail'],ensure_ascii=False)]))
+            if e['event_id'] in readable:
+                path,row=readable[e['event_id']]; tab=LOG_TABS[path]
+                req.append(self.update(tab,log_index[tab],row)); log_index[tab]+=1
             known.add(e['event_id']); index+=1
         self.batch(req)
         self.sort_if_needed('Workflow', [str(r[WF_KEY]) for r in current], WF_KEY)
@@ -450,7 +488,7 @@ class Client:
     # Owner 2026-10-02: "are all these tabs needed? user friendly - Online works only in the app, the sheet is the record".
     # People see three tabs; the app's bookkeeping tabs (and the old template's) are hidden, never deleted - their data
     # stays, and they can be shown again from the sheet's tab list.
-    VISIBLE = (REPORT_TAB, OI_TAB, 'Workflow', EXEC_TAB, LEGAL_TAB)
+    VISIBLE = (GUIDE_TAB, REPORT_TAB, OI_TAB, 'Workflow', LOG_TAB, LOG_BOTH_TAB, EXEC_TAB, LEGAL_TAB)
     HIDDEN = frozenset(TABS) - set(VISIBLE) | {'Daily summary', 'Reasons', 'Guide'}
 
     def tidy(self):
@@ -596,7 +634,7 @@ class Client:
             return False
         tabs = {s['properties']['title']: s for s in meta.get('sheets', [])}
         req = []
-        for title in (REPORT_TAB, OI_TAB, 'Workflow', EXEC_TAB, LEGAL_TAB):
+        for title in (GUIDE_TAB, REPORT_TAB, OI_TAB, 'Workflow', LOG_TAB, LOG_BOTH_TAB, EXEC_TAB, LEGAL_TAB):
             s = tabs.get(title)
             if not s:
                 continue
@@ -617,6 +655,13 @@ class Client:
             req.append({'createDeveloperMetadata': {'developerMetadata': {
                 'metadataKey': STYLE_MARK, 'metadataValue': STYLE_VERSION, 'location': {'spreadsheet': True},
                 'visibility': 'DOCUMENT'}}})
+        if GUIDE_TAB in tabs:                             # the guide's text and wrapping go with the look
+            gid = tabs[GUIDE_TAB]['properties']['sheetId']
+            req.append({'updateCells': {'start': {'sheetId': gid, 'rowIndex': 1, 'columnIndex': 0},
+                                        'rows': [{'values': [_cell(v) for v in r]} for r in GUIDE_ROWS], 'fields': 'userEnteredValue'}})
+            req.append(self._fmt(gid, 1, len(GUIDE_ROWS) + 1, 0, 2, {'wrapStrategy': 'WRAP', 'verticalAlignment': 'TOP'},
+                                 'wrapStrategy,verticalAlignment'))
+            req.append(self._fmt(gid, 1, len(GUIDE_ROWS) + 1, 0, 1, {'textFormat': {'bold': True}}, 'textFormat'))
         self.request('POST', ':batchUpdate', json={'requests': req})
         self.meta = None
         return True
@@ -749,6 +794,20 @@ class Client:
         req.append(bars('پرتکرارترین دلیل‌های اصلاح و لغو (۳۰ روز)', ROW['reasons_cols'], TOP, ACTION_COLOURS['EDIT'], 37))
         req.append(bars('علت‌های بررسی دستی (۳۰ روز)', ROW['manual_cols'], TOP, ACTION_COLOURS['MANUAL'], 54))
         return req
+
+    def append_log(self, rows):
+        """rows: [(path 'online' | 'both', row)] for the people's log tabs, each added under its tab's last row.
+        -> number written."""
+        if not rows:
+            return 0
+        at = {LOG_TABS[k]: len(self.column(LOG_TABS[k], LOG_HEAD[0])) + 1 for k in {p for p, _r in rows}}
+        req = []
+        for path, row in rows:
+            tab = LOG_TABS[path]
+            req.append(self.update(tab, at[tab], row))
+            at[tab] += 1
+        self.batch(req)
+        return len(rows)
 
     # ---- NBO execution receipts -----------------------------------------------------------------------------------------
     def upsert_execution(self, records):
