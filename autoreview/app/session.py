@@ -377,6 +377,7 @@ class Session(QObject):
                     workflow.suggest(db, result['smr'], result, engine_counts)
             workflow.reconcile_suggestions(db, store.latest_results(db), engine_counts)
             workflow.adopt_engine_verdicts(db, engine_counts)        # follows the switch in Settings both ways
+            workflow.hold_manual_categories(db, rules)                # always-manual categories never ride on the engine
             execution.note_nbo_outcomes(db)
         finally:
             db.close()

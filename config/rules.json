@@ -99,14 +99,18 @@
     "gold": [
       "طلا"
     ],
-    "special": [],
+    "special": [
+      "آموزشی",
+      "خدمات سلامت",
+      "خدمات گردشگری(اقامتگاه، آژانس مسافرتی و تور)",
+      "خدمات تفریحی و سرگرمی"
+    ],
     "services": [
       "خدمات"
     ],
-    "education": [
-      "آموزشی"
-    ],
-    "confirmed": false
+    "education": [],
+    "confirmed": false,
+    "_manual_note": "owner 2026-10-03: categories that are always reviewed by a person - gold, education, health services, tourism services, leisure and entertainment services (groups gold + special)"
   },
   "checks": {
     "_note": "Checks that can be switched off. agreement: the meeting never defined what 'Agreement' means, so it is skipped (enabled=false) and reported as 'not checked' - it does NOT send everything to MANUAL. Turn on only after the rule is defined. https: Action Test 4 sends an http-only site to EDIT 'URL wrong or inactive'. enamad_on_site: not in Action Test 4 (off; switch on in Settings).",

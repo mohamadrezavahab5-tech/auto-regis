@@ -291,6 +291,31 @@ def adopt_engine_verdicts(db, on):
     return changed
 
 
+def hold_manual_categories(db, rules):
+    """Owner 2026-10-03: gold, education, health / tourism / leisure services are always reviewed by a person. A request
+    of such a category that still carries the ENGINE's verdict (given before the rule) goes back to manual review, so
+    nothing of these is sent to NBO on the engine's word. A person's verdict is never touched. -> cases changed."""
+    from .facts import category_group
+    manual = set(rules.get('manual_category_groups', []))
+    changed = 0
+    with db:
+        for case in cases(db):
+            online = case.get('online') or {}
+            # only the engine's APPROVE: with the rule in place it never approves these categories, while a clear
+            # edit / cancel (no enamad, duplicate ...) is still decided by the rules as before
+            if not case.get('active') or online.get('source') != 'engine' or online.get('action') != 'APPROVE':
+                continue
+            group = category_group(rules, case.get('category'))
+            if group not in manual:
+                continue
+            case['online'] = None
+            case['suggestion'] = dict(action='MANUAL', reason_codes=[], decided_at=store.now(),
+                                      notes=[f"category group '{group}' needs documents - human review"])
+            _save(db, case, 'WORKFLOW_ENGINE_VERDICT_WITHDRAWN', ENGINE, {'why': 'manual category'})
+            changed += 1
+    return changed
+
+
 def decide(db, smr, team, action, actor, note, expected_revision, reason='', labels=None, source='human'):
     if team not in ('online', 'instore') or action not in ACTIONS:
         raise ValueError('تیم یا تصمیم معتبر نیست')

@@ -334,3 +334,22 @@ def test_a_locked_database_is_waited_for(monkeypatch):
         return 'ok'
     monkeypatch.setattr(store.time, 'sleep', lambda s: None)
     assert store._when_unlocked(write) == 'ok' and len(calls) == 3
+
+
+def test_always_manual_categories_take_back_the_engines_approval(db):
+    """Owner 2026-10-03: gold, education, health / tourism / leisure services are always reviewed by a person."""
+    from autoreview import settings
+    rules = settings.load_rules()
+    assert 'خدمات سلامت' in rules['category_groups']['special'] and 'special' in rules['manual_category_groups']
+    rows = [dict(smr='SMR-1', site='a.ir', category='خدمات سلامت', status='PENDING', has_instore='false'),
+            dict(smr='SMR-2', site='b.ir', category='مد و پوشاک', status='PENDING', has_instore='false'),
+            dict(smr='SMR-3', site='c.ir', category='آموزشی', status='PENDING', has_instore='false')]
+    workflow.refresh(db, rows, {'SMR-1', 'SMR-2', 'SMR-3'})
+    for smr, action in (('SMR-1', 'APPROVE'), ('SMR-2', 'APPROVE'), ('SMR-3', 'EDIT')):
+        workflow.suggest(db, smr, dict(action=action, reason_codes=['X'] if action == 'EDIT' else [], notes=[],
+                                       decided_at='2026-10-03T08:00:00+00:00'), engine_counts=True)
+    assert workflow.hold_manual_categories(db, rules) == 1
+    assert workflow.state(workflow.get(db, 'SMR-1')) == 'MANUAL'           # the approval was the engine's: a person decides
+    assert workflow.state(workflow.get(db, 'SMR-2')) == 'READY'            # an ordinary category is untouched
+    assert workflow.state(workflow.get(db, 'SMR-3')) == 'EDIT'             # a clear edit stays the rules' decision
+    assert workflow.hold_manual_categories(db, rules) == 0                 # once

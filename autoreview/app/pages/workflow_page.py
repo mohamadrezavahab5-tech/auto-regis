@@ -399,6 +399,18 @@ class WorkflowPage(QWidget):
             if sug.get("reason_codes"):
                 card.lay.addWidget(label(html.escape(reasons_fa(sug["reason_codes"])), "muted", wrap=True))
             v.addWidget(card)
+        # owner 2026-10-03: "it must say WHICH checks" - the same list and evidence as the request file
+        from .case_view import checks_card
+        from .results import evidence_card
+        from ... import store
+        db = self.session.db()
+        try:
+            result = store.latest_result(db, r["smr"])
+        finally:
+            db.close()
+        v.addWidget(checks_card(result))
+        if result:
+            v.addWidget(evidence_card(result.get("evidence") or {}))
         btns = QHBoxLayout()
         tgt = execution.target(r)
         if tgt and r.get("active"):
@@ -426,7 +438,7 @@ class WorkflowPage(QWidget):
             "MANUAL": "کار بعدی: یک نفر از تیم Online بررسی و نظر ثبت کند",
             "WAIT_INSTORE": f"کار بعدی: نظر تیم Instore — در اپ، یا در تب {ltr('Online + Instore')} شیت خودت",
             "CONFLICT": "دو تیم نظر متفاوت دارند؛ یکی باید نظرش را عوض کند",
-            "READY": "کار بعدی: تأیید در NBO — دکمه‌ی «تأیید در NBO» (یا خودکار، در حالت Real)",
+            "READY": "کار بعدی: ثبت در NBO — دکمه‌ی «تأیید در NBO» پایین همین پرونده، یا ثبت گروهی از بالای فهرست",
             "EDIT": "کار بعدی: اصلاح در NBO با همین دلیل — دکمه‌ی «اصلاح در NBO»",
             "CANCEL": "کار بعدی: لغو در NBO با همین دلیل — دکمه‌ی «لغو در NBO»",
             "DONE_APPROVED": "تمام شد — در NBO تأیید شده",
