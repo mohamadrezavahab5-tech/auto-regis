@@ -191,3 +191,17 @@ def test_old_rule_opens_only_the_address_as_linked_no_http_fallback():
     assert not home.ok and tried == [("https://s.ir", "connect")]
     home, _ = run(fetch_home("s.ir", fake(pages, errors)))                          # the 'served' mode still falls back
     assert home.ok and home.url == "http://s.ir"
+
+
+def test_phone_only_contact_needs_a_number(tmp_path):
+    """Owner 2026-10-03: support means a phone number; e-mail or a 'contact us' link alone is not accepted."""
+    from autoreview.collectors.site import find_phone, phones_on_page
+    assert phones_on_page(f"<html><body>{TEXT} تلفن ۰۲۱-۱۲۳۴۵۶۷۸</body></html>")
+    assert phones_on_page(f"<html><body>{TEXT}<a href='tel:+982112345678'>تماس</a></body></html>")
+    assert not phones_on_page(f"<html><body>{TEXT} info@shop.ir <a href='/contact'>تماس با ما</a></body></html>")
+    assert contact_on_page(f"<html><body>{TEXT} info@shop.ir</body></html>", phone_only=True) is False
+    home = Fetched(True, 200, "https://s.ir/", f"<html><body>{TEXT} info@shop.ir <a href='/tamas'>تماس با ما</a></body></html>")
+    found = run(find_phone(home, fake({"https://s.ir/tamas": f"<html><body>{TEXT} ۰۹۱۲۳۴۵۶۷۸۹</body></html>"})))
+    assert found["found"] is True and found["page"] == "https://s.ir/tamas"
+    nothing = run(find_phone(home, fake({})))
+    assert nothing["found"] is None and "https://s.ir/tamas" in nothing["pages"]      # unknown: the browser looks next

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QProgressDialog,
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QProgressDialog,
                                QPushButton, QScrollArea, QStackedWidget, QStatusBar, QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from .. import crm_sync, google_credentials, jalali, reference, settings, sheets, updates
@@ -211,6 +211,17 @@ class Shell(QMainWindow):
         col.addWidget(self.title)
         col.addWidget(self.subtitle)
         h.addLayout(col, 1)
+        # "open this request, why did it decide that?" from anywhere (owner 2026-10-03): a code or part of a site -> its file
+        self.find = QLineEdit()
+        self.find.setPlaceholderText("کد درخواست یا سایت…  (Ctrl+K)")
+        self.find.setClearButtonEnabled(True)
+        self.find.setFixedWidth(250)
+        self.find.setToolTip("کد درخواست (با یا بدون SMR-) یا بخشی از آدرس سایت / نام فروشگاه را بنویس و Enter بزن: "
+                             "پرونده‌اش باز می‌شود — چه چیزهایی چک شد و چرا این تصمیم گرفته شد.")
+        self.find.returnPressed.connect(self._find_request)
+        h.addWidget(self.find, 0, Qt.AlignmentFlag.AlignVCenter)
+        h.addSpacing(10)
+        QShortcut(QKeySequence("Ctrl+K"), self, activated=lambda: (self.find.setFocus(), self.find.selectAll()))
         self.live_chart = LiveChart()
         self.live_chart.setToolTip("کار زنده‌ی ۱۰ دقیقه‌ی اخیر: هر نقطه = ۳۰ ثانیه، بررسی‌های موتور + تغییرهای NBO. "
                                    "فقط وقتی دیده می‌شود که اپ در حال کار است.")
@@ -241,6 +252,25 @@ class Shell(QMainWindow):
         self.execution.changed.connect(self._mode_chip)
         self._mode_chip()
         return bar
+
+    def _find_request(self):
+        from .pages.case_view import find_requests, open_case
+        from .pages.common import nbo_status_fa
+        text = self.find.text().strip()
+        if not text:
+            return
+        found = find_requests(self.session, text)
+        if not found:
+            toast(self, "درخواستی با این کد یا سایت در داده‌ی NBO پیدا نشد", "warn")
+            return
+        if len(found) == 1:
+            open_case(self, found[0][0])
+            return
+        menu = QMenu(self)
+        for smr, site, status in found:
+            act = menu.addAction(f"{smr}   •   {site or '—'}   •   {nbo_status_fa(status)}")
+            act.triggered.connect(lambda _=False, k=smr: open_case(self, k))
+        menu.exec(self.find.mapToGlobal(self.find.rect().bottomLeft()))
 
     def _live_activity(self):
         """Shows the live chart while something runs, fed with what really happened (one small indexed read)."""

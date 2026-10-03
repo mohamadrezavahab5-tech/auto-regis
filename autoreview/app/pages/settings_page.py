@@ -87,6 +87,14 @@ class SettingsPage(ScrollPage):
         self.s_services.setChecked(bool(self._cur("services_go_manual.value")))
         g.addWidget(label("دسته‌ی خدمات همیشه دستی بررسی شود", "h3"), 3, 0)
         g.addWidget(self.s_services, 3, 1, Qt.AlignmentFlag.AlignLeft)
+        self.s_nocat = Switch()
+        self.s_nocat.setChecked(bool(self._cur("no_category_goes_manual.value")))
+        g.addWidget(label("درخواستِ بدون دسته همیشه دستی بررسی شود", "h3"), 6, 0)
+        g.addWidget(self.s_nocat, 6, 1, Qt.AlignmentFlag.AlignLeft)
+        self.s_phone = Switch()
+        self.s_phone.setChecked(self._cur("checks.contact.phone_only") is not False)
+        g.addWidget(label("اطلاعات تماس: فقط شماره تلفن قبول است (بدون شماره ← اصلاح)", "h3"), 7, 0)
+        g.addWidget(self.s_phone, 7, 1, Qt.AlignmentFlag.AlignLeft)
         self.s_mismatch = Switch()
         self.s_mismatch.setChecked(bool(self._cur("mismatch_allowed", "category_map")))
         g.addWidget(label("مغایرت دسته‌ی اینماد ← اصلاح (فقط بعد از بازبینی جدول نگاشت)", "h3"), 4, 0)
@@ -120,6 +128,7 @@ class SettingsPage(ScrollPage):
         self.p_services = _spin(0, 100000, self._cur("min_products.services.value"))
         self.p_education = _spin(0, 100000, self._cur("min_products.education.value"))
         self.p_nocat = _spin(0, 100000, self._cur("min_products.no_category.value") or 25)
+        self.p_nocat.setToolTip("برای اینکه درخواستِ بدون دسته همیشه دستی شود، کلید «بدون دسته همیشه دستی» در بخش بالا را روشن کن.")
         for text, sp in (("عادی", self.p_default), ("خدمات", self.p_services), ("آموزشی", self.p_education), ("بدون دسته", self.p_nocat)):
             row.addWidget(label(text, "muted"))
             row.addWidget(sp)
@@ -298,6 +307,7 @@ class SettingsPage(ScrollPage):
             "checks.add_to_cart.enabled": self.c_cart.isChecked(), "checks.enamad_on_site.enabled": self.c_seal.isChecked(),
             "checks.agreement.enabled": self.c_agree.isChecked(), "checks.https.enabled": self.c_https.isChecked(),
             "min_products.no_category.value": self.p_nocat.value(),
+            "no_category_goes_manual.value": self.s_nocat.isChecked(), "checks.contact.phone_only": self.s_phone.isChecked(),
             "min_products.default.value": self.p_default.value(), "min_products.services.value": self.p_services.value(),
             "min_products.education.value": self.p_education.value(), "min_products.by_category_fa.values": per_cat,
             "category_groups.gold": groups["gold"], "category_groups.special": groups["special"],

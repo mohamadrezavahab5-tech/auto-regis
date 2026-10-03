@@ -165,18 +165,67 @@ CONTACT_PATHS = ("/contact-us", "/contact", "/contactus")
 MIN_VISIBLE_TEXT = 300
 
 
-def contact_on_page(html: str) -> Optional[bool]:
+_TEL_HREF = re.compile(r"""href\s*=\s*["']?\s*tel:([+\d\s().-]{8,})""", re.I)
+_CONTACT_LINK = re.compile(r"""href\s*=\s*["']([^"'#]*(?:contact|tamas|about|%D8%AA%D9%85%D8%A7%D8%B3|تماس|درباره)[^"'#]*)["']""", re.I)
+
+
+def phones_on_page(html: str) -> list:
+    """Phone numbers a visitor can see or dial on the page: written in the text, or behind a tel: link."""
+    if not html:
+        return []
+    text = to_latin_digits(visible_text(html))
+    found = [m.group(0).strip() for m in _PHONE.finditer(text)]
+    found += [m.group(1).strip() for m in _TEL_HREF.finditer(strip_scripts(html)) if sum(ch.isdigit() for ch in m.group(1)) >= 8]
+    return list(dict.fromkeys(found))
+
+
+def contact_links(html: str, base: str, limit: int = 3) -> list:
+    """The site's own contact / about pages linked from this page (same host), to look for the phone number there."""
+    host = urlparse(base).netloc.lower()
+    out = []
+    for m in _CONTACT_LINK.finditer(strip_scripts(html or "")):
+        url = urljoin(base, htmllib.unescape(m.group(1)))
+        if urlparse(url).netloc.lower() == host and url.startswith("http") and url not in out:
+            out.append(url)
+    return out[:limit]
+
+
+def contact_on_page(html: str, phone_only: bool = False) -> Optional[bool]:
     """True: a phone, e-mail, tel:/mailto:/WhatsApp link, a link to a contact page, or contact wording is on the page.
-    None: the page shows almost no text (rendered by JavaScript, or empty) - we cannot tell. False: a real page without any."""
+    None: the page shows almost no text (rendered by JavaScript, or empty) - we cannot tell. False: a real page without any.
+    phone_only (owner 2026-10-03: "support means a phone number; no number is not accepted"): only a phone number counts."""
     if not html:
         return None
     body = strip_scripts(html)
     text = to_latin_digits(visible_text(html)).lower()
+    if phone_only:
+        if phones_on_page(html):
+            return True
+        return None if len(text) < MIN_VISIBLE_TEXT else False
     if len(text) < MIN_VISIBLE_TEXT:
         return None
     if _CONTACT_HREF.search(body) or _PHONE.search(text) or _EMAIL.search(text) or any(w in text for w in _CONTACT_WORDS):
         return True
     return False
+
+
+async def find_phone(home: Fetched, fetch: Fetch) -> dict:
+    """Phone-only contact check over plain HTTP. -> {found: True|None, phone, page, pages}. Never False: a number drawn by
+    JavaScript or inside the contact page's widget is invisible here, so "not found" stays unknown and the hidden browser
+    takes the second look (facts.render_fill) - only that may conclude the shop shows no number."""
+    phones = phones_on_page(home.text)
+    if phones:
+        return {"found": True, "phone": phones[0], "page": home.url, "pages": []}
+    origin = origin_of(home.url)
+    pages = contact_links(home.text, home.url) + [origin + p for p in CONTACT_PATHS]
+    pages = list(dict.fromkeys(pages))[:5]
+    for url in pages:
+        page = await fetch(url)
+        if page.ok:
+            phones = phones_on_page(page.text)
+            if phones:
+                return {"found": True, "phone": phones[0], "page": url, "pages": pages}
+    return {"found": None, "phone": "", "page": "", "pages": pages}
 
 
 async def has_contact(home: Fetched, fetch: Fetch) -> Optional[bool]:

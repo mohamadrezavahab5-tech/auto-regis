@@ -1,6 +1,7 @@
 """Logs: what the app did, live - sign-ins, data loads (rows, seconds), every decision, sheet writes, errors with details.
 Never passwords, tokens or cookies."""
 import os
+import re
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QColor, QGuiApplication
@@ -22,11 +23,12 @@ class _Bridge(QObject):
 
 class LogsPage(QWidget):
     title = "لاگ‌ها"
-    subtitle = "هر کاری که برنامه انجام داده، با زمان — زنده"
+    subtitle = "هر کاری که برنامه انجام داده، با زمان — زنده. روی ردیفی که کد درخواست دارد بزن تا پرونده‌اش باز شود"
 
     def __init__(self, session, shell):
         super().__init__()
         self.setObjectName("page")
+        self.shell = shell
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(10)
@@ -59,6 +61,7 @@ class LogsPage(QWidget):
             self.table.setColumnWidth(i, w)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.cellClicked.connect(self._open_request)
         v.addWidget(self.table, 1)
         self.hint = label("", "caption")
         v.addWidget(self.hint)
@@ -68,6 +71,15 @@ class LogsPage(QWidget):
 
     def on_show(self):
         self._reload()
+
+    def _open_request(self, row, _col):
+        """A log line about a request opens that request's file: what was checked, the decision, what happened since."""
+        cell = self.table.item(row, 3)
+        m = re.search(r"SMR-\d+", (cell.toolTip() or cell.text()) if cell else "")
+        if m:
+            from .case_view import open_case
+            if open_case(self.shell, m.group(0)) is None:
+                toast(self.window(), f"{m.group(0)} در داده‌ی فعلی NBO نیست", "warn")
 
     def _match(self, it):
         lvl = self.level.currentData()

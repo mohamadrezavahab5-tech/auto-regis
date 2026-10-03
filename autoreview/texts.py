@@ -84,6 +84,7 @@ _FIXED = [
     (r"category group 'special' needs documents - human review", "دسته‌ی خاص مدرک لازم دارد؛ بررسی دستی"),
     (r"category group '(\w+)' needs documents - human review", r"گروه «\1» مدرک لازم دارد؛ بررسی دستی"),
     (r"services go to manual review by rule", "طبق تنظیم، دسته‌ی خدمات دستی بررسی می‌شود"),
+    (r"no category in NBO - manual review by rule", "طبق تنظیم، درخواستِ بدون دسته دستی بررسی می‌شود"),
     (r"agreement check failed - rule and reason not defined yet", "بررسی قرارداد رد شد؛ قاعده‌اش هنوز تعریف نشده"),
     (r"no sitemap found - sitemap_missing_action is MANUAL", "نقشه‌ی سایت پیدا نشد (طبق تنظیم: بررسی دستی)"),
     (r"the same website is already approved(.*)", r"همین سایت قبلاً تایید شده است\1"),
@@ -142,3 +143,59 @@ CAUSE_FA = {
 
 def cause_fa(key: str) -> str:
     return CAUSE_FA.get(key) or note_fa(key)
+
+
+# ---- the rule trace in plain Persian (owner 2026-10-03: "click a request and it must say what was checked and why") ----
+_STEP_PASS = {
+    "is_online": "درخواست آنلاین است",
+    "website opens": "سایت باز می‌شود",
+    "enamad exists and is valid": "اینماد دارد و معتبر است",
+    "names": "نام‌ها با هم می‌خوانند (ثبت‌کننده، صاحب حساب، صاحب اینماد)",
+    "contact": "اطلاعات تماس روی سایت هست",
+    "add to cart": "افزودن به سبد خرید کار می‌کند",
+    "category": "دسته‌ی اینماد با دسته‌ی NBO می‌خواند",
+}
+_STEP_FAIL = {
+    "TOO_FEW_PRODUCTS": "تعداد محصول کمتر از حداقل است",
+    "MISSING_ENAMAD": "اینماد ندارد",
+    "ENAMAD_EXPIRED": "اینماد منقضی شده",
+    "DUPLICATE_REQUEST": "همین سایت قبلاً تأیید شده (درخواست تکراری)",
+    "OWNER_MISMATCH": "صاحب اینماد با صاحب حساب یکی نیست",
+    "NAME_MISMATCH_BANK": "نام ثبت‌کننده با صاحب حساب بانکی یکی نیست",
+    "SITEMAP_MISSING": "نقشه‌ی سایت ندارد",
+    "BAD_OR_DEAD_URL": "آدرس سایت اشتباه است یا باز نمی‌شود",
+    "SITE_INACTIVE": "سایت غیرفعال یا در دست ساخت است",
+    "NO_CONTACT": "اطلاعات تماس روی سایت نیست",
+    "NO_ADD_TO_CART": "افزودن به سبد خرید کار نمی‌کند",
+    "MISSING_LICENSE": "مجوز لازم را ندارد",
+    "CATEGORY_MISMATCH": "دسته‌ی اینماد با دسته‌ی NBO نمی‌خواند",
+}
+_STEP_ACTION = {"EDIT": "نیاز به اصلاح", "CANCEL": "لغو", "APPROVE": "تأیید", "MANUAL": "بررسی دستی"}
+
+
+def step_fa(step: str):
+    """One line of a review's rule trace -> (kind, Persian sentence). kind: PASS / FAIL / UNKNOWN / BLOCKED / other."""
+    kind, _, rest = str(step or "").partition(" ")
+    rest = rest.strip()
+    if kind == "PASS":
+        m = re.fullmatch(r"products (\d+) >= (\d+)", rest)
+        if m:
+            return kind, f"تعداد محصول کافی است: {m.group(1)} (حداقل {m.group(2)})"
+        return kind, _STEP_PASS.get(rest, rest)
+    if kind == "FAIL":
+        code, _, action = rest.partition(" -> ")
+        text = _STEP_FAIL.get(code.strip()) or REASON_FA.get(code.strip(), code.strip())
+        return kind, text + (f" ← نتیجه: {_STEP_ACTION.get(action.strip(), action.strip())}" if action else "")
+    if kind == "UNKNOWN":
+        return kind, note_fa("could not determine: " + rest) + " ← بررسی دستی"
+    if kind == "BLOCKED":
+        short = {"the website is a page on a shared platform": "مانع: سایت یک صفحه در پلتفرم مشترک است (اینستاگرام، باسلام و …)",
+                 "the website redirects to another domain": "مانع: سایت به دامنه‌ی دیگری منتقل می‌شود"}
+        return kind, (short.get(rest) or note_fa("blocked: " + rest)) + " ← بررسی دستی"
+    if kind == "PENDING_SIBLING":
+        return "UNKNOWN", "درخواست باز دیگری برای همین سایت هست ← بررسی دستی"
+    if kind == "TIMEOUT":
+        return "UNKNOWN", "بررسی بیش از حد طول کشید و متوقف شد ← بررسی دستی"
+    if kind == "ERROR":
+        return "UNKNOWN", "خطای داخلی هنگام بررسی؛ دوباره بررسی می‌شود"
+    return kind, rest or str(step)

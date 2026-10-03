@@ -4,6 +4,8 @@ mode, owner only, switched off again whenever the app restarts). Owner 2026-10-0
 Automatic mode works one request at a time, only on cases whose verdicts are complete (approve: every needed team approved;
 edit / cancel only when switched on in Execution), stops at the first problem, and after the very first real change it
 stops by itself so the owner can look at NBO before letting it continue."""
+from datetime import datetime
+
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
 
@@ -165,9 +167,21 @@ class ExecutionControl(QObject):
         return dlg
 
     # ---- everything at once (owner 2026-10-02: "there is no clear place to apply all / automatically")
-    def ready_cases(self, allowed=None):
-        """Requests 'apply all' would take, oldest first: a verdict NBO can act on, of a kind switched on, eligible now
-        (pending in fresh NBO data, synced), and not already tried in this revision."""
+    @staticmethod
+    def verdict_day(case):
+        """The local day the deciding verdict was given (the newest team verdict; the case's last change otherwise)."""
+        stamps = [(case.get(team) or {}).get('at') for team in ('online', 'instore')]
+        at = max([t for t in stamps if t] or [case.get('updated_at') or ''])
+        try:
+            return datetime.fromisoformat(at.replace('Z', '+00:00')).astimezone().date()
+        except (TypeError, ValueError):
+            return None
+
+    def ready_cases(self, allowed=None, since=None, until=None, smrs=None, limit=None):
+        """Requests a batch would take, oldest first: a verdict NBO can act on, of a kind switched on, eligible now
+        (pending in fresh NBO data, synced), and not already tried in this revision. Narrowed by the day of the verdict
+        (since / until, dates), by hand-picked request IDs, and cut to `limit` (owner 2026-10-03: "today's approved ones,
+        10 of them, or the ones I tick" - it was all 800 or one at a time)."""
         allowed = self.auto_actions() if allowed is None else set(allowed)
         db = self.session.db()
         try:
@@ -180,18 +194,33 @@ class ExecutionControl(QObject):
                      if r['state'] in ('SENDING', 'SENT', 'UNCERTAIN', 'BLOCKED', 'VERIFIED')}
         finally:
             db.close()
-        return [c for c in sorted(todo, key=lambda c: c.get('updated_at') or '') if (c['smr'], c['revision']) not in tried]
+        out = [c for c in sorted(todo, key=lambda c: c.get('updated_at') or '') if (c['smr'], c['revision']) not in tried]
+        if since or until:
+            days = {c['smr']: self.verdict_day(c) for c in out}
+            out = [c for c in out if days[c['smr']] and (not since or days[c['smr']] >= since)
+                   and (not until or days[c['smr']] <= until)]
+        if smrs is not None:
+            wanted = set(smrs)
+            out = [c for c in out if c['smr'] in wanted]
+        return out[:limit] if limit else out
 
     def rehearse_all(self):
         """Every ready request through NBO's screens up to (not including) Assign / the final click, one after another -
         nothing changes in NBO. -> how many are queued, or 'busy'."""
+        return self.start_batch(self.ready_cases(), rehearsal=True)
+
+    def start_batch(self, cases, rehearsal):
+        """These requests one after another: a rehearsal (nothing changes in NBO), or for real - then the first failure
+        stops the rest. -> how many are queued, 0, or 'busy'. A real batch is the owner's, like the automatic mode."""
         if self.batch or self.actor.busy or self.mode.live:
             return 'busy'
-        todo = self.ready_cases()
+        if not rehearsal and not self.owner():
+            raise PermissionError('ثبت گروهی در NBO فقط برای مدیر است')
+        todo = list(cases)
         if not todo:
             return 0
-        self.batch = dict(todo=todo, done=0, ok=0, assign=0, failed=[], stop=False)
-        self.last_batch = ''
+        self.batch = dict(todo=todo, done=0, ok=0, assign=0, failed=[], stop=False, real=not rehearsal)
+        self.last_batch = self.last_stop = ''
         self.changed.emit()
         QTimer.singleShot(0, self._next_rehearsal)
         return len(todo)
@@ -200,6 +229,9 @@ class ExecutionControl(QObject):
         b = self.batch
         if not b:
             return self.last_batch
+        if b.get('real'):
+            return (f"در حال ثبت در NBO: {fa_digits(b['done'])} از {fa_digits(len(b['todo']))} — ثبت‌شده: {fa_digits(b['ok'])}، "
+                    f"خطا: {fa_digits(len(b['failed']))}")
         return (f"در حال تمرین: {fa_digits(b['done'])} از {fa_digits(len(b['todo']))} — تا آخر درست: {fa_digits(b['ok'])}، "
                 f"تا Assign درست: {fa_digits(b['assign'])}، خطا: {fa_digits(len(b['failed']))}")
 
@@ -209,9 +241,13 @@ class ExecutionControl(QObject):
             return
         if b['stop'] or b['done'] >= len(b['todo']):
             failed = '؛ '.join(f"{smr}: {msg}" for smr, msg in b['failed'][:5])
-            self.last_batch = (f"تمرین {'متوقف شد' if b['stop'] else 'تمام شد'}: {fa_digits(b['done'])} درخواست — "
-                               f"تا آخر درست: {fa_digits(b['ok'])}، تا Assign درست: {fa_digits(b['assign'])}، "
-                               f"خطا: {fa_digits(len(b['failed']))}" + (f" ({failed})" if failed else ''))
+            if b.get('real'):
+                self.last_batch = (f"ثبت در NBO {'متوقف شد' if b['stop'] else 'تمام شد'}: {fa_digits(b['ok'])} از "
+                                   f"{fa_digits(len(b['todo']))} درخواست ثبت شد" + (f" — خطا: {failed}" if failed else ''))
+            else:
+                self.last_batch = (f"تمرین {'متوقف شد' if b['stop'] else 'تمام شد'}: {fa_digits(b['done'])} درخواست — "
+                                   f"تا آخر درست: {fa_digits(b['ok'])}، تا Assign درست: {fa_digits(b['assign'])}، "
+                                   f"خطا: {fa_digits(len(b['failed']))}" + (f" ({failed})" if failed else ''))
             self.batch = None
             self.notice.emit(self.last_batch)
             self.changed.emit()
@@ -226,9 +262,11 @@ class ExecutionControl(QObject):
                 b['ok'] += 1
             else:
                 b['failed'].append((case['smr'], res.get('message') or res.get('error')))
+                if b.get('real'):
+                    b['stop'] = True                        # a real change failed: a person looks before anything else is sent
             self.changed.emit()
-            QTimer.singleShot(1500, self._next_rehearsal)
-        self.apply(case, done, rehearsal=True)
+            QTimer.singleShot(3000 if b.get('real') else 1500, self._next_rehearsal)
+        self.apply(case, done, rehearsal=not b.get('real'))
 
     def apply_all(self):
         """'Apply all' = live mode: the automatic loop below takes the ready requests one by one (owner only)."""
@@ -245,7 +283,7 @@ class ExecutionControl(QObject):
 
     # ---- automatic
     def _auto_tick(self):
-        if not self.mode.live or self.actor.busy:
+        if not self.mode.live or self.actor.busy or self.batch:
             return
         todo = self.ready_cases()
         if not todo:

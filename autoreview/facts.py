@@ -172,8 +172,13 @@ async def collect(row: dict, rules: dict, fetch, http, enamad_gate: asyncio.Sema
         return facts, ev
 
     origin = sitec.origin_of(home.url)
+    phone_only = checks.get("contact", {}).get("phone_only", True)
     info, prod, api, contact = await asyncio.gather(enamad_task, sitec.count_products(origin, fetch),
-                                                    sitec.count_products_api(origin, fetch), sitec.has_contact(home, fetch))
+                                                    sitec.count_products_api(origin, fetch),
+                                                    sitec.find_phone(home, fetch) if phone_only else sitec.has_contact(home, fetch))
+    if phone_only:                                      # only a phone number counts as contact information
+        ev["contact"] = dict(contact, phone_only=True)
+        contact = contact["found"]
     _apply_enamad(facts, ev, info, row, website, category_map)
 
     # products: the shop's own catalogue total (exact) or the sitemap count, whichever proves more
@@ -226,7 +231,24 @@ async def render_fill(what: str, facts: Facts, ev: dict, render) -> bool:
         changed = False
         if facts.enamad_shown_on_site is None and detectors.enamad_shown_on_site(html):
             facts.enamad_shown_on_site, changed = True, True
-        if facts.has_contact is None and sitec.contact_on_page(html):
+        contact = ev.get("contact") or {}
+        if facts.has_contact is None and contact.get("phone_only"):
+            # the rendered pages are what a visitor sees: a number there settles it, and none on the home page and on
+            # the shop's own contact page settles it the other way (owner 2026-10-03: no phone number = not accepted)
+            looked, phones = [url], sitec.phones_on_page(html)
+            for extra in (contact.get("pages") or [])[:2]:
+                if phones:
+                    break
+                page = await render(extra)
+                rendered.append({"url": extra, "ok": bool(page), "for": what})
+                if page:
+                    looked.append(extra)
+                    phones = sitec.phones_on_page(page)
+            contact.update(found=bool(phones), phone=phones[0] if phones else "", page=looked[-1] if phones else "",
+                           rendered=looked)
+            ev["contact"] = contact
+            facts.has_contact, changed = bool(phones), True
+        elif facts.has_contact is None and sitec.contact_on_page(html):
             facts.has_contact, changed = True, True
         return changed
     if what == "add to cart":

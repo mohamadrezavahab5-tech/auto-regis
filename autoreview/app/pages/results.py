@@ -362,6 +362,15 @@ def evidence_card(ev):
         yn = {True: "بله", False: "خیر", None: "نامشخص"}
         line("افزودن به سبد", yn.get(f.get("can_add_to_cart")))
         line("اطلاعات تماس", yn.get(f.get("has_contact")))
+    contact = ev.get("contact") or {}
+    if contact.get("phone_only"):
+        if contact.get("phone"):
+            line("شماره تماس روی سایت", ltr(html.escape(contact["phone"])) +
+                 (f" <span style='color:{C['text3']}'>— {ltr(html.escape(contact['page']))}</span>" if contact.get("page") else ""))
+        elif contact.get("found") is False:
+            line("شماره تماس روی سایت", "پیدا نشد (صفحه‌ی اصلی و صفحه‌ی تماس با مرورگر هم دیده شد)")
+        else:
+            line("شماره تماس روی سایت", "هنوز معلوم نیست (در متن صفحه‌ها نبود)")
         line("نماد اینماد روی سایت", yn.get(f.get("enamad_shown_on_site")))
     if ev.get("duplicate_of"):
         line("تکراریِ", html.escape("، ".join(ev["duplicate_of"])))

@@ -50,6 +50,8 @@ EDITABLE = {
     ("rules", "category_groups.services"): _str_list,
     ("rules", "category_groups.education"): _str_list,
     ("rules", "services_go_manual.value"): _is_bool,
+    ("rules", "no_category_goes_manual.value"): _is_bool,
+    ("rules", "checks.contact.phone_only"): _is_bool,
     ("rules", "unreachable_site_action.value"): _one_of(*ACTIONS_UNREACHABLE),
     ("rules", "owner_mismatch_action.value"): _one_of(*ACTIONS_OWNER),
     ("rules", "sitemap_missing_action.value"): _one_of("EDIT", "MANUAL"),

@@ -193,3 +193,24 @@ def test_old_name_rule_only_ever_confirms_the_same_name():
     assert old_names_match("محمد حسن", "محمد حسن فردوسی")
     assert not old_names_match("علی رضایی", "زهرا خیامی پور")
     assert not old_names_match("", "علی")
+
+
+def test_trace_steps_read_as_persian_sentences():
+    from autoreview.texts import step_fa
+    assert step_fa("PASS products 64 >= 60") == ("PASS", "تعداد محصول کافی است: 64 (حداقل 60)")
+    kind, text = step_fa("FAIL TOO_FEW_PRODUCTS -> EDIT")
+    assert kind == "FAIL" and "تعداد محصول" in text and "نیاز به اصلاح" in text
+    assert step_fa("UNKNOWN product count")[0] == "UNKNOWN" and "بررسی دستی" in step_fa("UNKNOWN product count")[1]
+    assert step_fa("PASS names")[1].startswith("نام‌ها")
+    assert step_fa("PASS something new") == ("PASS", "something new")          # unknown wording is shown, never hidden
+
+
+def test_a_request_without_category_can_be_sent_to_manual():
+    import copy
+    rules = copy.deepcopy(RULES)
+    rules["no_category_goes_manual"] = {"value": True}
+    d = evaluate(good(category_name="", category_group="", product_count=500), rules, REASONS)
+    assert d.action == "MANUAL" and "no category" in d.notes[0]
+    rules["no_category_goes_manual"] = {"value": False}
+    off = evaluate(good(category_name="", category_group="", product_count=500), rules, REASONS)
+    assert not any("no category" in n for n in off.notes)

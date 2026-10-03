@@ -123,6 +123,10 @@
       "enabled": true,
       "mode": "action_test_4",
       "_mode_note": "action_test_4 (owner 2026-10-02, as the old code): the address registered in NBO decides - typed http:// = EDIT 'URL wrong', no scheme = https; certificate errors are not checked; no fallback to http. served: the site must end up on https after redirects."
+    },
+    "contact": {
+      "phone_only": true,
+      "_note": "owner 2026-10-03: support / contact information means a phone number; a shop showing none is EDIT (no contact info). false = the old wider check (e-mail, WhatsApp, contact wording also count)."
     }
   },
   "runtime": {
@@ -178,5 +182,9 @@
     "person_company": "حقوقی",
     "crm_statuses": "all",
     "_note": "Owner 2026-10-02: every CRM request of a legal person goes to the Legal tab of the owner's sheet, in every CRM status ('all'); a person checks them by hand. A list of statuses here limits it."
+  },
+  "no_category_goes_manual": {
+    "value": false,
+    "_note": "owner 2026-10-03: a request without an NBO category can be sent to manual review instead of using min_products.no_category"
   }
 }

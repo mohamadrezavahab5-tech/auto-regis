@@ -33,7 +33,11 @@ def test_mode_page_starts_dry_and_displays_readiness(monkeypatch):
     page = ExecutionPage(session, type('Shell', (), {'execution': control})())
     page.on_show()
     assert not page.switch.isChecked() and page.switch.isEnabled()
-    assert "Change Status" in page.readiness.text()
+    assert "خاموش" in page.mode_text.text() and page.limit.value() == 10
+    monkeypatch.setattr(QMessageBox, 'question', lambda *a, **k: QMessageBox.StandardButton.No)
+    page.switch.setChecked(True)                     # automatic sending asks first; "no" leaves it off
+    assert not control.mode.live and not page.switch.isChecked()
+    monkeypatch.setattr(QMessageBox, 'question', lambda *a, **k: QMessageBox.StandardButton.Yes)
     page.switch.setChecked(True)                     # the owner may switch live on (it never survives a restart)
     assert control.mode.live and page.switch.isChecked()
     assert not ExecutionControl(session).mode.live
@@ -83,7 +87,7 @@ def test_rehearse_all_goes_through_every_ready_request_and_sums_up(monkeypatch):
     cases = [dict(smr=f'SMR-{i}', revision=1) for i in range(3)]
     answers = iter([dict(ok=True, error=''), dict(ok=True, error='needs_assign'), dict(ok=False, error='not_found', message='نبود')])
     seen = []
-    monkeypatch.setattr(control, 'ready_cases', lambda allowed=None: list(cases))
+    monkeypatch.setattr(control, 'ready_cases', lambda allowed=None, **_k: list(cases))
     monkeypatch.setattr(control, 'apply', lambda case, done, rehearsal=False, parent=None: (seen.append((case['smr'], rehearsal)),
                                                                                              done(next(answers))))
     assert control.rehearse_all() == 3
@@ -94,4 +98,53 @@ def test_rehearse_all_goes_through_every_ready_request_and_sums_up(monkeypatch):
     loop.exec()
     assert seen == [('SMR-0', True), ('SMR-1', True), ('SMR-2', True)] and control.batch is None
     assert 'تا آخر درست: 1' in control.last_batch and 'تا Assign درست: 1' in control.last_batch and 'خطا: 1' in control.last_batch
+    control.stop()
+
+
+def test_a_real_batch_stops_at_the_first_failure_and_is_the_owners(monkeypatch):
+    """Owner 2026-10-03: "10 real ones" - a counted batch, not all 800 and not one at a time."""
+    from PySide6.QtCore import QEventLoop, QTimer
+    QApplication.instance() or QApplication([])
+    control = ExecutionControl(Session())
+    cases = [dict(smr=f'SMR-{i}', revision=1) for i in range(4)]
+    answers = iter([dict(ok=True, error='', sent=True), dict(ok=False, error='not_found', message='نبود')])
+    seen = []
+    monkeypatch.setattr(control, 'apply', lambda case, done, rehearsal=False, parent=None: (seen.append((case['smr'], rehearsal)),
+                                                                                             done(next(answers))))
+    monkeypatch.setattr(control, 'owner', lambda: False)
+    try:
+        control.start_batch(cases, rehearsal=False)
+        raise AssertionError('a colleague started a real batch')
+    except PermissionError:
+        pass
+    monkeypatch.setattr(control, 'owner', lambda: True)
+    assert control.start_batch([], rehearsal=False) == 0
+    assert control.start_batch(cases, rehearsal=False) == 4
+    loop = QEventLoop()
+    control.notice.connect(lambda _t: loop.quit())
+    QTimer.singleShot(20_000, loop.quit)
+    loop.exec()
+    assert seen == [('SMR-0', False), ('SMR-1', False)] and control.batch is None      # the rest was not sent
+    assert 'متوقف شد' in control.last_batch and '1 از 4' in control.last_batch.replace('۱', '1').replace('۴', '4')
+    control.stop()
+
+
+def test_ready_cases_by_verdict_day_picked_ids_and_limit(monkeypatch):
+    from datetime import date
+    from autoreview import execution, workflow
+    QApplication.instance() or QApplication([])
+    control = ExecutionControl(Session())
+    days = {'SMR-1': '2026-10-01T09:00:00+00:00', 'SMR-2': '2026-10-02T09:00:00+00:00', 'SMR-3': '2026-10-03T09:00:00+00:00'}
+    cases = [dict(smr=k, revision=1, updated_at=v, online=dict(action='APPROVE', at=v)) for k, v in days.items()]
+    monkeypatch.setattr(workflow, 'cases', lambda db: list(cases))
+    monkeypatch.setattr(execution, 'target', lambda case: ('APPROVE', ''))
+    monkeypatch.setattr(execution, 'eligibility', lambda case, now=None: '')
+    monkeypatch.setattr(execution, 'records', lambda db, limit=None: [])
+    ids = lambda rows: [c['smr'] for c in rows]
+    assert ids(control.ready_cases({'APPROVE'})) == ['SMR-1', 'SMR-2', 'SMR-3']
+    assert ids(control.ready_cases({'APPROVE'}, since=date(2026, 10, 2))) == ['SMR-2', 'SMR-3']
+    assert ids(control.ready_cases({'APPROVE'}, since=date(2026, 10, 2), until=date(2026, 10, 2))) == ['SMR-2']
+    assert ids(control.ready_cases({'APPROVE'}, smrs=['SMR-3', 'SMR-1'])) == ['SMR-1', 'SMR-3']
+    assert ids(control.ready_cases({'APPROVE'}, limit=2)) == ['SMR-1', 'SMR-2']
+    assert control.ready_cases({'EDIT'}) == []
     control.stop()

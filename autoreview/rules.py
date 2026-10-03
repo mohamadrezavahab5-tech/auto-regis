@@ -168,6 +168,8 @@ def evaluate(facts: Facts, rules: dict, reasons: dict) -> Decision:
         d.trace.append("PASS add to cart")
 
     # 7. products (minimum per category; the sitemap only matters when the count is short)
+    if not facts.category_name and rules.get("no_category_goes_manual", {}).get("value"):
+        return _manual(d, "no category in NBO - manual review by rule")      # owner 2026-10-03: a switch, not only a minimum
     verdict = products()
     if verdict is not None:
         return verdict
