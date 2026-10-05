@@ -94,7 +94,7 @@ def sync_workspace(db, cfg):
     # keep approved cases waiting for many sync rounds.
     from .workspace_google import compact
 
-    for _source_batch in range(20):
+    for _source_batch in range(2):
         candidates = [
             json.loads(r[0])
             for r in db.execute(
@@ -204,6 +204,9 @@ def sync_workspace(db, cfg):
                     (str(nonce + 1),)
                 )
             break
+
+        # Pace Google Sheets requests to stay below per-user/project quotas.
+        time.sleep(3.0)
     if sent['events']:
         events = [workspace.safe_event(e) for e in sent['events']]
         receipt = workspace.call('audit_batch', cfg, events=events)

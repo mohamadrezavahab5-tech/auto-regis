@@ -1,16 +1,47 @@
-input/
-data/
-*.db
-*.sqlite
+﻿# Python
 __pycache__/
-.venv/
-nbo_cookies.json
-*_state.json
+*.pyc
+*.pyo
+.pytest_cache/
+.pytest-temp/
+
+# Build outputs
 dist/
 build/
 *.spec
-pre-final-release.patch
-config/workspace.json
-build-release/
 
-pre-direct-workspace.patch
+# Local databases / exports
+*.db
+*.sqlite
+*.sqlite3
+exports/
+
+# Credentials / secrets
+.env
+.env.*
+*.pem
+*.key
+data/google-service-account.dpapi
+**/google-service-account.dpapi
+**/*service-account*.json
+**/*service_account*.json
+
+# Local credentials
+crm_credential.xml
+credentials.json
+
+# Backups created during development
+*.bak
+*.before-*
+*.backup
+
+# Logs / temp
+*.log
+tmp/
+temp/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

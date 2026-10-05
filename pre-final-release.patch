@@ -1,0 +1,1247 @@
+diff --git a/README.md b/README.md
+index 1224982..8eeead1 100644
+--- a/README.md
++++ b/README.md
+@@ -15,6 +15,8 @@ Standalone project (NOT part of PayPilot). Goal: rebuild the responsible person'
+ 
+ ## Running the app (Windows)
+ - `dist\AutoReview\AutoReview.exe` (build: `powershell -File build.ps1`). `config\` and `scripts\` sit next to the exe and stay editable; results go to `data\`.
+-- Pick the NBO export -> (CRM: log in once and press "automatic", or use a CRM file) -> Start. Runs in the background, no browser windows.
+-- DRY-RUN: nothing is written to NBO or any sheet until `config\execution.json` is opened by the owner. Results: table + "Excel output" (Results / Manual queue / Summary).
+-- CRM automatic read needs `config\crm_api.json` filled once (entity + 3 field names) - see docs.
++- When running from source, use a standard GIL-enabled Python interpreter; `run_app.py` redirects the free-threaded interpreter to the regular `python.exe` alongside it when available.
++- Review and suggestions do not change NBO. A status change is sent only after an explicit action in the app; it is verified against the latest NBO data first.
++- With workflow sync enabled, each installation syncs its local queue with the owner's sheet about every 30 seconds. The dashboard shows the latest sync time and reports stale local data or sync failures instead of treating them as current.
++- For a team, the owner deploys the Apps Script from «کاربران» as a Web app (Execute as: Me; access: Anyone), then gives each coworker an individual role and access code. All coworkers use this workspace connection; do not distribute the owner's Service Account key. The script serializes shared writes and rejects decisions based on stale case revisions.
++- To publish an update, the owner selects the installer in «کاربران», uploads it to their own Google Drive, and sets sharing to `Anyone with the link — Viewer`. Paste the file link into the app to record the release URL and SHA-256 in the `Updates` tab. Installed apps check for updates after startup and every six hours; the downloaded installer is verified before the user confirms installation.
+diff --git a/autoreview/app/execution_control.py b/autoreview/app/execution_control.py
+index 47cdb14..b73409e 100644
+--- a/autoreview/app/execution_control.py
++++ b/autoreview/app/execution_control.py
+@@ -2,8 +2,8 @@
+ mode, owner only, switched off again whenever the app restarts). Owner 2026-10-01: "both manual and automatic".
+ 
+ Automatic mode works one request at a time, only on cases whose verdicts are complete (approve: every needed team approved;
+-edit / cancel only when switched on in Execution), stops at the first problem, and after the very first real change it
+-stops by itself so the owner can look at NBO before letting it continue."""
++edit / cancel only when switched on in Execution), continues after request-level errors, and stops on systemic NBO errors.
++After the very first real change it stops by itself so the owner can look at NBO before letting it continue."""
+ from datetime import datetime
+ 
+ from PySide6.QtCore import QObject, QTimer, Signal
+@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
+ 
+ from .. import execution, settings, sheets, workflow, workspace
+ from ..jalali import fa_digits
+-from .nbo_actor import AFTER_SEND, NboActor
++from .nbo_actor import AFTER_SEND, SYSTEMIC_ERRORS, NboActor
+ from .session import run_bg
+ 
+ ACTION_FA = {"APPROVE": "تأیید", "EDIT": "نیاز به اصلاح", "CANCEL": "لغو"}
+@@ -214,8 +214,8 @@ class ExecutionControl(QObject):
+         return self.start_batch(self.ready_cases(), rehearsal=True)
+ 
+     def start_batch(self, cases, rehearsal):
+-        """These requests one after another: a rehearsal (nothing changes in NBO), or for real - then the first failure
+-        stops the rest. -> how many are queued, 0, or 'busy'. A real batch is the owner's, like the automatic mode."""
++        """These requests one after another: a rehearsal (nothing changes in NBO), or for real - request errors are
++        recorded and systemic NBO errors stop the queue. -> how many are queued, 0, or 'busy'."""
+         if self.batch or self.actor.busy or self.mode.live:
+             return 'busy'
+         # Who may send by hand may send a chosen set too, with their own NBO account (owner 2026-10-03: "I gave someone
+@@ -268,10 +268,10 @@ class ExecutionControl(QObject):
+                 b['ok'] += 1
+             else:
+                 b['failed'].append((case['smr'], res.get('message') or res.get('error')))
+-                if b.get('real'):
+-                    b['stop'] = True                        # a real change failed: a person looks before anything else is sent
++                if b.get('real') and (not res.get('error') or res.get('error') in SYSTEMIC_ERRORS):
++                    b['stop'] = True
+             self.changed.emit()
+-            QTimer.singleShot(3000 if b.get('real') else 1500, self._next_rehearsal)
++            QTimer.singleShot(750 if b.get('real') else 500, self._next_rehearsal)
+         self.apply(case, done, rehearsal=not b.get('real'))
+ 
+     def apply_all(self):
+@@ -291,19 +291,22 @@ class ExecutionControl(QObject):
+     def _auto_tick(self):
+         if not self.mode.live or self.actor.busy or self.batch:
+             return
+-        todo = self.ready_cases()
++        todo = [c for c in self.ready_cases() if c.get('channel') == 'online']
+         if not todo:
+             return
+         case = todo[0]
+ 
+         def done(res):
+             if not res.get('ok'):
+-                self._stop_live(f"اجرای خودکار متوقف شد ({case['smr']}): {res.get('message')}")
++                if res.get('error') in SYSTEMIC_ERRORS or not res.get('error'):
++                    self._stop_live(res.get('message') or 'ثبت خودکار متوقف شد؛ اتصال را بررسی کن')
++                else:
++                    QTimer.singleShot(1000, self._auto_tick)
+             elif self._first_run:
+                 self._first_run = False
+                 self._stop_live(f"اولین تغییر Real ثبت شد ({case['smr']}). در NBO نگاهش کن؛ اگر درست بود دوباره «Real» را روشن کن.")
+             else:
+-                QTimer.singleShot(3000, self._auto_tick)
++                QTimer.singleShot(1000, self._auto_tick)
+         self.apply(case, done)
+ 
+     # ---- summary
+diff --git a/autoreview/app/main.py b/autoreview/app/main.py
+index ab99390..5c4ad55 100644
+--- a/autoreview/app/main.py
++++ b/autoreview/app/main.py
+@@ -9,6 +9,11 @@ import os
+ import sys
+ import traceback
+ 
++# Keep the hidden NBO worker's short waits from becoming minute-long background ticks.
++_flags = os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '')
++if '--disable-background-timer-throttling' not in _flags.split():
++    os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = (_flags + ' --disable-background-timer-throttling').strip()
++
+ from PySide6.QtCore import Qt, QTimer
+ from PySide6.QtNetwork import QLocalServer, QLocalSocket
+ from PySide6.QtWidgets import QApplication, QMessageBox
+@@ -95,7 +100,10 @@ class App:
+         def connect():
+             if not sheets.valid_webapp_url(url.text().strip()):
+                 QMessageBox.warning(dialog, 'دسترسی', 'نشانی سرویس مدیر معتبر نیست'); return
+-            cfg['workspace_url'] = url.text().strip()
++            try:
++                cfg.update(sheets.save_workspace_url(url.text()))
++            except OSError as error:
++                QMessageBox.warning(dialog, 'دسترسی', f'ذخیره‌ی نشانی سرویس انجام نشد: {error}'); return
+             try:
+                 if token.text().strip(): workspace.save_access(prof['username'], token.text().strip())
+                 auth = workspace.access()
+diff --git a/autoreview/app/nbo_actor.py b/autoreview/app/nbo_actor.py
+index cc31399..a909dce 100644
+--- a/autoreview/app/nbo_actor.py
++++ b/autoreview/app/nbo_actor.py
+@@ -9,6 +9,7 @@ What the old code did and this never does:
+ Rehearsal = every step except the final click (and except 'Assign to me', which already changes NBO): proves the screen
+ flow on a real request without changing anything."""
+ import json
++import time
+ 
+ from PySide6.QtCore import QObject, QTimer, QUrl, Signal
+ 
+@@ -33,11 +34,15 @@ ERRORS = {
+     "reason_not_selected": "دلیل دقیق NBO انتخاب نشد؛ کاری انجام نشد",
+     "final_disabled": "دکمه‌ی نهایی Change Status غیرفعال بود؛ کاری انجام نشد",
+     "timeout": "NBO در زمان مناسب پاسخ نداد",
++    "load_failed": "صفحه‌ی NBO بارگذاری نشد؛ اتصال/VPN و دسترسی به NBO را بررسی کن",
+ }
+ # NBO answered the final click with an error message: its own words are shown
+ REFUSED = "NBO تغییر را نپذیرفت — پیام خود NBO: "
+ # errors after which NBO may already have changed: never retried automatically
+ AFTER_SEND = {"sent_unconfirmed", "nbo_refused"}
++SYSTEMIC_ERRORS = frozenset({
++    "login", "session_expired", "no_search", "load_failed", "script", "browser_failure", "timeout", "busy",
++})
+ 
+ _HELPERS = r"""
+ const sleep = ms => new Promise(r => setTimeout(r, ms));
+@@ -59,7 +64,8 @@ def _wrap(body: str) -> str:
+     """Runs body as an async function; the outcome is left in window.__arAct for polling (runJavaScript cannot await)."""
+     return ("(function(){window.__arAct={state:'running'};(async()=>{" + _HELPERS + body +
+             "})().then(r=>{window.__arAct=Object.assign({state:'done'},r||{});})"
+-            ".catch(e=>{window.__arAct={state:'error',error:'script',message:String(e)};});return true;})()")
++            ".catch(e=>{const sent=!!(window.__arAct&&window.__arAct.sent);"
++            "window.__arAct={state:'error',error:sent?'sent_unconfirmed':'script',message:String(e)};});return true;})()")
+ 
+ 
+ def search_js(smr: str) -> str:
+@@ -115,25 +121,38 @@ def detail_js(smr: str, action: str, reason_label: str, rehearsal: bool, allow_a
+   }}
+   if (!option) return {{error: 'option_missing'}};
+   option.click();
+-  await sleep(1500);
+   if ({reason}) {{
+-    const input = dialog.querySelector("input[id^='react-select-']");
++    let input = null;
++    for (const more = until(5000); more() && !input; ) {{
++      input = dialog.querySelector("input[id^='react-select-']");
++      if (input && (!input.isConnected || !input.getClientRects().length)) input = null;
++      if (!input) await sleep(100);
++    }}
+     if (!input) return {{error: 'reason_missing'}};
+     input.focus();
+     setValue(input, {reason});
+     let pick = null;
+     for (const more = until(6000); more() && !pick; ) {{
+-      await sleep(250);
+       pick = [...document.querySelectorAll('[id*="-option-"]')].find(o => txt(o) === {reason});
++      if (!pick) await sleep(100);
+     }}
+     if (!pick) return {{error: 'reason_not_selected'}};
+     pick.click();
+-    await sleep(800);
+-    const chosen = [...dialog.querySelectorAll('[class*="singleValue"], [class*="multiValue"]')].map(txt);
+-    if (!chosen.includes({reason})) return {{error: 'reason_not_selected'}};
++    let selected = false;
++    for (const more = until(3000); more() && !selected; ) {{
++      const chosen = [...dialog.querySelectorAll('[class*="singleValue"], [class*="multiValue"]')].map(txt);
++      selected = chosen.includes({reason});
++      if (!selected) await sleep(100);
++    }}
++    if (!selected) return {{error: 'reason_not_selected'}};
+   }}
+-  const final = buttons(dialog, 'Change Status').pop();
+-  if (!final || final.disabled) {{
++  let final = null;
++  for (const more = until(3000); more() && !final; ) {{
++    final = buttons(dialog, 'Change Status').pop();
++    if (final && final.disabled) final = null;
++    if (!final) await sleep(100);
++  }}
++  if (!final) {{
+     document.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Escape', bubbles: true}}));
+     return {{error: 'final_disabled'}};
+   }}
+@@ -152,6 +171,7 @@ def detail_js(smr: str, action: str, reason_label: str, rehearsal: bool, allow_a
+   }};
+   const before = heard();                               // only what appears AFTER the click counts
+   const said = () => heard().filter(t => !before.includes(t)).join(' | ');
++  window.__arAct.sent = true;
+   final.click();
+   let notice = '', closed = false;
+   for (const more = until(10000); more(); ) {{
+@@ -179,33 +199,65 @@ class NboActor(QObject):
+         self.page = Page(profile or nbo_profile(), self)
+         self.busy = False
+         self._load_cb = None
++        self._load_timer = QTimer(self)
++        self._load_timer.setSingleShot(True)
++        self._load_timer.timeout.connect(self._load_expired)
+         self.page.loadFinished.connect(self._loaded)
+ 
+     # ---- plumbing
+     def _loaded(self, ok):
++        self._load_timer.stop()
+         cb, self._load_cb = self._load_cb, None
+         if cb:
+-            QTimer.singleShot(1500, lambda: cb(ok))
++            QTimer.singleShot(500, lambda: cb(ok))
++
++    def _load_expired(self):
++        cb, self._load_cb = self._load_cb, None
++        self.page.setUrl(QUrl('about:blank'))
++        if cb:
++            cb(False)
+ 
+     def _load(self, url, cb):
+         self._load_cb = cb
++        self._load_timer.start(45000)
+         self.page.load(QUrl(url))
+ 
+-    def _script(self, js, cb, timeout_ms):
+-        waited = [0]
++    def _script(self, js, cb, timeout_ms, detail=False):
++        finished = [False]
++        timer = QTimer(self)
++        timer.setSingleShot(True)
++
++        def complete(state, expired=False):
++            if finished[0]:
++                return
++            finished[0] = True
++            timer.stop()
++            timer.deleteLater()
++            if expired:
++                # Cancel the old document before allowing the next request to use this page.
++                self.page.setUrl(QUrl('about:blank'))
++            if detail and state.get('error') == 'timeout':
++                state = dict(state, error='sent_unconfirmed')
++            cb(state)
+ 
+         def poll():
++            if finished[0]:
++                return
+             def got(raw):
+-                state = json.loads(raw) if isinstance(raw, str) and raw else {}
+-                if state.get("state") in ("done", "error"):
+-                    cb(state)
+-                elif waited[0] >= timeout_ms:
+-                    cb({"state": "error", "error": "timeout"})
++                if finished[0]:
++                    return
++                try:
++                    state = json.loads(raw) if isinstance(raw, str) and raw else {}
++                except (ValueError, TypeError):
++                    state = {}
++                if state.get('state') in ('done', 'error'):
++                    complete(state)
+                 else:
+-                    waited[0] += 400
+-                    QTimer.singleShot(400, poll)
+-            self.page.runJavaScript("JSON.stringify(window.__arAct||{})", 0, got)
+-        self.page.runJavaScript(js, 0, lambda _r: QTimer.singleShot(300, poll))
++                    QTimer.singleShot(250, poll)
++            self.page.runJavaScript('JSON.stringify(window.__arAct||{})', 0, got)
++        timer.timeout.connect(lambda: complete({'state': 'error', 'error': 'timeout'}, expired=True))
++        timer.start(timeout_ms)
++        self.page.runJavaScript(js, 0, lambda _r: QTimer.singleShot(100, poll))
+ 
+     # ---- the flow
+     def run(self, smr, action, reason_label, on_done, rehearsal=False):
+@@ -217,6 +269,8 @@ class NboActor(QObject):
+             return
+         self.busy = True
+         attempts = {"assign": 0}
++        started = time.monotonic()
++        stage = ["بارگذاری فهرست"]
+ 
+         def finish(result):
+             self.busy = False
+@@ -228,33 +282,40 @@ class NboActor(QObject):
+             if code == "nbo_refused":
+                 message = REFUSED + said
+             elif code == "sent_unconfirmed":
+-                message = "ثبت نهایی زده شد ولی بسته شدن پنجره دیده نشد؛ در NBO نگاه کن" + (f" (NBO: {said})" if said else "")
++                message = "نتیجهٔ مرحلهٔ تغییر وضعیت نامشخص است؛ پیش از تکرار، وضعیت را در NBO بررسی کن" + (f" (NBO: {said})" if said else "")
+             else:
+                 message = ERRORS.get(code, "" if not code else (said or code))
+-            out = {"ok": not code or partial, "sent": bool(result.get("sent")), "rehearsed": bool(result.get("rehearsed")) or partial,
++            elapsed = round(time.monotonic() - started, 1)
++            if code:
++                message += f" — مرحله: {stage[0]}؛ زمان سپری‌شده: {elapsed} ثانیه"
++            out = {"elapsed_seconds": elapsed, "stage": stage[0], "ok": not code or partial, "sent": bool(result.get("sent")), "rehearsed": bool(result.get("rehearsed")) or partial,
+                    "error": code or "", "message": message, "notice": said if not code else ""}
+             log.info("NBO %s %s for %s -> %s%s", "rehearsal" if rehearsal else "action", action, smr, code or "ok",
+                      f" | NBO said: {said}" if said else "")
++            log.info("NBO stage=%s elapsed=%.1fs outcome=%s", stage[0], elapsed, code or "ok")
+             on_done(out)
+ 
+         def on_list(ok):
+             if not ok:
+-                return finish({"error": "timeout"})
++                return finish({"error": "load_failed"})
++            stage[0] = "جستجوی درخواست"
+             self.step.emit("جستجوی درخواست در NBO…")
+             self._script(search_js(smr), on_found, 40_000)
+ 
+         def on_found(r):
+             if r.get("error"):
+                 return finish(r)
++            stage[0] = "بارگذاری جزئیات"
+             self.step.emit("باز کردن جزئیات درخواست…")
+             self._load(r["href"], lambda ok: on_detail(ok, r["href"]))
+ 
+         def on_detail(ok, href):
+             if not ok:
+-                return finish({"error": "timeout"})
++                return finish({"error": "load_failed"})
+             self.step.emit("تمرین تغییر وضعیت (بدون ثبت)…" if rehearsal else "تغییر وضعیت در NBO…")
++            stage[0] = "تغییر وضعیت / تأیید پاسخ NBO"
+             self._script(detail_js(smr, action, reason_label, rehearsal, allow_assign=not rehearsal and attempts["assign"] < 1),
+-                         lambda r: after_detail(r, href), 120_000)
++                         lambda r: after_detail(r, href), 120_000, detail=not rehearsal)
+ 
+         def after_detail(r, href):
+             if r.get("assigned"):
+diff --git a/autoreview/app/pages/common.py b/autoreview/app/pages/common.py
+index 5baf53a..b0b925d 100644
+--- a/autoreview/app/pages/common.py
++++ b/autoreview/app/pages/common.py
+@@ -8,7 +8,7 @@ from ..theme import C
+ 
+ # NBO's own status names, written the way NBO shows them (owner 2026-10-02: English where Persian is not needed)
+ NBO_STATUS_FA = {
+-    "PENDING": "Pending", "COMMERCIAL_IN_PROGRESS": "Commercial in progress", "COMMERCIAL_APPROVED": "Commercial approved",
++    "PENDING": "Pending", "COMMERCIAL_IN_PROGRESS": "Commercial in progress", "COMMERCIAL_APPROVED": "Approved",
+     "ACTIVATING": "Activating", "PENDING_ACTIVATION": "Pending activation", "COMPLETED": "Completed",
+     "REQUIRED_EDITING": "Required editing", "CANCELLED": "Cancelled", "DRAFT": "Draft",
+     "LEFT_QUEUE": "از صف بیرون رفته — وضعیت دقیق در دریافت کامل بعدی",
+diff --git a/autoreview/app/pages/connections.py b/autoreview/app/pages/connections.py
+index 2096441..8dd5281 100644
+--- a/autoreview/app/pages/connections.py
++++ b/autoreview/app/pages/connections.py
+@@ -131,18 +131,19 @@ class ConnectionsPage(ScrollPage):
+         b_test.clicked.connect(self.test_sheet)
+         row.addWidget(b_test)
+         al.addLayout(row)
+-        al.addWidget(label("در این روش، تب «Online + Instore» پر نمی‌شود؛ برای گردش کار کامل از فایل کلید استفاده کن.", "caption", wrap=True))
++        al.addWidget(label("این روش فقط برای ثبت Results است. برای اتصال گروهی و گردش کار کامل، از کادر «اتصال همکاران به شیت مشترک» استفاده کنید.",
++                           "caption", wrap=True))
+         self.alt_box.setVisible(False)
+         b_alt.toggled.connect(self.alt_box.setVisible)
+         sh.lay.addWidget(self.alt_box)
+-        self.body.addWidget(sh)
+-
+-        # ---- colleague: personal access code from the owner
++        # ---- team connection: no service-account file is needed on coworkers' PCs
+         self.access_card = Card()
+-        self.access_card.header("دسترسی همکار", "کد شخصی را از مدیر (mohammadreza.vahab) بگیر؛ فایل کلید لازم نیست")
++        self.access_card.header("اتصال همکاران به شیت مشترک",
++                                "مدیر کد سرویس را از «کاربران» کپی و یک‌بار منتشر می‌کند، سپس برای هر نفر کد شخصی می‌سازد؛ همکارها به JSON یا دسترسی مستقیم Google نیاز ندارند.")
+         self.workspace_url = QLineEdit()
+         self.workspace_url.setPlaceholderText("نشانی سرویس که مدیر داده")
+         self.workspace_url.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
++        self.workspace_url.editingFinished.connect(self._save_workspace_url)
+         self.workspace_token = QLineEdit()
+         self.workspace_token.setEchoMode(QLineEdit.EchoMode.Password)
+         self.workspace_token.setPlaceholderText("کد دسترسی شخصی")
+@@ -152,6 +153,8 @@ class ConnectionsPage(ScrollPage):
+         b_access.clicked.connect(self.connect_workspace)
+         self.access_card.lay.addWidget(b_access, 0, Qt.AlignmentFlag.AlignRight)
+         self.body.addWidget(self.access_card)
++        self.owner_sheet_card = sh
++        self.body.addWidget(sh)
+ 
+         # ---- enamad + websites
+         web = Card()
+@@ -187,9 +190,8 @@ class ConnectionsPage(ScrollPage):
+         email = cfg.get('service_account_email')
+         self.google_email.setText(f"کلید وارد شده: {email}" if email and google_credentials.available()
+                                   else "هنوز فایل کلید وارد نشده — همان فایل JSON که از Google Cloud گرفتی")
+-        direct = self._owner() or google_credentials.available()
+-        self.owner_box.setVisible(True)                          # trusted colleagues may use the owner's key file too
+-        self.access_card.setVisible(not direct)
++        self.owner_sheet_card.setVisible(self._owner())
++        self.access_card.setVisible(True)
+         self.workflow_switch.setChecked(bool(cfg.get("workflow_sync")))
+         self.workspace_url.setText(cfg.get('workspace_url',''))
+         self.editors.setText(', '.join(cfg.get('sheet_editors') or []))
+@@ -249,26 +251,38 @@ class ConnectionsPage(ScrollPage):
+         client.export(["PENDING"], done)
+ 
+     # ---- own sheet
++    def _save_workspace_url(self):
++        try:
++            sheets.save_workspace_url(self.workspace_url.text())
++        except OSError as error:
++            QMessageBox.warning(self, "اتصال همکار", f"ذخیره‌ی نشانی سرویس انجام نشد: {error}")
++
+     def connect_workspace(self):
+         url=self.workspace_url.text().strip()
+         if not sheets.valid_webapp_url(url):
+             QMessageBox.warning(self,'اتصال همکار','URL سرویس معتبر نیست'); return
+-        cfg=sheets.load(); cfg['workspace_url']=url
++        try:
++            cfg = sheets.save_workspace_url(url)
++        except OSError as error:
++            QMessageBox.warning(self, 'اتصال همکار', f'ذخیره‌ی نشانی سرویس انجام نشد: {error}'); return
+         try:
+             if self.workspace_token.text().strip():
+                 workspace.save_access(self.session.profile['username'],self.workspace_token.text().strip())
+             auth=workspace.access()
+             if not auth or auth['username'] != workspace.username(self.session.profile['username']):
+                 raise ValueError('کد دسترسی باید متعلق به همین حساب CRM باشد')
+-        except Exception:
+-            QMessageBox.warning(self,'اتصال همکار','کد دسترسی ذخیره نشد یا متعلق به این حساب نیست'); return
++        except (OSError, RuntimeError, ValueError, KeyError) as error:
++            QMessageBox.warning(self, 'اتصال همکار', f'کد دسترسی ذخیره نشد یا متعلق به این حساب نیست: {error}')
++            return
+         def done(result):
+             if result.get('version')!=4:
+                 QMessageBox.warning(self,'اتصال همکار','نسخه سرویس باید 4 باشد'); return
+             cfg.update(auth_mode='workspace',workflow_sync=True)
+             sheets.save(cfg); self.workspace_token.clear()
+             self.sheet_steps.set_steps([('فضای مشترک',True,workspace.ROLES.get(result['user']['role'],''))])
++            self.on_show()
+             self.session.sync_workflow(force=True)
++            self.shell._update_status()
+         run_bg(lambda _p:workspace.call('whoami',cfg),done,lambda e:QMessageBox.warning(self,'اتصال همکار',str(e)))
+ 
+     def import_google_key(self):
+@@ -312,24 +326,30 @@ class ConnectionsPage(ScrollPage):
+         self.sheet_steps.set_steps([('در حال وصل شدن به شیت…', None, '')])
+ 
+         def work(_p):
+-            from ...google_sheet import Client
++            from ...google_sheet import Client, GoogleSheetError
+             labels = sheets.nbo_labels()
+             with Client(cfg['own_sheet_id']) as google:
+                 info = google.ping()
+                 created = google.ensure_tabs(list(labels['edit'].values()) + list(labels['cancel'].values()))
+-                google.lock(cfg.get('sheet_editors') or ())
+-                google.tidy()
+-                google.style()
+-            return info, created
++                optional_steps = []
++                for title, operation in (("قفل شیت", lambda: google.lock(cfg.get('sheet_editors') or ())),
++                                          ("مرتب‌سازی تب‌ها", google.tidy),
++                                          ("ظاهر تب‌ها", google.style)):
++                    try:
++                        operation()
++                        optional_steps.append((title, True, "انجام شد"))
++                    except GoogleSheetError as error:
++                        optional_steps.append((title, False, str(error)))
++            return info, created, optional_steps
+ 
+         def ok(res):
+-            info, created = res
++            info, created, optional_steps = res
+             cfg2 = sheets.load()
+             cfg2.update(workflow_sync=True, auto_send=True, sheet_name=info.get('sheet', ''))   # connected = stays connected
+             sheets.save(cfg2)
+             self.sheet_steps.set_steps([("اتصال به شیت", True, f"«{info.get('sheet', '')}»"),
+                                         ("تب‌های گردش کار", True, ("اضافه شد: " + "، ".join(created)) if created else "همه آماده بودند"),
+-                                        ("قفل شیت", True, "Instore فقط ستون‌های خودش را می‌تواند پر کند"),
++                                        *optional_steps,
+                                         ("اتصال دائمی", True, "هر 30 ثانیه، تا وقتی اپ باز است")])
+             self.on_show()
+             self.session.sync_workflow(force=True)
+@@ -372,9 +392,12 @@ class ConnectionsPage(ScrollPage):
+         if self._loading:
+             return
+         cfg = sheets.load()
+-        if on and not (sheets.valid_webapp_url(cfg.get("webapp_url", "")) or
++        workspace_ready = (cfg.get('auth_mode') == 'workspace'
++                           and sheets.valid_webapp_url(cfg.get('workspace_url', ''))
++                           and workspace.access() is not None)
++        if on and not (sheets.valid_webapp_url(cfg.get("webapp_url", "")) or workspace_ready or
+                        (cfg.get('auth_mode') == 'service_account' and google_credentials.available())):
+-            QMessageBox.information(self, "اتصال شیت", "اول فایل کلید را وارد کن و «وصل شدن» را بزن.")
++            QMessageBox.information(self, "اتصال شیت", "اول اتصال همکاران یا اتصال فایل کلید را فعال کن.")
+             self.workflow_switch.blockSignals(True)
+             self.workflow_switch.setChecked(False)
+             self.workflow_switch.blockSignals(False)
+diff --git a/autoreview/app/pages/dashboard.py b/autoreview/app/pages/dashboard.py
+index e7f2a32..deffd9b 100644
+--- a/autoreview/app/pages/dashboard.py
++++ b/autoreview/app/pages/dashboard.py
+@@ -241,7 +241,9 @@ class DashboardPage(ScrollPage):
+         hello = "صبح بخیر" if 5 <= hour < 12 else ("عصر بخیر" if 12 <= hour < 18 else "شب بخیر")
+         name = (self.session.profile.get("display_name") or "").split(" ")[0]
+         self.hero_title.setText(f"{hello}{('، ' + name) if name else ''}")
+-        self.hero_sub.setText(f"{jalali.long_date()} — خلاصه‌ی صف و کار امروز")
++        freshness = (f"بازسازی گزارش ناموفق است؛ داده‌ی قبلی ممکن است قدیمی باشد: {self.session.workflow_refresh_error}"
++                     if self.session.workflow_refresh_error else self.session.workflow_sync_status)
++        self.hero_sub.setText(f"{jalali.long_date()} — خلاصه‌ی صف و کار امروز — {freshness}")
+         b = d["board"]["backlog"]
+         if b["total"]:
+             self.ring.set_value(b["percent"], "بررسی‌شده")
+@@ -249,13 +251,13 @@ class DashboardPage(ScrollPage):
+             self.work_sub.setText(f"{num(b['needs_person'])} مورد منتظر بررسی دستی یکی از همکاران است.")
+         else:
+             self.ring.set_value(0, "")
+-            self.work_text.setText("هنوز داده‌ی NBO بارگذاری نشده")
+-            self.work_sub.setText("از صفحه‌ی «بررسی»، خروجی NBO را دریافت کن تا کار امروز اینجا دیده شود.")
++            self.work_text.setText("در فیلتر فعلی بکلاگ موردی نیست" if d["board"]["nbo_meta"] else "هنوز داده‌ی NBO بارگذاری نشده")
++            self.work_sub.setText("فیلتر وضعیت، مالکیت و مسیر Online در تنظیمات بکلاگ را بررسی کن." if d["board"]["nbo_meta"] else "از صفحهٔ بررسی، خروجی NBO را دریافت کن.")
+         items = state_items(b["counts"])
+         self.bar.set_parts([(n, c) for _, n, c in items])
+         self.legend.set_items(items)
+         both = d["board"]["both"]
+-        self.both_text.setText(f"صف Online + Instore: {num(both['reviewed'])} از {num(both['total'])} بررسی شده، {num(both['left'])} مانده.")
++        self.both_text.setText(f"صف Online + Instore: {num(both['reviewed'])} از {num(both['total'])} بررسی موتور شده، {num(both['left'])} منتظر بررسی موتور.")
+         f = d["flow"]
+         order = ("WAIT_ONLINE", "MANUAL", "WAIT_INSTORE", "CONFLICT", "EDIT", "CANCEL", "READY", "DONE_APPROVED", "DONE_CLOSED")
+         items = [(workflow.STATES[k].split("؛")[0], f.get(k, 0), theme.WORKFLOW[k][0]) for k in order]
+diff --git a/autoreview/app/pages/execution_page.py b/autoreview/app/pages/execution_page.py
+index 9361bbe..996bca0 100644
+--- a/autoreview/app/pages/execution_page.py
++++ b/autoreview/app/pages/execution_page.py
+@@ -107,7 +107,7 @@ class ExecutionPage(ScrollPage):
+         actions.addStretch(1)
+         actions.addWidget(self.b_stop)
+         pick.lay.addLayout(actions)
+-        pick.lay.addWidget(label('«ثبت در NBO» وضعیت همین انتخاب را واقعاً در NBO تغییر می‌دهد و با اولین خطا می‌ایستد.', 'caption', wrap=True))
++        pick.lay.addWidget(label('«ثبت در NBO» وضعیت همین انتخاب را واقعاً در NBO تغییر می‌دهد و خطای هر پرونده ثبت می‌شود و صف ادامه می‌یابد؛ قطع ورود یا خرابی کلی صفحه صف را متوقف می‌کند.', 'caption', wrap=True))
+         self.batch_line = label("", "h3", wrap=True)
+         pick.lay.addWidget(self.batch_line)
+         self.stopped = label("", "h3", wrap=True)
+@@ -136,7 +136,8 @@ class ExecutionPage(ScrollPage):
+         auto_kinds.addStretch(1)
+         auto_card.lay.addLayout(auto_kinds)
+         auto_card.lay.addWidget(label('اجرای خودکار تمام درخواست‌های آماده از نوع‌های مجاز را دربر می‌گیرد؛ '
+-            'بازه، دسته و تعدادِ انتخاب دستی روی آن اثر ندارند. با اولین خطا متوقف می‌شود.', 'caption', wrap=True))
++            'بازه، دسته و تعدادِ انتخاب دستی روی آن اثر ندارند. خطای هر درخواست ثبت می‌شود و خرابی ورود یا NBO اجرا را متوقف می‌کند.',
++            'caption', wrap=True))
+ 
+         ready = Card()
+         b_all = button("تیک همه", None, "check")
+@@ -295,7 +296,7 @@ class ExecutionPage(ScrollPage):
+         else:
+             text = (f"{len(chosen)} درخواست ({parts}) با حساب NBO که داخل اپ وارد شده، یکی‌یکی واقعاً در NBO ثبت می‌شود.\n"
+                     f"بازه: {self.date_range.description()}\nدسته: {self.category.currentText()}\n"
+-                    "با اولین خطا می‌ایستد. شروع کنم؟")
++                    "خطای هر پرونده ثبت می‌شود و صف ادامه می‌یابد؛ قطع ورود یا خرابی کلی صفحه صف را متوقف می‌کند. شروع کنم؟")
+         if QMessageBox.question(self, "تمرین" if rehearsal else "ثبت در NBO", text) != QMessageBox.StandardButton.Yes:
+             return
+         try:
+@@ -310,7 +311,7 @@ class ExecutionPage(ScrollPage):
+     def _toggled(self, on):
+         if on and QMessageBox.question(
+                 self, "ثبت خودکار",
+-                "با روشن شدن، هر درخواست آماده از نوع‌های مجاز خودکار، مستقل از فیلتر تاریخ و دسته و تعداد، در NBO ثبت می‌شود — "
++                "با روشن شدن، هر درخواست فقط Online آماده از نوع‌های مجاز خودکار، مستقل از فیلتر تاریخ و دسته و تعداد، در NBO ثبت می‌شود — "
+                 "تا وقتی خاموشش کنی یا اپ بسته شود. روشن شود؟") != QMessageBox.StandardButton.Yes:
+             self.render()
+             return
+@@ -336,7 +337,7 @@ class ExecutionPage(ScrollPage):
+         self.switch.setChecked(live)
+         self.switch.setEnabled(owner and not self.control.batch)
+         self.switch.blockSignals(False)
+-        self.mode_text.setText("ثبت خودکار روشن است (Real): هر درخواست آماده خودش در NBO ثبت می‌شود" if live
++        self.mode_text.setText("ثبت خودکار روشن است (Real): فقط درخواست‌های فقط Online آماده در NBO ثبت می‌شوند" if live
+                                else "ثبت خودکار (Autopilot): خاموش — فقط چیزی ثبت می‌شود که خودت «ثبت در NBO» بزنی")
+         kind = self.kind.currentData()
+         allowed = set(ACTION_FA) if kind is None else {kind}
+diff --git a/autoreview/app/pages/users.py b/autoreview/app/pages/users.py
+index 43d2f37..2c0d6e8 100644
+--- a/autoreview/app/pages/users.py
++++ b/autoreview/app/pages/users.py
+@@ -93,6 +93,7 @@ class UsersPage(ScrollPage):
+         path, _ = QFileDialog.getOpenFileName(self, "فایل نصب", "", "AutoReview Setup (AutoReview-Setup-*.exe)")
+         if not path:
+             return
++        self.release = None
+         m = re.search(r"AutoReview-Setup-(\d+\.\d+\.\d+)\.exe$", path)
+         if not m:
+             QMessageBox.warning(self, "انتشار", "نام فایل باید مثل AutoReview-Setup-1.2.0.exe باشد.")
+@@ -100,7 +101,7 @@ class UsersPage(ScrollPage):
+         self.rel_file.setText("در حال محاسبه‌ی امضا…")
+ 
+         def done(sha):
+-            self.release = dict(version=m.group(1), sha256=sha)
++            self.release = dict(version=m.group(1), sha256=sha, path=path)
+             self.rel_file.setText(f"نسخه‌ی {m.group(1)} — SHA-256: {sha[:16]}…")
+         run_bg(lambda _p: updates.file_sha256(path), done, lambda e: self.rel_file.setText(str(e)))
+ 
+@@ -111,19 +112,33 @@ class UsersPage(ScrollPage):
+         link = self.rel_link.text().strip()
+         try:
+             updates.direct_url(link)
+-        except updates.UpdateError as e:
+-            QMessageBox.warning(self, "انتشار", str(e))
++        except updates.UpdateError as error:
++            QMessageBox.warning(self, "انتشار", str(error))
+             return
+         if not updates.is_newer(self.release["version"], "0.0.0"):
++            QMessageBox.warning(self, "انتشار", "شماره‌ی نسخه‌ی فایل معتبر نیست.")
+             return
+         rel, notes, cfg, who = dict(self.release), self.rel_notes.text().strip(), sheets.load(), self.session.user_label()
+ 
+         def work(_p):
+             with Client(cfg["own_sheet_id"]) as google:
+                 google.ensure_tabs()
++                releases = google.releases()
++                if any(str(item.get("version", "")).strip() == rel["version"] for item in releases):
++                    raise updates.UpdateError(f"نسخه‌ی {rel['version']} قبلاً منتشر شده؛ شماره‌ی نسخه را بالا ببر")
++                latest = updates.pick_latest(releases)
++                if latest and not updates.is_newer(rel["version"], latest["version"]):
++                    raise updates.UpdateError(
++                        f"نسخه‌ی انتخاب‌شده باید از آخرین نسخه‌ی منتشرشده ({latest['version']}) جدیدتر باشد")
+                 google.publish_release(rel["version"], link, rel["sha256"], notes, who)
+-        run_bg(work, lambda _r: toast(self.window(), f"نسخه‌ی {rel['version']} منتشر شد؛ اپ همه آن را می‌بیند"),
+-               lambda e: QMessageBox.warning(self, "انتشار", str(e)))
++
++        def complete(_result):
++            toast(self.window(), f"نسخه‌ی {rel['version']} روی Drive منتشر شد؛ همکاران با بررسی نسخه آن را می‌گیرند")
++
++        def failed(error):
++            QMessageBox.warning(self, "انتشار", str(error))
++
++        run_bg(work, complete, failed)
+ 
+     def owner(self):
+         try:
+diff --git a/autoreview/app/pages/workflow_page.py b/autoreview/app/pages/workflow_page.py
+index 3b2f281..9d6166c 100644
+--- a/autoreview/app/pages/workflow_page.py
++++ b/autoreview/app/pages/workflow_page.py
+@@ -309,15 +309,21 @@ class WorkflowPage(QWidget):
+         s = self.session
+         cfg = sheets.load()
+         pending = getattr(self, "_pending", 0)
++        refresh_error = s.workflow_refresh_error
+         if "workflow" in s.busy:
+             self.sync_pill.set(ltr("Sheet · syncing…"), C["info"], C["info_soft"])
+         elif not cfg.get("workflow_sync"):
+             self.sync_pill.set(ltr("Sheet · sync off"), C["text2"], C["surface2"])
+         elif s.workflow_sync_status.startswith("همگام‌سازی ناموفق"):
+             self.sync_pill.set(ltr("Sheet · offline"), C["danger"], C["danger_soft"])
++        elif refresh_error:
++            self.sync_pill.set(ltr("Sheet · report stale"), C["danger"], C["danger_soft"])
+         else:
+             self.sync_pill.set(ltr("Sheet · synced"), C["approve"], C["approve_soft"])
+-        self.sync_text.setText(s.workflow_sync_status + (f" — {num(pending)} پرونده منتظر ارسال" if pending else ""))
++        status = s.workflow_sync_status
++        if refresh_error:
++            status += f" — بازسازی گردش کار ناموفق؛ داده‌ی قبلی ممکن است قدیمی باشد: {refresh_error}"
++        self.sync_text.setText(status + (f" — {num(pending)} پرونده منتظر ارسال" if pending else ""))
+ 
+     def _path(self, key):
+         for k, b in self.path_chips.items():
+diff --git a/autoreview/app/session.py b/autoreview/app/session.py
+index a16befc..28aa779 100644
+--- a/autoreview/app/session.py
++++ b/autoreview/app/session.py
+@@ -76,6 +76,7 @@ class Session(QObject):
+         store.mark_interrupted_runs(db)
+         db.close()
+         self.workflow_sync_status = 'همگام‌سازی هنوز انجام نشده'
++        self.workflow_refresh_error = ''
+         self._sync_failures = 0
+         self._sync_next = 0.0
+         self.refresh_workflow()
+@@ -198,7 +199,7 @@ class Session(QObject):
+             log.info("NBO reference loaded from %s: %d rows", Path(path).name, n)
+             return n
+         self._busy("nbo", True)
+-        return run_bg(work, lambda n: self._after("nbo", on_done, n), lambda e: self._failed("nbo", on_fail, e))
++        return run_bg(work, lambda n: self._after("nbo", on_done, n, on_fail), lambda e: self._failed("nbo", on_fail, e))
+ 
+     def import_nbo_bytes(self, data: bytes, on_done=None, on_fail=None):
+         def work(progress):
+@@ -213,7 +214,7 @@ class Session(QObject):
+             log.info("NBO reference loaded from the NBO export: %d rows", n)
+             return n
+         self._busy("nbo", True)
+-        return run_bg(work, lambda n: self._after("nbo", on_done, n), lambda e: self._failed("nbo", on_fail, e))
++        return run_bg(work, lambda n: self._after("nbo", on_done, n, on_fail), lambda e: self._failed("nbo", on_fail, e))
+ 
+     def import_nbo_parts(self, parts, on_done=None, on_fail=None, only_statuses=None):
+         """Several NBO exports (one per status) -> ONE reference. All statuses fetched: replaced like a full export;
+@@ -232,7 +233,7 @@ class Session(QObject):
+             log.info("NBO reference loaded from %d per-status exports: %d rows", len(parts), n)
+             return n
+         self._busy("nbo", True)
+-        return run_bg(work, lambda n: self._after("nbo", on_done, n), lambda e: self._failed("nbo", on_fail, e))
++        return run_bg(work, lambda n: self._after("nbo", on_done, n, on_fail), lambda e: self._failed("nbo", on_fail, e))
+ 
+     def refresh_crm(self, full=False, on_done=None, on_fail=None, on_progress=None):
+         def work(progress):
+@@ -254,10 +255,10 @@ class Session(QObject):
+         self._busy("crm", True)
+         return run_bg(work, lambda r: self._after("crm", on_done, r), lambda e: self._failed("crm", on_fail, e), on_progress)
+ 
+-    def _after(self, key, cb, res):
++    def _after(self, key, cb, res, on_fail=None):
+         self._busy(key, False)
+         if key == 'nbo':
+-            self.refresh_workflow(then=lambda: cb(res) if cb else None)
++            self.refresh_workflow(then=lambda: cb(res) if cb else None, on_fail=on_fail)
+             return
+         self.data_changed.emit()
+         if cb:
+@@ -339,14 +340,19 @@ class Session(QObject):
+             if cfg.get("auto_send") and (cfg.get("webapp_url") or cfg.get('auth_mode') == 'service_account'):
+                 self.send_run_to_sheet(run_id)
+             self.sync_workflow()
+-        self.refresh_workflow(run_id, then)
+ 
+-    def refresh_workflow(self, run_id=None, then=None):
++        def refresh_failed(_error):
++            self.run_finished.emit(run_id)
++        self.refresh_workflow(run_id, then, refresh_failed)
++
++    def refresh_workflow(self, run_id=None, then=None, on_fail=None):
+         """Rebuilds the workflow queue from the NBO reference (and a finished run's verdicts) on a worker thread, then
+         data_changed and `then` on the window thread. It reads ~30,000 reference rows and writes the queue - on the window
+         thread, while a review was writing results, that froze the app ('Not Responding', owner 2026-10-02)."""
+         if sheets.load().get('auth_mode') == 'workspace' and self.profile.get('workspace_role') not in ('admin', 'online'):
++            self.workflow_refresh_error = ''
+             self.data_changed.emit()
++            self.workflow_sync_changed.emit()
+             if then:
+                 then()
+             return
+@@ -356,10 +362,19 @@ class Session(QObject):
+                 self._refresh_workflow_now(run_id)
+ 
+         def done(_r=None):
++            self.workflow_refresh_error = ''
+             self.data_changed.emit()
++            self.workflow_sync_changed.emit()
+             if then:
+                 then()
+-        return run_bg(work, done, done)
++
++        def failed(error):
++            self.workflow_refresh_error = str(error)
++            self.workflow_sync_changed.emit()
++            self.data_changed.emit()
++            if on_fail:
++                on_fail(error)
++        return run_bg(work, done, failed)
+ 
+     def _refresh_workflow_now(self, run_id=None):
+         rules = self.rules()
+diff --git a/autoreview/app/shell.py b/autoreview/app/shell.py
+index 5f04222..b27a114 100644
+--- a/autoreview/app/shell.py
++++ b/autoreview/app/shell.py
+@@ -393,9 +393,14 @@ class Shell(QMainWindow):
+             self.pill_sheet.set(ltr("Sheet · sync off"), C["warn"], C["warn_soft"])
+         elif b.workflow_sync_status.startswith("همگام‌سازی ناموفق"):
+             self.pill_sheet.set(ltr("Sheet · offline, retrying"), C["danger"], C["danger_soft"])
++        elif b.workflow_refresh_error:
++            self.pill_sheet.set(ltr("Sheet · report stale"), C["danger"], C["danger_soft"])
+         else:
+             self.pill_sheet.set(ltr("Sheet · synced"), C["approve"], C["approve_soft"])
+-        self.pill_sheet.setToolTip(b.workflow_sync_status)
++        tooltip = b.workflow_sync_status
++        if b.workflow_refresh_error:
++            tooltip += f" — بازسازی گردش کار ناموفق: {b.workflow_refresh_error}"
++        self.pill_sheet.setToolTip(tooltip)
+ 
+     def _tick(self):
+         now = datetime.now()
+diff --git a/autoreview/app/web.py b/autoreview/app/web.py
+index f3aa057..f6b41b7 100644
+--- a/autoreview/app/web.py
++++ b/autoreview/app/web.py
+@@ -9,6 +9,7 @@ pop-ups, no images, nothing kept)."""
+ import base64
+ import concurrent.futures
+ import json
++import re
+ from collections import deque
+ 
+ from PySide6.QtCore import QObject, QTimer, QUrl, Signal
+@@ -89,6 +90,8 @@ _profiles = {}
+ def _persistent(name):
+     if name not in _profiles:
+         prof = QWebEngineProfile(name, QApplication.instance())
++        if name == "nbo":
++            prof.setHttpUserAgent(_chrome_compatible_user_agent(prof.httpUserAgent()))
+         prof.setPersistentStoragePath(str(web_dir() / name))
+         prof.setCachePath(str(web_dir() / f"{name}-cache"))
+         prof.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
+@@ -97,6 +100,10 @@ def _persistent(name):
+     return _profiles[name]
+ 
+ 
++def _chrome_compatible_user_agent(user_agent):
++    return re.sub(r"\s+QtWebEngine/\S+", "", user_agent).strip()
++
++
+ def nbo_profile():
+     return _persistent("nbo")
+ 
+diff --git a/autoreview/google_sheet.py b/autoreview/google_sheet.py
+index d585764..0258600 100644
+--- a/autoreview/google_sheet.py
++++ b/autoreview/google_sheet.py
+@@ -234,6 +234,7 @@ class Client:
+         if r.status_code != 200:
+             try: message = r.json().get('error', {}).get('message', '')
+             except ValueError: message = ''
++            message = ' '.join(str(message).split())[:300]
+             if 'has not been used' in message or 'disabled' in message:
+                 raise GoogleSheetError('Google Sheets API پروژه هنوز فعال نیست')
+             if r.status_code in (403,404):
+@@ -241,7 +242,8 @@ class Client:
+             if r.status_code == 429 or r.status_code >= 500:
+                 raise GoogleSheetError('Google موقتاً پاسخ نمی‌دهد؛ بعداً دوباره تلاش می‌شود')
+             log.warning("Google Sheets %s: %s", r.status_code, message[:400])
+-            raise GoogleSheetError(f'خطای Google Sheets ({r.status_code})؛ اطلاعات اتصال یا ساختار شیت را بررسی کن')
++            detail = f': {message}' if message else ''
++            raise GoogleSheetError(f'خطای Google Sheets ({r.status_code}){detail}')
+         return r.json()
+ 
+     def metadata(self):
+@@ -418,8 +420,14 @@ class Client:
+         last = _CHECKED.get(self.sheet_id)
+         if last is None or time.monotonic() - last > 1800:
+             created = self.ensure_tabs(reason_labels)
+-            self.lock(editors)
+-            self.tidy()
++            try:
++                self.lock(editors)
++            except GoogleSheetError as e:
++                log.warning("sheet protection not updated: %s", e)
++            try:
++                self.tidy()
++            except GoogleSheetError as e:
++                log.warning("sheet tab order not updated: %s", e)
+             try:
+                 self.style()                        # the look only: a failure must never stop the data
+             except GoogleSheetError as e:
+diff --git a/autoreview/sheets.py b/autoreview/sheets.py
+index 47a842f..ab83f39 100644
+--- a/autoreview/sheets.py
++++ b/autoreview/sheets.py
+@@ -55,6 +55,14 @@ def save(cfg: dict) -> None:
+     config_file().write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+ 
+ 
++def save_workspace_url(url: str) -> dict:
++    """Persist the coworker's service URL without discarding other connection settings."""
++    cfg = load()
++    cfg["workspace_url"] = str(url or "").strip()
++    save(cfg)
++    return cfg
++
++
+ def script_code(cfg: dict = None) -> str:
+     cfg = cfg or load()
+     from .paths import scripts_dir
+diff --git a/autoreview/updates.py b/autoreview/updates.py
+index d17705b..64e5826 100644
+--- a/autoreview/updates.py
++++ b/autoreview/updates.py
+@@ -1,6 +1,6 @@
+-"""In-app updates without a server: the owner publishes a release in the 'Updates' tab of his own sheet (version, a Google
+-Drive link to AutoReview-Setup-x.y.z.exe, its SHA-256, notes). Every app checks it (the owner directly, colleagues through
+-the Google-hosted service), downloads the setup, refuses it unless the SHA-256 matches exactly, and runs it silently over
++"""In-app updates without a server: the owner uploads a release to Drive and publishes its link in the 'Updates' tab of
++his own sheet (version, URL, SHA-256, notes). Every app checks it (the owner directly, colleagues through the
++Google-hosted service), downloads the setup, refuses it unless the SHA-256 matches exactly, and runs it silently over
+ the current install - the person's data and settings live elsewhere and are never touched.
+ 
+ The SHA-256 is the trust anchor: a link that was swapped, a Drive warning page or a broken download can never be run."""
+diff --git a/autoreview/version.py b/autoreview/version.py
+index 86204ba..b4f933c 100644
+--- a/autoreview/version.py
++++ b/autoreview/version.py
+@@ -1 +1 @@
+-__version__ = "1.3.14"
++__version__ = "1.3.19"
+diff --git a/build.ps1 b/build.ps1
+index 56f1898..020c2c1 100644
+--- a/build.ps1
++++ b/build.ps1
+@@ -8,6 +8,13 @@
+ $ErrorActionPreference = 'Stop'
+ Set-Location $PSScriptRoot
+ $root = $PSScriptRoot
++# Keep unrelated tools (for example Poppler's ICU) out of PyInstaller's DLL search.
++# Qt uses the Windows ICU ABI; collecting a same-named DLL from PATH breaks startup.
++$buildPython = (python -c "import sys; print(sys.executable)").Trim()
++$buildPythonDir = Split-Path -Parent $buildPython
++$env:PATH = (@($buildPythonDir, (Join-Path $buildPythonDir 'Scripts'),
++  (Join-Path $env:SystemRoot 'System32'), $env:SystemRoot,
++  (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0')) -join ';')
+ $version = (python -c "from autoreview.version import __version__; print(__version__)").Trim()
+ New-Item -ItemType Directory -Force "$root\build", "$root\dist" | Out-Null
+ 
+diff --git a/run_app.py b/run_app.py
+index 1db588f..04a29cd 100644
+--- a/run_app.py
++++ b/run_app.py
+@@ -1,6 +1,24 @@
++import os
+ import sys
+ 
+-from autoreview.app.main import main
++
++def _ensure_gil_enabled_python():
++    gil_enabled = getattr(sys, "_is_gil_enabled", None)
++    if gil_enabled is None or gil_enabled():
++        return
++
++    regular_python = os.path.join(os.path.dirname(sys.executable), "python.exe")
++    if not os.path.isfile(regular_python):
++        raise SystemExit(
++            "AutoReview needs standard (GIL-enabled) Python 3.10+; install it and run run_app.py with that interpreter."
++        )
++    os.execv(regular_python, [regular_python, *sys.argv])
++
++
++def main():
++    _ensure_gil_enabled_python()
++    from autoreview.app.main import main as app_main
++    return app_main()
+ 
+ if __name__ == "__main__":
+     sys.exit(main())
+diff --git a/tests/fake_nbo/detail.html b/tests/fake_nbo/detail.html
+index 7463141..c850d15 100644
+--- a/tests/fake_nbo/detail.html
++++ b/tests/fake_nbo/detail.html
+@@ -12,18 +12,29 @@ document.getElementById('main').onclick = () => {
+   document.getElementById('host').innerHTML = `<div role="dialog">
+     <label><span class="label-text">APPROVE</span></label><label><span class="label-text">EDIT NEEDED</span></label>
+     <label><span class="label-text">CANCEL</span></label>
+-    <div><input id="react-select-3-input"><div id="menu"></div><div id="chosen"></div></div>
++    <div id="reason-host"></div><div id="menu"></div><div id="chosen"></div>
+     <button id="final" disabled>Change Status</button></div>`;
+-  let option = null, reason = null;
++  let option = null, reason = null, selected = false;
+   const fin = document.getElementById('final');
+-  const check = () => { fin.disabled = !(option === 'APPROVE' || (option && reason)); };
+-  document.querySelectorAll('.label-text').forEach(l => l.onclick = () => { option = l.innerText; check(); });
+-  document.getElementById('react-select-3-input').addEventListener('input', e => {
++  const check = () => { fin.disabled = !(option === 'APPROVE' || (option && selected)); };
++  document.querySelectorAll('.label-text').forEach(l => l.onclick = () => {
++    option = l.innerText;
++    check();
++    if (option !== 'APPROVE') setTimeout(() => {
++      document.getElementById('reason-host').innerHTML = '<input id="react-select-3-input">';
++      document.getElementById('react-select-3-input').addEventListener('input', e => {
+     document.getElementById('menu').innerHTML = reasons.filter(r => r.includes(e.target.value))
+       .map((r, i) => `<div id="react-select-3-option-${i}">${r}</div>`).join('');
+     document.querySelectorAll('#menu > div').forEach(o => o.onclick = () => {
+-      reason = o.innerText; document.getElementById('chosen').innerHTML = `<div class="x-singleValue">${reason}</div>`; check();
++      reason = o.innerText;
++      setTimeout(() => {
++        selected = true;
++        document.getElementById('chosen').innerHTML = `<div class="x-singleValue">${reason}</div>`;
++        check();
++      }, 125);
+     });
++      });
++    }, 125);
+   });
+   fin.onclick = () => { localStorage.setItem('result', option + '|' + (reason || '')); document.getElementById('host').innerHTML = ''; };
+ };
+diff --git a/tests/fake_nbo/list.html b/tests/fake_nbo/list.html
+index 2690908..f518de6 100644
+--- a/tests/fake_nbo/list.html
++++ b/tests/fake_nbo/list.html
+@@ -1,5 +1,6 @@
+ <!doctype html><meta charset="utf-8"><title>registrations</title>
+ <script>localStorage.setItem('token', 'test-token');</script>
++<script>if (new URLSearchParams(location.search).has('preassigned')) localStorage.setItem('assigned', '1');</script>
+ <input placeholder="Request ID"><button id="s">Search</button>
+ <table id="t"></table>
+ <script>
+diff --git a/tests/test_execution_ui.py b/tests/test_execution_ui.py
+index 5d91ecb..6f2c5cf 100644
+--- a/tests/test_execution_ui.py
++++ b/tests/test_execution_ui.py
+@@ -1,4 +1,7 @@
+ import os
++
++import pytest
++
+ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+ 
+ from PySide6.QtCore import QObject, Signal
+@@ -101,13 +104,13 @@ def test_rehearse_all_goes_through_every_ready_request_and_sums_up(monkeypatch):
+     control.stop()
+ 
+ 
+-def test_a_real_batch_stops_at_the_first_failure_and_is_the_owners(monkeypatch):
++def test_a_real_batch_continues_after_failure_and_is_the_owners(monkeypatch):
+     """Owner 2026-10-03: "10 real ones" - a counted batch, not all 800 and not one at a time."""
+     from PySide6.QtCore import QEventLoop, QTimer
+     QApplication.instance() or QApplication([])
+     control = ExecutionControl(Session())
+     cases = [dict(smr=f'SMR-{i}', revision=1) for i in range(4)]
+-    answers = iter([dict(ok=True, error='', sent=True), dict(ok=False, error='not_found', message='نبود')])
++    answers = iter([dict(ok=True, error='', sent=True), dict(ok=False, error='not_found', message='نبود'), dict(ok=True, error='', sent=True), dict(ok=True, error='', sent=True)])
+     seen = []
+     monkeypatch.setattr(control, 'apply', lambda case, done, rehearsal=False, parent=None: (seen.append((case['smr'], rehearsal)),
+                                                                                              done(next(answers))))
+@@ -124,8 +127,8 @@ def test_a_real_batch_stops_at_the_first_failure_and_is_the_owners(monkeypatch):
+     control.notice.connect(lambda _t: loop.quit())
+     QTimer.singleShot(20_000, loop.quit)
+     loop.exec()
+-    assert seen == [('SMR-0', False), ('SMR-1', False)] and control.batch is None      # the rest was not sent
+-    assert 'متوقف شد' in control.last_batch and '1 از 4' in control.last_batch.replace('۱', '1').replace('۴', '4')
++    assert seen == [('SMR-0', False), ('SMR-1', False), ('SMR-2', False), ('SMR-3', False)] and control.batch is None
++    assert '\u062a\u0645\u0627\u0645 \u0634\u062f' in control.last_batch and 'SMR-1' in control.last_batch and ('3 \u0627\u0632 4' in control.last_batch.replace('\u06f3','3').replace('\u06f4','4'))
+     control.stop()
+ 
+ 
+@@ -185,3 +188,88 @@ def test_filter_selection_never_silently_broadens(monkeypatch):
+     assert page._days() is None and not page.b_apply.isEnabled()
+     control.stop()
+     page.close()
++
++
++def test_batch_continues_after_individual_request_failure(monkeypatch):
++    from PySide6.QtCore import QEventLoop, QTimer
++    QApplication.instance() or QApplication([])
++    control = ExecutionControl(Session())
++    cases = [dict(smr=f'SMR-{i}', revision=1) for i in range(3)]
++    seen = []
++    answers = iter([dict(ok=False, error='not_found', message='درخواست پیدا نشد'),
++                    dict(ok=False, error='sent_unconfirmed', message='check NBO'),
++                    dict(ok=True, sent=True)])
++    monkeypatch.setattr(control, 'apply', lambda case, done, rehearsal=False: (seen.append(case['smr']), done(next(answers))))
++    assert control.start_batch(cases, rehearsal=False) == 3
++    loop = QEventLoop()
++    control.notice.connect(lambda _t: loop.quit())
++    QTimer.singleShot(10000, loop.quit)
++    loop.exec()
++    assert seen == ['SMR-0', 'SMR-1', 'SMR-2'] and control.batch is None
++    assert 'تمام شد' in control.last_batch
++    control.stop()
++
++
++@pytest.mark.parametrize('error', ['load_failed', 'script', 'login', 'timeout'])
++def test_real_batch_stops_on_systemic_nbo_errors(monkeypatch, error):
++    from PySide6.QtCore import QEventLoop, QTimer
++    QApplication.instance() or QApplication([])
++    control = ExecutionControl(Session())
++    cases = [dict(smr=f'SMR-{i}', revision=1) for i in range(2)]
++    seen = []
++
++    def apply(case, done, rehearsal=False, parent=None):
++        seen.append(case['smr'])
++        done(dict(ok=False, error=error, message='خرابی سیستمی NBO'))
++
++    monkeypatch.setattr(control, 'apply', apply)
++    assert control.start_batch(cases, rehearsal=False) == 2
++    loop = QEventLoop()
++    control.notice.connect(lambda _t: loop.quit())
++    QTimer.singleShot(10_000, loop.quit)
++    loop.exec()
++    assert seen == ['SMR-0'] and control.batch is None
++    assert 'متوقف شد' in control.last_batch
++    control.stop()
++
++
++def test_autopilot_only_takes_online_cases(monkeypatch):
++    QApplication.instance() or QApplication([])
++    control = ExecutionControl(Session())
++    control.mode.live = True
++    seen = []
++    monkeypatch.setattr(control, 'ready_cases', lambda: [
++        dict(smr='SMR-BOTH', channel='both'), dict(smr='SMR-UNKNOWN'), dict(smr='SMR-ONLINE', channel='online')])
++    monkeypatch.setattr(control, 'apply', lambda case, done: seen.append(case['smr']))
++    control._auto_tick()
++    assert seen == ['SMR-ONLINE']
++    monkeypatch.setattr(control, 'ready_cases', lambda: [dict(smr='SMR-BOTH', channel='both')])
++    control._auto_tick()
++    assert seen == ['SMR-ONLINE']
++    control.stop()
++
++
++@pytest.mark.parametrize('error', ['load_failed', 'script', 'login', 'timeout'])
++def test_autopilot_stops_after_systemic_nbo_error(monkeypatch, error):
++    QApplication.instance() or QApplication([])
++    control = ExecutionControl(Session())
++    control.mode.live = True
++    monkeypatch.setattr(control, 'ready_cases', lambda: [dict(smr='SMR-ONLINE', channel='online')])
++    monkeypatch.setattr(control, 'apply', lambda case, done: done(
++        dict(ok=False, error=error, message='خرابی سیستمی NBO')))
++    control._auto_tick()
++    assert not control.mode.live
++    assert 'خرابی سیستمی NBO' in control.last_stop
++    control.stop()
++
++
++def test_autopilot_keeps_running_after_request_level_error(monkeypatch):
++    QApplication.instance() or QApplication([])
++    control = ExecutionControl(Session())
++    control.mode.live = True
++    monkeypatch.setattr(control, 'ready_cases', lambda: [dict(smr='SMR-ONLINE', channel='online')])
++    monkeypatch.setattr(control, 'apply', lambda case, done: done(
++        dict(ok=False, error='not_found', message='درخواست پیدا نشد')))
++    control._auto_tick()
++    assert control.mode.live
++    control.stop()
+diff --git a/tests/test_nbo_actor.py b/tests/test_nbo_actor.py
+index 5cf260a..7aed0fd 100644
+--- a/tests/test_nbo_actor.py
++++ b/tests/test_nbo_actor.py
+@@ -4,21 +4,34 @@ import functools
+ import http.server
+ import os
+ import threading
++import time
+ from pathlib import Path
+ 
+ import pytest
+ 
+ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
++_flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
++if "--disable-background-timer-throttling" not in _flags.split():
++    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (_flags + " --disable-background-timer-throttling").strip()
+ from PySide6.QtCore import QEventLoop, QTimer  # noqa: E402
+ from PySide6.QtWebEngineCore import QWebEngineProfile  # noqa: E402
+ from PySide6.QtWidgets import QApplication  # noqa: E402
+ 
+ from autoreview.app.nbo_actor import NboActor  # noqa: E402
++from autoreview.app.web import _chrome_compatible_user_agent  # noqa: E402
+ 
+ FAKE = Path(__file__).resolve().parent / "fake_nbo"
+ KEEP = []          # Qt objects must die on the window thread, never in a garbage-collection run on the server's thread
+ 
+ 
++def test_nbo_user_agent_keeps_chromium_version_without_qt_marker():
++    user_agent = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
++                  "(KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 QtWebEngine/6.11.0")
++    normalized = _chrome_compatible_user_agent(user_agent)
++    assert "Chrome/134.0.0.0" in normalized
++    assert "QtWebEngine" not in normalized
++
++
+ @pytest.fixture(scope="module")
+ def server():
+     class Quiet(http.server.SimpleHTTPRequestHandler):
+@@ -68,9 +81,20 @@ def test_edit_picks_the_exact_nbo_reason(actor):
+     assert stored(a, "result") == "EDIT NEEDED|سایت‌مپ وجود ندارد"
+ 
+ 
++def test_reason_readiness_is_polled_without_fixed_waits(actor):
++    a, _ = actor
++    a.list_url = a.list_url + "?preassigned=1"
++    started = time.monotonic()
++    res = run(a, "SMR-1001", "EDIT", "سایت‌مپ وجود ندارد")
++    elapsed = time.monotonic() - started
++    assert res["ok"] and res["sent"], res
++    assert stored(a, "result") == "EDIT NEEDED|سایت‌مپ وجود ندارد"
++    assert elapsed < 6, f"delayed fake NBO readiness took {elapsed:.2f}s"
++
++
+ def test_a_reason_nbo_does_not_offer_stops_before_anything_is_sent(actor):
+     a, _ = actor
+-    res = run(a, "SMR-1001", "CANCEL", "دلیلی که در فهرست NBO نیست")
++    res = run(a, "SMR-1001", "CANCEL", "وجود ندارد")
+     assert not res["ok"] and res["error"] == "reason_not_selected", res
+     assert not stored(a, "result")
+ 
+diff --git a/tests/test_sheets.py b/tests/test_sheets.py
+index 310bf9f..c732d83 100644
+--- a/tests/test_sheets.py
++++ b/tests/test_sheets.py
+@@ -25,6 +25,21 @@ def test_only_real_web_app_links_are_accepted():
+         assert not sheets.valid_webapp_url(bad)
+ 
+ 
++def test_workspace_url_is_saved_without_losing_other_connection_settings():
++    cfg = sheets.load()
++    cfg.update(auth_mode="workspace", own_sheet_id="sheet-id", workflow_sync=True)
++    sheets.save(cfg)
++
++    saved = sheets.save_workspace_url(f" {URL} ")
++
++    assert saved["workspace_url"] == URL
++    reloaded = sheets.load()
++    assert reloaded["workspace_url"] == URL
++    assert reloaded["auth_mode"] == "workspace"
++    assert reloaded["own_sheet_id"] == "sheet-id"
++    assert reloaded["workflow_sync"] is True
++
++
+ def test_ping_and_send_follow_google_redirect_and_parse_json():
+     sent = []
+ 
+@@ -85,19 +100,19 @@ def test_the_teams_shared_sheets_are_unreachable_from_the_app():
+         assert "openById" not in text
+     assert not any(hasattr(sheets, n) for n in ("oi_write", "oi_describe", "oi_rows"))
+     assert "oi" not in sheets.load()
+-
+-
+-def test_saving_one_settings_page_keeps_what_other_pages_saved():
+-    import os
+-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+-    from PySide6.QtWidgets import QApplication
+-    from autoreview import settings
+-    from autoreview.app.pages.settings_page import SettingsPage
+-    QApplication.instance() or QApplication([])
+-    settings.save_user({"rules": {"appearance.theme": "dark", "execution.auto_actions": ["APPROVE", "EDIT"]}})
+-    page = SettingsPage(type("S", (), {"refresh_workflow": lambda self: None,
+-                                        "data_changed": type("Sig", (), {"emit": lambda self: None})()})(), None)
+-    page.on_show()
+-    page.save()
+-    rules = settings.load_user()["rules"]
+-    assert rules["appearance.theme"] == "dark" and rules["execution.auto_actions"] == ["APPROVE", "EDIT"]
++
++
++def test_saving_one_settings_page_keeps_what_other_pages_saved():
++    import os
++    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
++    from PySide6.QtWidgets import QApplication
++    from autoreview import settings
++    from autoreview.app.pages.settings_page import SettingsPage
++    QApplication.instance() or QApplication([])
++    settings.save_user({"rules": {"appearance.theme": "dark", "execution.auto_actions": ["APPROVE", "EDIT"]}})
++    page = SettingsPage(type("S", (), {"refresh_workflow": lambda self: None,
++                                        "data_changed": type("Sig", (), {"emit": lambda self: None})()})(), None)
++    page.on_show()
++    page.save()
++    rules = settings.load_user()["rules"]
++    assert rules["appearance.theme"] == "dark" and rules["execution.auto_actions"] == ["APPROVE", "EDIT"]
