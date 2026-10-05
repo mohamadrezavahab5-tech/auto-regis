@@ -71,8 +71,8 @@ def nbo_rows(db, limit=400):
     first real send, so the test runs made before going live never show up."""
     got = db.execute('SELECT value FROM workflow_meta WHERE key=?', (POINTER,)).fetchone()
     if got is None:
-        first = db.execute("SELECT MIN(id) FROM audit WHERE stage = 'NBO_SENT'").fetchone()[0]
-        last = (first - 1) if first else (db.execute('SELECT COALESCE(MAX(id), 0) FROM audit').fetchone()[0])
+        first = db.execute("SELECT MIN(id) FROM audit WHERE stage IN ('NBO_SENT', 'NBO_VERIFIED', 'NBO_SENDING')").fetchone()[0]
+        last = (first - 1) if first is not None else 0
     else:
         last = int(got[0])
     marks = ','.join('?' * len(NBO_STAGES))

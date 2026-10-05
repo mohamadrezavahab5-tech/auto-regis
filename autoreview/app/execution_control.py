@@ -346,7 +346,7 @@ class ExecutionControl(QObject):
     def _auto_tick(self):
         if not self.mode.live or self.actor.busy or self._claiming or self.batch:
             return
-        todo = self.ready_cases()
+        todo = [c for c in self.ready_cases() if c.get('channel') == 'online']
         if not todo:
             return
         case = todo[0]

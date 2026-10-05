@@ -72,6 +72,20 @@ def sync_direct(db, google):
             'rejected': sum(r['status'] == 'rejected' for r in receipts)}
 
 
+def _flush_human_logs(db, cfg):
+    try:
+        from . import sheet_log, google_sheet
+        n_rows, last = sheet_log.nbo_rows(db)
+        if n_rows:
+            sheet_id = cfg.get('own_sheet_id') or cfg.get('sheet_id')
+            if sheet_id:
+                google = google_sheet.Client(sheet_id)
+                google.ensure_tabs_once()
+                google.append_log(n_rows)
+                sheet_log.remember(db, last)
+    except Exception as e:
+        log.warning("could not append to human log tabs: %s", e)
+
 def sync_workspace(db, cfg):
     """All devices read the same cloud authority. Install a complete generation atomically."""
     import hashlib
@@ -81,6 +95,7 @@ def sync_workspace(db, cfg):
     rejected_count = 0
     execution.ensure(db, recover=False)
     workspace.flush_execution(db, cfg)
+    _flush_human_logs(db, cfg)
     # First direct sync republishes local state without deleting any history.
     if not db.execute("SELECT 1 FROM workflow_meta WHERE key='workspace_v6_initialized'").fetchone():
         with db:
@@ -220,6 +235,7 @@ def sync_workspace(db, cfg):
             response = workspace.call('read', cfg, offset=offset, generation=generation,
                 known_generation=int(known[0]) if known and not sent_cases_any and offset == 0 else None)
             if response.get('unchanged'):
+                _flush_human_logs(db, cfg)
                 return {'remaining': workflow.pending_count(db), 'commands': 0, 'rejected': rejected_count}
             if response.get('restart'):
                 break

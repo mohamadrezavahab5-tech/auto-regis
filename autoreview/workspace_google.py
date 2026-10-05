@@ -149,23 +149,24 @@ class Backend:
 
     def metadata(self):
         data = self.client.request('GET', params={'fields': 'spreadsheetId,sheets.properties'})
-        if data.get('spreadsheetId') != EXPECTED_SHEET_ID: raise WorkspaceError('SHEET_NOT_FOUND')
+        if data.get('spreadsheetId') != self.sheet_id: raise WorkspaceError('SHEET_NOT_FOUND')
         self.props = {s['properties']['title']: s['properties'] for s in data.get('sheets', [])}
 
     def initialize(self):
         """All new tabs appear in one transaction. Concurrent initialization is safe."""
         self.metadata()
-        existing = set(HEADERS) & self.props.keys()
-        if existing and existing != set(HEADERS): raise WorkspaceError('SHEET_SCHEMA_ERROR')
-        if existing: return
+        missing = [name for name in HEADERS if name not in self.props]
+        if not missing:
+            return
         legacy = [(name, header) for name, header in [('Workspace state', STATE_HEAD),
                   ('Workspace execution', EXEC_HEAD)] if name in self.props]
         if legacy:
             for (name, header), values in zip(legacy, self.ranges([f"'{n}'!1:1" for n, _ in legacy])):
                 if not values or values[0][:len(header)] != header: raise WorkspaceError('SHEET_SCHEMA_ERROR')
-        ids = random.sample(range(100000, 2000000000), len(HEADERS))
+        ids = random.sample(range(100000, 2000000000), len(missing))
         requests = []
-        for (name, header), sid in zip(HEADERS.items(), ids):
+        for name, sid in zip(missing, ids):
+            header = HEADERS[name]
             original = {BASE: 'Workspace state', EXEC_BASE: 'Workspace execution'}.get(name)
             if original in self.props:
                 requests.append({'duplicateSheet': {'sourceSheetId': self.props[original]['sheetId'], 'newSheetId': sid, 'newSheetName': name}})

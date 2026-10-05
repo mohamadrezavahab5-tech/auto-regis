@@ -128,9 +128,9 @@ class Session(QObject):
 
     def _queues(self, db):
         """-> (online backlog, skipped, Online + Instore) for the current NBO reference."""
-        if sheets.load().get('auth_mode') == 'workspace':
-            return workspace.shared_queues(db)
         def build():
+            if sheets.load().get('auth_mode') == 'workspace':
+                return workspace.shared_queues(db)
             rules = self.rules()
             backlog, skipped = reference.backlog_rows(db, rules)
             return backlog, skipped, reference.both_channel_rows(db, rules)
