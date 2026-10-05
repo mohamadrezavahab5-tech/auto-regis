@@ -46,7 +46,7 @@ class ExecutionControl(QObject):
         self.timer.timeout.connect(self.refresh)
         self.timer.start()
         self.auto_timer = QTimer(self)
-        self.auto_timer.setInterval(45_000)
+        self.auto_timer.setInterval(5_000)
         self.auto_timer.timeout.connect(self._auto_tick)
         self.auto_timer.start()
         session.data_changed.connect(self.refresh)
@@ -64,7 +64,7 @@ class ExecutionControl(QObject):
 
     @staticmethod
     def auto_actions():
-        return set(settings.load_rules().get('execution', {}).get('auto_actions', ['APPROVE']))
+        return {'APPROVE', 'EDIT', 'CANCEL'}
 
     # ---- mode
     def set_live(self, enabled):
@@ -263,8 +263,9 @@ class ExecutionControl(QObject):
     def start_batch(self, cases, rehearsal):
         """These requests one after another: a rehearsal (nothing changes in NBO), or for real - request errors are
         recorded and systemic NBO errors stop the queue. -> how many are queued, 0, or 'busy'."""
-        if self.batch or self.actor.busy or self._claiming or self.mode.live:
+        if self.batch or self.actor.busy or self._claiming:
             return 'busy'
+        if self.mode.live: self.set_live(False)
         # Who may send by hand may send a chosen set too, with their own NBO account (owner 2026-10-03: "I gave someone
         # Online access - reviews work but sending is refused"). Only the automatic mode stays the owner's.
         if not rehearsal and not self.may_apply():
@@ -345,7 +346,7 @@ class ExecutionControl(QObject):
     def _auto_tick(self):
         if not self.mode.live or self.actor.busy or self._claiming or self.batch:
             return
-        todo = [c for c in self.ready_cases() if c.get('channel') == 'online']
+        todo = self.ready_cases()
         if not todo:
             return
         case = todo[0]
