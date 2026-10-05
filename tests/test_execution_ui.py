@@ -1,4 +1,7 @@
 import os
+
+import pytest
+
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QObject, Signal
@@ -8,6 +11,12 @@ from autoreview import store, workflow
 from autoreview.paths import user_dir
 from autoreview.app.execution_control import ExecutionControl
 from autoreview.app.pages.execution_page import ExecutionPage
+
+
+@pytest.fixture(autouse=True)
+def authenticated_crm(monkeypatch):
+    from autoreview import crm_sync
+    monkeypatch.setattr(crm_sync, '_authenticated_identity', {'username': 'SNAPP\\mohammadreza.vahab', 'user_id': 'test'})
 
 
 class Session(QObject):
@@ -101,13 +110,13 @@ def test_rehearse_all_goes_through_every_ready_request_and_sums_up(monkeypatch):
     control.stop()
 
 
-def test_a_real_batch_stops_at_the_first_failure_and_is_the_owners(monkeypatch):
+def test_a_real_batch_continues_after_failure_and_is_the_owners(monkeypatch):
     """Owner 2026-10-03: "10 real ones" - a counted batch, not all 800 and not one at a time."""
     from PySide6.QtCore import QEventLoop, QTimer
     QApplication.instance() or QApplication([])
     control = ExecutionControl(Session())
     cases = [dict(smr=f'SMR-{i}', revision=1) for i in range(4)]
-    answers = iter([dict(ok=True, error='', sent=True), dict(ok=False, error='not_found', message='نبود')])
+    answers = iter([dict(ok=True, error='', sent=True), dict(ok=False, error='not_found', message='نبود'), dict(ok=True, error='', sent=True), dict(ok=True, error='', sent=True)])
     seen = []
     monkeypatch.setattr(control, 'apply', lambda case, done, rehearsal=False, parent=None: (seen.append((case['smr'], rehearsal)),
                                                                                              done(next(answers))))
@@ -124,8 +133,8 @@ def test_a_real_batch_stops_at_the_first_failure_and_is_the_owners(monkeypatch):
     control.notice.connect(lambda _t: loop.quit())
     QTimer.singleShot(20_000, loop.quit)
     loop.exec()
-    assert seen == [('SMR-0', False), ('SMR-1', False)] and control.batch is None      # the rest was not sent
-    assert 'متوقف شد' in control.last_batch and '1 از 4' in control.last_batch.replace('۱', '1').replace('۴', '4')
+    assert seen == [('SMR-0', False), ('SMR-1', False), ('SMR-2', False), ('SMR-3', False)] and control.batch is None
+    assert '\u062a\u0645\u0627\u0645 \u0634\u062f' in control.last_batch and 'SMR-1' in control.last_batch and ('3 \u0627\u0632 4' in control.last_batch.replace('\u06f3','3').replace('\u06f4','4'))
     control.stop()
 
 
@@ -185,3 +194,88 @@ def test_filter_selection_never_silently_broadens(monkeypatch):
     assert page._days() is None and not page.b_apply.isEnabled()
     control.stop()
     page.close()
+
+
+def test_batch_continues_after_individual_request_failure(monkeypatch):
+    from PySide6.QtCore import QEventLoop, QTimer
+    QApplication.instance() or QApplication([])
+    control = ExecutionControl(Session())
+    cases = [dict(smr=f'SMR-{i}', revision=1) for i in range(3)]
+    seen = []
+    answers = iter([dict(ok=False, error='not_found', message='درخواست پیدا نشد'),
+                    dict(ok=False, error='sent_unconfirmed', message='check NBO'),
+                    dict(ok=True, sent=True)])
+    monkeypatch.setattr(control, 'apply', lambda case, done, rehearsal=False: (seen.append(case['smr']), done(next(answers))))
+    assert control.start_batch(cases, rehearsal=False) == 3
+    loop = QEventLoop()
+    control.notice.connect(lambda _t: loop.quit())
+    QTimer.singleShot(10000, loop.quit)
+    loop.exec()
+    assert seen == ['SMR-0', 'SMR-1', 'SMR-2'] and control.batch is None
+    assert 'تمام شد' in control.last_batch
+    control.stop()
+
+
+@pytest.mark.parametrize('error', ['load_failed', 'script', 'login', 'timeout'])
+def test_real_batch_stops_on_systemic_nbo_errors(monkeypatch, error):
+    from PySide6.QtCore import QEventLoop, QTimer
+    QApplication.instance() or QApplication([])
+    control = ExecutionControl(Session())
+    cases = [dict(smr=f'SMR-{i}', revision=1) for i in range(2)]
+    seen = []
+
+    def apply(case, done, rehearsal=False, parent=None):
+        seen.append(case['smr'])
+        done(dict(ok=False, error=error, message='خرابی سیستمی NBO'))
+
+    monkeypatch.setattr(control, 'apply', apply)
+    assert control.start_batch(cases, rehearsal=False) == 2
+    loop = QEventLoop()
+    control.notice.connect(lambda _t: loop.quit())
+    QTimer.singleShot(10_000, loop.quit)
+    loop.exec()
+    assert seen == ['SMR-0'] and control.batch is None
+    assert 'متوقف شد' in control.last_batch
+    control.stop()
+
+
+def test_autopilot_only_takes_online_cases(monkeypatch):
+    QApplication.instance() or QApplication([])
+    control = ExecutionControl(Session())
+    control.mode.live = True
+    seen = []
+    monkeypatch.setattr(control, 'ready_cases', lambda: [
+        dict(smr='SMR-BOTH', channel='both'), dict(smr='SMR-UNKNOWN'), dict(smr='SMR-ONLINE', channel='online')])
+    monkeypatch.setattr(control, 'apply', lambda case, done: seen.append(case['smr']))
+    control._auto_tick()
+    assert seen == ['SMR-ONLINE']
+    monkeypatch.setattr(control, 'ready_cases', lambda: [dict(smr='SMR-BOTH', channel='both')])
+    control._auto_tick()
+    assert seen == ['SMR-ONLINE']
+    control.stop()
+
+
+@pytest.mark.parametrize('error', ['load_failed', 'script', 'login', 'timeout'])
+def test_autopilot_stops_after_systemic_nbo_error(monkeypatch, error):
+    QApplication.instance() or QApplication([])
+    control = ExecutionControl(Session())
+    control.mode.live = True
+    monkeypatch.setattr(control, 'ready_cases', lambda: [dict(smr='SMR-ONLINE', channel='online')])
+    monkeypatch.setattr(control, 'apply', lambda case, done: done(
+        dict(ok=False, error=error, message='خرابی سیستمی NBO')))
+    control._auto_tick()
+    assert not control.mode.live
+    assert 'خرابی سیستمی NBO' in control.last_stop
+    control.stop()
+
+
+def test_autopilot_keeps_running_after_request_level_error(monkeypatch):
+    QApplication.instance() or QApplication([])
+    control = ExecutionControl(Session())
+    control.mode.live = True
+    monkeypatch.setattr(control, 'ready_cases', lambda: [dict(smr='SMR-ONLINE', channel='online')])
+    monkeypatch.setattr(control, 'apply', lambda case, done: done(
+        dict(ok=False, error='not_found', message='درخواست پیدا نشد')))
+    control._auto_tick()
+    assert control.mode.live
+    control.stop()

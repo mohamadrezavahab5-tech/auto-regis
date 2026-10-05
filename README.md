@@ -15,6 +15,8 @@ Standalone project (NOT part of PayPilot). Goal: rebuild the responsible person'
 
 ## Running the app (Windows)
 - `dist\AutoReview\AutoReview.exe` (build: `powershell -File build.ps1`). `config\` and `scripts\` sit next to the exe and stay editable; results go to `data\`.
-- Pick the NBO export -> (CRM: log in once and press "automatic", or use a CRM file) -> Start. Runs in the background, no browser windows.
-- DRY-RUN: nothing is written to NBO or any sheet until `config\execution.json` is opened by the owner. Results: table + "Excel output" (Results / Manual queue / Summary).
-- CRM automatic read needs `config\crm_api.json` filled once (entity + 3 field names) - see docs.
+- When running from source, use a standard GIL-enabled Python interpreter; `run_app.py` redirects the free-threaded interpreter to the regular `python.exe` alongside it when available.
+- Review and suggestions do not change NBO. A status change is sent only after an explicit action in the app; it is verified against the latest NBO data first.
+- With workflow sync enabled, each installation syncs its local queue with the owner's sheet about every 10 seconds. The dashboard shows the latest sync time and reports stale local data or sync failures instead of treating them as current.
+- For a team, each PC imports the original Service Account JSON in Connections and signs into CRM. DPAPI stores the key locally; existing keys are reused. No Apps Script URL or deployment is required. See [direct Workspace setup and concurrency](docs/direct-workspace.md).
+- To publish an update, the owner selects the installer in «کاربران», uploads it to their own Google Drive, and sets sharing to `Anyone with the link — Viewer`. Paste the file link into the app to record the release URL and SHA-256 in the `Updates` tab. Installed apps check for updates after startup and every six hours; the downloaded installer is verified before the user confirms installation.

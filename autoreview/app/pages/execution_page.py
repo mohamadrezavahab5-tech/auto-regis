@@ -107,7 +107,7 @@ class ExecutionPage(ScrollPage):
         actions.addStretch(1)
         actions.addWidget(self.b_stop)
         pick.lay.addLayout(actions)
-        pick.lay.addWidget(label('«ثبت در NBO» وضعیت همین انتخاب را واقعاً در NBO تغییر می‌دهد و با اولین خطا می‌ایستد.', 'caption', wrap=True))
+        pick.lay.addWidget(label('«ثبت در NBO» وضعیت همین انتخاب را واقعاً در NBO تغییر می‌دهد و خطای هر پرونده ثبت می‌شود و صف ادامه می‌یابد؛ قطع ورود یا خرابی کلی صفحه صف را متوقف می‌کند.', 'caption', wrap=True))
         self.batch_line = label("", "h3", wrap=True)
         pick.lay.addWidget(self.batch_line)
         self.stopped = label("", "h3", wrap=True)
@@ -136,7 +136,8 @@ class ExecutionPage(ScrollPage):
         auto_kinds.addStretch(1)
         auto_card.lay.addLayout(auto_kinds)
         auto_card.lay.addWidget(label('اجرای خودکار تمام درخواست‌های آماده از نوع‌های مجاز را دربر می‌گیرد؛ '
-            'بازه، دسته و تعدادِ انتخاب دستی روی آن اثر ندارند. با اولین خطا متوقف می‌شود.', 'caption', wrap=True))
+            'بازه، دسته و تعدادِ انتخاب دستی روی آن اثر ندارند. خطای هر درخواست ثبت می‌شود و خرابی ورود یا NBO اجرا را متوقف می‌کند.',
+            'caption', wrap=True))
 
         ready = Card()
         b_all = button("تیک همه", None, "check")
@@ -295,7 +296,7 @@ class ExecutionPage(ScrollPage):
         else:
             text = (f"{len(chosen)} درخواست ({parts}) با حساب NBO که داخل اپ وارد شده، یکی‌یکی واقعاً در NBO ثبت می‌شود.\n"
                     f"بازه: {self.date_range.description()}\nدسته: {self.category.currentText()}\n"
-                    "با اولین خطا می‌ایستد. شروع کنم؟")
+                    "خطای هر پرونده ثبت می‌شود و صف ادامه می‌یابد؛ قطع ورود یا خرابی کلی صفحه صف را متوقف می‌کند. شروع کنم؟")
         if QMessageBox.question(self, "تمرین" if rehearsal else "ثبت در NBO", text) != QMessageBox.StandardButton.Yes:
             return
         try:
@@ -310,7 +311,7 @@ class ExecutionPage(ScrollPage):
     def _toggled(self, on):
         if on and QMessageBox.question(
                 self, "ثبت خودکار",
-                "با روشن شدن، هر درخواست آماده از نوع‌های مجاز خودکار، مستقل از فیلتر تاریخ و دسته و تعداد، در NBO ثبت می‌شود — "
+                "با روشن شدن، هر درخواست فقط Online آماده از نوع‌های مجاز خودکار، مستقل از فیلتر تاریخ و دسته و تعداد، در NBO ثبت می‌شود — "
                 "تا وقتی خاموشش کنی یا اپ بسته شود. روشن شود؟") != QMessageBox.StandardButton.Yes:
             self.render()
             return
@@ -336,7 +337,7 @@ class ExecutionPage(ScrollPage):
         self.switch.setChecked(live)
         self.switch.setEnabled(owner and not self.control.batch)
         self.switch.blockSignals(False)
-        self.mode_text.setText("ثبت خودکار روشن است (Real): هر درخواست آماده خودش در NBO ثبت می‌شود" if live
+        self.mode_text.setText("ثبت خودکار روشن است (Real): فقط درخواست‌های فقط Online آماده در NBO ثبت می‌شوند" if live
                                else "ثبت خودکار (Autopilot): خاموش — فقط چیزی ثبت می‌شود که خودت «ثبت در NBO» بزنی")
         kind = self.kind.currentData()
         allowed = set(ACTION_FA) if kind is None else {kind}

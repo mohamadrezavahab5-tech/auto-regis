@@ -33,7 +33,7 @@ class AutomaticSources(QObject):
     def tick(self):
         if not self.enabled: return
         s = self.session
-        if sheets.load().get('auth_mode') == 'workspace' and s.profile.get('workspace_role') not in ('admin', 'online'):
+        if sheets.load().get('auth_mode') == 'workspace' and not crm_sync.authenticated_identity():
             return
         # Do not replace source snapshots halfway through a review.
         if s.runner and s.runner.is_active(): return

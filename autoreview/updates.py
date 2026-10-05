@@ -1,6 +1,6 @@
-"""In-app updates without a server: the owner publishes a release in the 'Updates' tab of his own sheet (version, a Google
-Drive link to AutoReview-Setup-x.y.z.exe, its SHA-256, notes). Every app checks it (the owner directly, colleagues through
-the Google-hosted service), downloads the setup, refuses it unless the SHA-256 matches exactly, and runs it silently over
+"""In-app updates without a server: the owner uploads a release to Drive and publishes its link in the 'Updates' tab of
+his own sheet (version, URL, SHA-256, notes). Every app checks it (the owner directly, colleagues through the
+Google-hosted service), downloads the setup, refuses it unless the SHA-256 matches exactly, and runs it silently over
 the current install - the person's data and settings live elsewhere and are never touched.
 
 The SHA-256 is the trust anchor: a link that was swapped, a Drive warning page or a broken download can never be run."""

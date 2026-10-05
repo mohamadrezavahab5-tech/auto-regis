@@ -1,5 +1,6 @@
 <!doctype html><meta charset="utf-8"><title>registrations</title>
 <script>localStorage.setItem('token', 'test-token');</script>
+<script>if (new URLSearchParams(location.search).has('preassigned')) localStorage.setItem('assigned', '1');</script>
 <input placeholder="Request ID"><button id="s">Search</button>
 <table id="t"></table>
 <script>

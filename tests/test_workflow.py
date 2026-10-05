@@ -143,44 +143,37 @@ def test_outbox_survives_database_restart(tmp_path):
     conn.close()
 
 
-def test_failed_network_does_not_acknowledge_outbox(db):
+def test_failed_network_does_not_acknowledge_outbox(db, monkeypatch):
+    from autoreview import workspace
     imported(db)
-    cfg=sheets.load(); cfg.update(workflow_sync=True,webapp_url='https://script.google.com/macros/s/'+'a'*35+'/exec')
-    def fail(r): raise httpx.ConnectError('offline',request=r)
-    with httpx.Client(transport=httpx.MockTransport(fail)) as client:
-        with pytest.raises(sheets.SheetError): workflow_sync.sync(db,cfg,client)
-    assert workflow.pending_count(db)==1
+    before = workflow.pending(db)
+    def fail(*args, **kwargs): raise sheets.SheetError('offline', 'GOOGLE_API_ERROR')
+    monkeypatch.setattr(workspace, 'health', fail)
+    with pytest.raises(sheets.SheetError): workflow_sync.sync(db)
+    assert workflow.pending(db) == before
 
 
-def test_sync_rejects_wrong_sheet_without_uploading(db):
+def test_sync_rejects_wrong_sheet_without_uploading(db, monkeypatch):
+    from autoreview import workspace_google, crm_sync
     imported(db)
-    cfg=sheets.load(); cfg.update(workflow_sync=True,webapp_url='https://script.google.com/macros/s/'+'a'*35+'/exec')
-    seen=[]
-    def handle(r):
-        seen.append(json.loads(r.content)['action'])
-        return httpx.Response(200,json=dict(ok=True,version=3,sheet_id='wrong'))
-    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
-        with pytest.raises(sheets.SheetError): workflow_sync.sync(db,cfg,client)
-    assert seen==['ping'] and workflow.pending_count(db)==1
+    monkeypatch.setattr(crm_sync, '_authenticated_identity', {'username':'alice'})
+    monkeypatch.setattr(workspace_google, 'get_backend', lambda cfg: workspace_google.Backend(cfg['own_sheet_id']))
+    cfg = sheets.load(); cfg['own_sheet_id'] = 'wrong'
+    with pytest.raises(sheets.SheetError) as exc: workflow_sync.sync(db, cfg)
+    assert exc.value.code == 'SHEET_NOT_FOUND' and workflow.pending_count(db) == 1
 
 
-def test_sync_acknowledges_only_verified_counts_and_reads_commands(db):
+def test_sync_acknowledges_only_verified_receipts(db, monkeypatch):
+    from autoreview import workspace
     imported(db)
-    cfg=sheets.load(); cfg.update(workflow_sync=True,webapp_url='https://script.google.com/macros/s/'+'a'*35+'/exec')
-    def handle(r):
-        body=json.loads(r.content)
-        if body['action']=='ping': data=dict(version=3,sheet_id=cfg['own_sheet_id'])
-        elif body['action']=='workflow_sync': data=dict(cases=len(body['cases']),events=len(body['events']))
-        else: data=dict(commands=[])
-        return httpx.Response(200,json=dict(ok=True,**data))
-    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
-        assert workflow_sync.sync(db,cfg,client)['remaining']==0
-
-
-def test_script_is_own_sheet_only_and_shared_writer_disabled():
-    code=sheets.script_code()
-    assert 'openById' not in code and 'ONLINE_INSTORE_ID' not in code
-    assert '__OWN_ID__' not in code and '__SECRET__' not in code
+    def remote(action, cfg=None, **payload):
+        if action == 'health': return dict(server_version=6,schema_version=6,sheet_ok=True)
+        if action == 'source_batch': return dict(cases=[{'smr':c['smr']} for c in payload['cases']],rejected=[])
+        if action == 'audit_batch': return dict(event_ids=[e['event_id'] for e in payload['events']])
+        if action == 'read': return dict(generation=1,cases=[],executions=[],next=None)
+        raise AssertionError(action)
+    monkeypatch.setattr(workspace, 'call', remote)
+    assert workflow_sync.sync(db)['remaining'] == 0
 
 
 # ---- owner rules 2026-10-01 ------------------------------------------------------------------------------------------------

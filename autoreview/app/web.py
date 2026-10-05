@@ -9,6 +9,7 @@ pop-ups, no images, nothing kept)."""
 import base64
 import concurrent.futures
 import json
+import re
 from collections import deque
 
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal
@@ -89,12 +90,18 @@ _profiles = {}
 def _persistent(name):
     if name not in _profiles:
         prof = QWebEngineProfile(name, QApplication.instance())
+        if name == "nbo":
+            prof.setHttpUserAgent(_chrome_compatible_user_agent(prof.httpUserAgent()))
         prof.setPersistentStoragePath(str(web_dir() / name))
         prof.setCachePath(str(web_dir() / f"{name}-cache"))
         prof.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
         prof.downloadRequested.connect(lambda d: d.cancel())          # nothing is saved by a page on its own
         _profiles[name] = prof
     return _profiles[name]
+
+
+def _chrome_compatible_user_agent(user_agent):
+    return re.sub(r"\s+QtWebEngine/\S+", "", user_agent).strip()
 
 
 def nbo_profile():

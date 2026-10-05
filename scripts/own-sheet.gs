@@ -1,3 +1,4 @@
+// LEGACY REFERENCE ONLY — shared Workspace runtime uses workspace_google.py.
 // AutoReview v3. Bound to the owner's spreadsheet. Never opens another spreadsheet.
 const SECRET = '__SECRET__';
 const EXPECTED_SHEET_ID = '__OWN_ID__';
@@ -30,13 +31,6 @@ function table(ss, title, header) {
   return sh;
 }
 function rows(sh, width) { return sh.getLastRow() > 1 ? sh.getRange(2,1,sh.getLastRow()-1,width).getValues() : []; }
-function bindDevice(body) {
-  if (!/^[a-f0-9]{32}$/.test(body.device_id || '')) throw new Error('شناسه دستگاه نامعتبر');
-  const props = PropertiesService.getScriptProperties();
-  const existing = props.getProperty('AUTOREVIEW_DEVICE');
-  if (existing && existing !== body.device_id) throw new Error('این شیت به دستگاه دیگری متصل است؛ برای انتقال، مالک باید اتصال قبلی را بررسی کند');
-  if (!existing) props.setProperty('AUTOREVIEW_DEVICE', body.device_id);
-}
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
@@ -46,9 +40,9 @@ function doPost(e) {
     if (body.action === 'ping') return output({ok:true,sheet:ss.getName(),sheet_id:ss.getId(),url:ss.getUrl(),version:3,own_workflow:true,online_instore:false});
     const lock = LockService.getScriptLock(); lock.waitLock(30000);
     try {
-      if (body.action === 'workflow_sync') { bindDevice(body); return output(sync(body,ss)); }
-      if (body.action === 'workflow_commands') { bindDevice(body); return output(commands(ss)); }
-      if (body.action === 'workflow_ack') { bindDevice(body); return output(ack(body,ss)); }
+      if (body.action === 'workflow_sync') {  return output(sync(body,ss)); }
+      if (body.action === 'workflow_commands') {  return output(commands(ss)); }
+      if (body.action === 'workflow_ack') {  return output(ack(body,ss)); }
       if (body.action === 'append') return output(appendRun(body,ss));
       return output({ok:false,error:'این نسخه فقط شیت اختصاصی را تغییر می‌دهد'});
     } finally { lock.releaseLock(); }

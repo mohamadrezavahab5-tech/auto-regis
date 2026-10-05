@@ -27,7 +27,8 @@ NAV = [
                    ("triage", "رسیدگی دستی", "play"), ("execution", "ثبت در NBO", "shield"),
                    ("results", "نتایج بررسی موتور", "results")]),
     ("ابزار", [("search", "جستجو در مرجع", "search"), ("nbo", "NBO", "nbo"), ("crm", "CRM", "crm")]),
-    ("مدیریت", [("connections", "اتصال‌ها", "plug"), ("users", "کاربران", "user"), ("logs", "لاگ‌ها", "logs"), ("settings", "تنظیمات", "settings")]),
+    ("مدیریت", [("connections", "اتصال‌ها", "plug"), ("users", "نسخه‌ها و اتصال تیم", "user"),
+                ("logs", "لاگ‌ها", "logs"), ("settings", "تنظیمات", "settings")]),
 ]
 
 
@@ -384,7 +385,7 @@ class Shell(QMainWindow):
         show(self.pill_nbo, "NBO", m_nbo, "nbo" in b.busy)
         show(self.pill_crm, "CRM", m_crm, "crm" in b.busy)
         cfg = sheets.load()
-        connected = cfg.get("webapp_url") or cfg.get("auth_mode") in ("service_account", "workspace")
+        connected = google_credentials.available()
         if "sheet" in b.busy or "workflow" in b.busy:
             self.pill_sheet.set(ltr("Sheet · syncing…"), C["info"], C["info_soft"])
         elif not connected:
@@ -393,9 +394,14 @@ class Shell(QMainWindow):
             self.pill_sheet.set(ltr("Sheet · sync off"), C["warn"], C["warn_soft"])
         elif b.workflow_sync_status.startswith("همگام‌سازی ناموفق"):
             self.pill_sheet.set(ltr("Sheet · offline, retrying"), C["danger"], C["danger_soft"])
+        elif b.workflow_refresh_error:
+            self.pill_sheet.set(ltr("Sheet · report stale"), C["danger"], C["danger_soft"])
         else:
             self.pill_sheet.set(ltr("Sheet · synced"), C["approve"], C["approve_soft"])
-        self.pill_sheet.setToolTip(b.workflow_sync_status)
+        tooltip = b.workflow_sync_status
+        if b.workflow_refresh_error:
+            tooltip += f" — بازسازی گردش کار ناموفق: {b.workflow_refresh_error}"
+        self.pill_sheet.setToolTip(tooltip)
 
     def _tick(self):
         now = datetime.now()
@@ -554,5 +560,6 @@ class Shell(QMainWindow):
             r.join(20)
         self.automatic.stop()
         self.execution.stop()
+        self.session.disconnect_workspace()
         self.tray.hide()
         super().closeEvent(e)

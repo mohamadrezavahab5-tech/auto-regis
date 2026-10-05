@@ -12,18 +12,29 @@ document.getElementById('main').onclick = () => {
   document.getElementById('host').innerHTML = `<div role="dialog">
     <label><span class="label-text">APPROVE</span></label><label><span class="label-text">EDIT NEEDED</span></label>
     <label><span class="label-text">CANCEL</span></label>
-    <div><input id="react-select-3-input"><div id="menu"></div><div id="chosen"></div></div>
+    <div id="reason-host"></div><div id="menu"></div><div id="chosen"></div>
     <button id="final" disabled>Change Status</button></div>`;
-  let option = null, reason = null;
+  let option = null, reason = null, selected = false;
   const fin = document.getElementById('final');
-  const check = () => { fin.disabled = !(option === 'APPROVE' || (option && reason)); };
-  document.querySelectorAll('.label-text').forEach(l => l.onclick = () => { option = l.innerText; check(); });
-  document.getElementById('react-select-3-input').addEventListener('input', e => {
+  const check = () => { fin.disabled = !(option === 'APPROVE' || (option && selected)); };
+  document.querySelectorAll('.label-text').forEach(l => l.onclick = () => {
+    option = l.innerText;
+    check();
+    if (option !== 'APPROVE') setTimeout(() => {
+      document.getElementById('reason-host').innerHTML = '<input id="react-select-3-input">';
+      document.getElementById('react-select-3-input').addEventListener('input', e => {
     document.getElementById('menu').innerHTML = reasons.filter(r => r.includes(e.target.value))
       .map((r, i) => `<div id="react-select-3-option-${i}">${r}</div>`).join('');
     document.querySelectorAll('#menu > div').forEach(o => o.onclick = () => {
-      reason = o.innerText; document.getElementById('chosen').innerHTML = `<div class="x-singleValue">${reason}</div>`; check();
+      reason = o.innerText;
+      setTimeout(() => {
+        selected = true;
+        document.getElementById('chosen').innerHTML = `<div class="x-singleValue">${reason}</div>`;
+        check();
+      }, 125);
     });
+      });
+    }, 125);
   });
   fin.onclick = () => { localStorage.setItem('result', option + '|' + (reason || '')); document.getElementById('host').innerHTML = ''; };
 };

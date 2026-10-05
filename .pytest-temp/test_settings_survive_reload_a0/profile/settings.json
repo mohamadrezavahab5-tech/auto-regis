@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "rules": {
+    "runtime.concurrency": 3
+  }
+}

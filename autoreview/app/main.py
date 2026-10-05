@@ -9,6 +9,11 @@ import os
 import sys
 import traceback
 
+# Keep the hidden NBO worker's short waits from becoming minute-long background ticks.
+_flags = os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '')
+if '--disable-background-timer-throttling' not in _flags.split():
+    os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = (_flags + ' --disable-background-timer-throttling').strip()
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -68,55 +73,12 @@ class App:
         self.open_shell(saved, password)
 
     def open_shell(self, prof, password):
-        try:
-            is_owner = workspace.username(prof['username']) == workspace.ADMIN
-        except ValueError:
-            is_owner = False
-        cfg = sheets.load()
-        # Owner 2026-10-02: a few trusted colleagues may connect with the owner's key file (he hands it over himself);
-        # without it they use the personal access code.
-        has_key = google_credentials.available() or bool(google_credentials.find_key_file())
-        if cfg.get('auth_mode') == 'workspace' or not (is_owner or has_key):
-            self._workspace_login(prof, password)
+        identity = crm_sync.authenticated_identity()
+        if not identity:
+            self.show_login('ورود CRM باید دوباره تأیید شود')
             return
+        prof = dict(prof, username=identity['username'], crm_authenticated=True)
         self._show_shell(prof, password)
-
-    def _workspace_login(self, prof, password):
-        from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QDialogButtonBox
-        from .session import run_bg
-        cfg = sheets.load()
-        dialog = QDialog(); dialog.setWindowTitle('دسترسی شخصی AutoReview')
-        form = QFormLayout(dialog)
-        url = QLineEdit(cfg.get('workspace_url', ''))
-        token = QLineEdit(); token.setEchoMode(QLineEdit.EchoMode.Password)
-        form.addRow('نشانی سرویس مدیر', url); form.addRow('کد دسترسی (در صورت ذخیره‌شدن خالی بماند)', token)
-        controls = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        form.addRow(controls)
-        def connect():
-            if not sheets.valid_webapp_url(url.text().strip()):
-                QMessageBox.warning(dialog, 'دسترسی', 'نشانی سرویس مدیر معتبر نیست'); return
-            cfg['workspace_url'] = url.text().strip()
-            try:
-                if token.text().strip(): workspace.save_access(prof['username'], token.text().strip())
-                auth = workspace.access()
-                if not auth or auth['username'] != workspace.username(prof['username']): raise ValueError()
-            except Exception:
-                QMessageBox.warning(dialog, 'دسترسی', 'کد دسترسی مخصوص همین حساب را از مدیر بگیر'); return
-            controls.setEnabled(False)
-            def done(result):
-                if result.get('version') != 4:
-                    failed('نسخه سرویس با اپ سازگار نیست'); return
-                cfg.update(auth_mode='workspace', workflow_sync=True)
-                sheets.save(cfg)
-                prof['workspace_role'] = result['user']['role']
-                dialog.accept()
-                self._show_shell(prof, password)
-            def failed(error):
-                controls.setEnabled(True); QMessageBox.warning(dialog, 'دسترسی', str(error))
-            run_bg(lambda _p: workspace.call('whoami', cfg), done, failed)
-        controls.accepted.connect(connect); controls.rejected.connect(dialog.reject)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            self.show_login('ورود به فضای مشترک کامل نشد')
 
     def _show_shell(self, prof, password):
         from .session import Session
@@ -132,6 +94,7 @@ class App:
         if QMessageBox.question(self.shell, "خروج", "از حساب خارج شوی؟ ورود ذخیره‌شده‌ی CRM هم از این کامپیوتر پاک می‌شود.") \
                 != QMessageBox.StandardButton.Yes:
             return
+        self.shell.session.disconnect_workspace()
         crm_sync.forget_credentials()
         profile.clear()
         log.info("signed out")

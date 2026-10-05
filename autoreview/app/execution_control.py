@@ -2,8 +2,8 @@
 mode, owner only, switched off again whenever the app restarts). Owner 2026-10-01: "both manual and automatic".
 
 Automatic mode works one request at a time, only on cases whose verdicts are complete (approve: every needed team approved;
-edit / cancel only when switched on in Execution), stops at the first problem, and after the very first real change it
-stops by itself so the owner can look at NBO before letting it continue."""
+edit / cancel only when switched on in Execution), continues after request-level errors, and stops on systemic NBO errors.
+After the very first real change it stops by itself so the owner can look at NBO before letting it continue."""
 from datetime import datetime
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
 
 from .. import execution, settings, sheets, workflow, workspace
 from ..jalali import fa_digits
-from .nbo_actor import AFTER_SEND, NboActor
+from .nbo_actor import AFTER_SEND, SYSTEMIC_ERRORS, NboActor
 from .session import run_bg
 
 ACTION_FA = {"APPROVE": "تأیید", "EDIT": "نیاز به اصلاح", "CANCEL": "لغو"}
@@ -33,9 +33,12 @@ class ExecutionControl(QObject):
         self.summary = 'ثبت خودکار خاموش است — فقط چیزی ثبت می‌شود که خودت بزنی'
         self.last_stop = ''
         self._first_run = False
+        self._claiming = False
+        self._stop_serial = 0
         db = session.db()
         try:
             execution.ensure(db)
+            workspace.recover_execution(db)
         finally:
             db.close()
         self.timer = QTimer(self)
@@ -56,9 +59,8 @@ class ExecutionControl(QObject):
             return False
 
     def may_apply(self):
-        """Applying by hand uses the person's OWN NBO account: the owner, or a colleague with the Online role / the owner's key."""
-        from .. import google_credentials
-        return self.owner() or self.session.profile.get('workspace_role') in ('admin', 'online') or google_credentials.available()
+        from .. import crm_sync
+        return crm_sync.authenticated_identity() is not None
 
     @staticmethod
     def auto_actions():
@@ -91,7 +93,7 @@ class ExecutionControl(QObject):
             return ''
         return sheets.nbo_labels().get(tgt[0].lower(), {}).get(tgt[1], '')
 
-    def apply(self, case, on_done=None, rehearsal=False, parent=None):
+    def apply(self, case, on_done=None, rehearsal=False, parent=None, _cloud_claim=None):
         """Runs NBO's screen flow for this case. on_done(result) with result['message'] in Persian."""
         tgt = execution.target(case)
         reason = self.reason_label(case)
@@ -99,10 +101,43 @@ class ExecutionControl(QObject):
         if not tgt or (tgt[0] != 'APPROVE' and not reason):
             done({'ok': False, 'message': 'برای این پرونده اقدامی در NBO تعیین نشده (یا دلیل NBO آن معلوم نیست)'})
             return
-        if self.actor.busy:
+        if self.actor.busy or self._claiming:
             done({'ok': False, 'message': 'یک اجرای دیگر در NBO در جریان است؛ چند لحظه بعد دوباره بزن'})
             return
-        if not rehearsal:
+        if not rehearsal and not self.may_apply():
+            done({'ok': False, 'error': 'permission', 'message': 'اجازه ثبت در NBO را ندارید'})
+            return
+        cfg = sheets.load()
+        if not rehearsal and cfg.get('auth_mode') == 'workspace' and _cloud_claim is None:
+            self._claiming = True
+            serial = self._stop_serial
+            def reserve(_p):
+                db = self.session.db()
+                try:
+                    return workspace.prepare_execution(db, case, cfg, automatic=self.mode.live)
+                finally:
+                    db.close()
+            def reserved(result):
+                claim = result['claim']
+                self._claiming = False
+                if serial != self._stop_serial:
+                    db = self.session.db()
+                    try:
+                        workspace.finish_execution(db, case, claim, 'BLOCKED', 'کاربر پیش از ثبت توقف زد')
+                        execution.record(db, case, 'BLOCKED', 'پیش از ثبت متوقف شد')
+                    finally:
+                        db.close()
+                    self.session.sync_workflow(force=True)
+                    done({'ok': False, 'error': 'stopped', 'message': 'پیش از ثبت متوقف شد'})
+                    return
+                self.apply(result['case'], done, rehearsal=False, parent=parent, _cloud_claim=claim)
+            def reserve_failed(error):
+                self._claiming = False
+                self.session.sync_workflow(force=True)
+                done({'ok': False, 'error': 'shared_claim', 'message': str(error)})
+            run_bg(reserve, reserved, reserve_failed)
+            return
+        if not rehearsal and _cloud_claim is None:
             db = self.session.db()
             try:
                 now_status = db.execute("SELECT status FROM ref_nbo WHERE smr = ?", (case['smr'],)).fetchone()
@@ -137,11 +172,23 @@ class ExecutionControl(QObject):
                     execution.record(db, case, 'UNCERTAIN' if res['error'] in AFTER_SEND else 'BLOCKED', res['message'], **context)
             finally:
                 db.close()
+            if _cloud_claim:
+                db = self.session.db()
+                try:
+                    final_state = 'SENT' if res.get('ok') and res.get('sent') else ('UNCERTAIN' if res.get('error') in AFTER_SEND else 'BLOCKED')
+                    workspace.finish_execution(db, case, _cloud_claim, final_state, res.get('message') or ACTION_FA[tgt[0]])
+                finally:
+                    db.close()
+                self.session.sync_workflow(force=True)
             self.refresh()
             if not rehearsal and res.get('sent'):
                 self.session.sync_workflow(force=True)
             done(res)
-        self.actor.run(case['smr'], tgt[0], reason, finished, rehearsal=rehearsal)
+        try:
+            self.actor.run(case['smr'], tgt[0], reason, finished, rehearsal=rehearsal)
+        except Exception as error:
+            # Unknown whether the embedded page started: never silently release this request.
+            finished({'ok': False, 'sent': False, 'error': 'sent_unconfirmed', 'message': str(error)})
 
     def _watch(self, parent, case, action, rehearsal):
         """Shows NBO's own screen while the app works on it, so a person can see exactly what is clicked."""
@@ -214,9 +261,9 @@ class ExecutionControl(QObject):
         return self.start_batch(self.ready_cases(), rehearsal=True)
 
     def start_batch(self, cases, rehearsal):
-        """These requests one after another: a rehearsal (nothing changes in NBO), or for real - then the first failure
-        stops the rest. -> how many are queued, 0, or 'busy'. A real batch is the owner's, like the automatic mode."""
-        if self.batch or self.actor.busy or self.mode.live:
+        """These requests one after another: a rehearsal (nothing changes in NBO), or for real - request errors are
+        recorded and systemic NBO errors stop the queue. -> how many are queued, 0, or 'busy'."""
+        if self.batch or self.actor.busy or self._claiming or self.mode.live:
             return 'busy'
         # Who may send by hand may send a chosen set too, with their own NBO account (owner 2026-10-03: "I gave someone
         # Online access - reviews work but sending is refused"). Only the automatic mode stays the owner's.
@@ -268,10 +315,10 @@ class ExecutionControl(QObject):
                 b['ok'] += 1
             else:
                 b['failed'].append((case['smr'], res.get('message') or res.get('error')))
-                if b.get('real'):
-                    b['stop'] = True                        # a real change failed: a person looks before anything else is sent
+                if b.get('real') and (not res.get('error') or res.get('error') in (SYSTEMIC_ERRORS | {'shared_claim'})):
+                    b['stop'] = True
             self.changed.emit()
-            QTimer.singleShot(3000 if b.get('real') else 1500, self._next_rehearsal)
+            QTimer.singleShot(750 if b.get('real') else 500, self._next_rehearsal)
         self.apply(case, done, rehearsal=not b.get('real'))
 
     def apply_all(self):
@@ -281,6 +328,7 @@ class ExecutionControl(QObject):
         self.set_live(True)
 
     def stop_all(self):
+        self._stop_serial += 1
         if self.batch:
             self.batch['stop'] = True
         if self.mode.live:
@@ -289,21 +337,24 @@ class ExecutionControl(QObject):
 
     # ---- automatic
     def _auto_tick(self):
-        if not self.mode.live or self.actor.busy or self.batch:
+        if not self.mode.live or self.actor.busy or self._claiming or self.batch:
             return
-        todo = self.ready_cases()
+        todo = [c for c in self.ready_cases() if c.get('channel') == 'online']
         if not todo:
             return
         case = todo[0]
 
         def done(res):
             if not res.get('ok'):
-                self._stop_live(f"اجرای خودکار متوقف شد ({case['smr']}): {res.get('message')}")
+                if res.get('error') in (SYSTEMIC_ERRORS | {'shared_claim'}) or not res.get('error'):
+                    self._stop_live(res.get('message') or 'ثبت خودکار متوقف شد؛ اتصال را بررسی کن')
+                else:
+                    QTimer.singleShot(1000, self._auto_tick)
             elif self._first_run:
                 self._first_run = False
                 self._stop_live(f"اولین تغییر Real ثبت شد ({case['smr']}). در NBO نگاهش کن؛ اگر درست بود دوباره «Real» را روشن کن.")
             else:
-                QTimer.singleShot(3000, self._auto_tick)
+                QTimer.singleShot(1000, self._auto_tick)
         self.apply(case, done)
 
     # ---- summary
@@ -339,6 +390,7 @@ class ExecutionControl(QObject):
         run_bg(work, done, done)
 
     def stop(self):
+        self._stop_serial += 1
         self.mode.live = False
         self.timer.stop()
         self.auto_timer.stop()

@@ -41,6 +41,8 @@ def key_path():
 
 
 def validate(info):
+    if not isinstance(info, dict):
+        raise ValueError('فایل Service Account معتبر نیست')
     if info.get('type') != 'service_account' or not info.get('private_key') or not info.get('client_email'):
         raise ValueError('فایل Service Account معتبر نیست')
     if info.get('token_uri') != 'https://oauth2.googleapis.com/token':
@@ -51,11 +53,19 @@ def validate(info):
 
 
 def import_file(path):
-    info = validate(json.loads(Path(path).read_text(encoding='utf-8-sig')))
+    try:
+        info = validate(json.loads(Path(path).read_text(encoding='utf-8-sig')))
+        from google.oauth2 import service_account
+        service_account.Credentials.from_service_account_info(info)
+    except Exception:
+        raise ValueError('فایل Service Account معتبر نیست؛ کلید قبلی حفظ شد') from None
     protected = _dpapi(json.dumps(info).encode())
     target = key_path()
     temporary = target.with_suffix('.tmp')
-    temporary.write_bytes(protected)
+    with temporary.open('wb') as stream:
+        stream.write(protected)
+        stream.flush()
+        os.fsync(stream.fileno())
     os.replace(temporary, target)
     return info['client_email']
 

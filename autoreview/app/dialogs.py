@@ -49,7 +49,7 @@ class LoginWindow(QWidget):
         sv.addWidget(t)
         sv.addStretch(1)
         for line in ("هر چه مطمئن نیست، به بررسی دستی می‌رود.", "هیچ تغییری در NBO بدون تأیید تو انجام نمی‌شود.",
-                     "داده‌ها و ورودها فقط روی همین کامپیوتر می‌مانند."):
+                     "نتایج و گزارش فعالیت با فضای مشترک تیم همگام می‌شوند."):
             row = QHBoxLayout()
             ic = QLabel()
             ic.setPixmap(icons.pixmap("check", "#7DBBFD", 16))

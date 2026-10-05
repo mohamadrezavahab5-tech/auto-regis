@@ -241,7 +241,9 @@ class DashboardPage(ScrollPage):
         hello = "صبح بخیر" if 5 <= hour < 12 else ("عصر بخیر" if 12 <= hour < 18 else "شب بخیر")
         name = (self.session.profile.get("display_name") or "").split(" ")[0]
         self.hero_title.setText(f"{hello}{('، ' + name) if name else ''}")
-        self.hero_sub.setText(f"{jalali.long_date()} — خلاصه‌ی صف و کار امروز")
+        freshness = (f"بازسازی گزارش ناموفق است؛ داده‌ی قبلی ممکن است قدیمی باشد: {self.session.workflow_refresh_error}"
+                     if self.session.workflow_refresh_error else self.session.workflow_sync_status)
+        self.hero_sub.setText(f"{jalali.long_date()} — خلاصه‌ی صف و کار امروز — {freshness}")
         b = d["board"]["backlog"]
         if b["total"]:
             self.ring.set_value(b["percent"], "بررسی‌شده")
@@ -249,13 +251,13 @@ class DashboardPage(ScrollPage):
             self.work_sub.setText(f"{num(b['needs_person'])} مورد منتظر بررسی دستی یکی از همکاران است.")
         else:
             self.ring.set_value(0, "")
-            self.work_text.setText("هنوز داده‌ی NBO بارگذاری نشده")
-            self.work_sub.setText("از صفحه‌ی «بررسی»، خروجی NBO را دریافت کن تا کار امروز اینجا دیده شود.")
+            self.work_text.setText("در فیلتر فعلی بکلاگ موردی نیست" if d["board"]["nbo_meta"] else "هنوز داده‌ی NBO بارگذاری نشده")
+            self.work_sub.setText("فیلتر وضعیت، مالکیت و مسیر Online در تنظیمات بکلاگ را بررسی کن." if d["board"]["nbo_meta"] else "از صفحهٔ بررسی، خروجی NBO را دریافت کن.")
         items = state_items(b["counts"])
         self.bar.set_parts([(n, c) for _, n, c in items])
         self.legend.set_items(items)
         both = d["board"]["both"]
-        self.both_text.setText(f"صف Online + Instore: {num(both['reviewed'])} از {num(both['total'])} بررسی شده، {num(both['left'])} مانده.")
+        self.both_text.setText(f"صف Online + Instore: {num(both['reviewed'])} از {num(both['total'])} بررسی موتور شده، {num(both['left'])} منتظر بررسی موتور.")
         f = d["flow"]
         order = ("WAIT_ONLINE", "MANUAL", "WAIT_INSTORE", "CONFLICT", "EDIT", "CANCEL", "READY", "DONE_APPROVED", "DONE_CLOSED")
         items = [(workflow.STATES[k].split("؛")[0], f.get(k, 0), theme.WORKFLOW[k][0]) for k in order]

@@ -309,15 +309,21 @@ class WorkflowPage(QWidget):
         s = self.session
         cfg = sheets.load()
         pending = getattr(self, "_pending", 0)
+        refresh_error = s.workflow_refresh_error
         if "workflow" in s.busy:
             self.sync_pill.set(ltr("Sheet · syncing…"), C["info"], C["info_soft"])
         elif not cfg.get("workflow_sync"):
             self.sync_pill.set(ltr("Sheet · sync off"), C["text2"], C["surface2"])
         elif s.workflow_sync_status.startswith("همگام‌سازی ناموفق"):
             self.sync_pill.set(ltr("Sheet · offline"), C["danger"], C["danger_soft"])
+        elif refresh_error:
+            self.sync_pill.set(ltr("Sheet · report stale"), C["danger"], C["danger_soft"])
         else:
             self.sync_pill.set(ltr("Sheet · synced"), C["approve"], C["approve_soft"])
-        self.sync_text.setText(s.workflow_sync_status + (f" — {num(pending)} پرونده منتظر ارسال" if pending else ""))
+        status = s.workflow_sync_status
+        if refresh_error:
+            status += f" — بازسازی گردش کار ناموفق؛ داده‌ی قبلی ممکن است قدیمی باشد: {refresh_error}"
+        self.sync_text.setText(status + (f" — {num(pending)} پرونده منتظر ارسال" if pending else ""))
 
     def _path(self, key):
         for k, b in self.path_chips.items():

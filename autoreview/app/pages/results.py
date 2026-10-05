@@ -331,7 +331,8 @@ class ResultsPage(QWidget):
     def send_sheet(self):
         if not self.run_id:
             return
-        if not (sheets.load().get("webapp_url") or sheets.load().get('auth_mode') == 'service_account'):
+        from ... import google_credentials
+        if not google_credentials.available():
             QMessageBox.information(self, "شیت", "اول شیت خودت را در «اتصال‌ها» وصل کن.")
             self.shell.go("connections")
             return

@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "rules": {
+    "appearance.theme": "dark",
+    "execution.auto_actions": [
+      "APPROVE",
+      "EDIT"
+    ],
+    "owner_mismatch_action.value": "EDIT",
+    "unreachable_site_action.value": "EDIT",
+    "sitemap_missing_action.value": "EDIT",
+    "services_go_manual.value": false,
+    "checks.add_to_cart.enabled": true,
+    "checks.enamad_on_site.enabled": false,
+    "checks.agreement.enabled": false,
+    "checks.https.enabled": true,
+    "min_products.no_category.value": 25,
+    "no_category_goes_manual.value": false,
+    "checks.contact.phone_only": true,
+    "min_products.default.value": 60,
+    "min_products.services.value": 10,
+    "min_products.education.value": 10,
+    "min_products.by_category_fa.values": {},
+    "category_groups.gold": [
+      "طلا"
+    ],
+    "category_groups.special": [
+      "آموزشی",
+      "خدمات گردشگری(اقامتگاه، آژانس مسافرتی و تور)",
+      "خدمات سلامت"
+    ],
+    "category_groups.services": [
+      "خدمات"
+    ],
+    "category_groups.education": [],
+    "approved_statuses.nbo": [
+      "COMMERCIAL_APPROVED",
+      "ACTIVATING",
+      "PENDING_ACTIVATION",
+      "COMPLETED"
+    ],
+    "crm_store_types": [
+      "آنلاین",
+      "آنلاین - آفلاین",
+      "آنلاین - شبکه اجتماعی",
+      "آنلاین - آفلاین -شبکه اجتماعی"
+    ],
+    "backlog.include_optional": false,
+    "backlog.batch_size": 150,
+    "runtime.concurrency": 6,
+    "runtime.enamad_concurrency": 2,
+    "runtime.http_timeout_seconds": 20,
+    "runtime.request_deadline_seconds": 150,
+    "workflow.engine_verdict_counts": true,
+    "automation.nbo_minutes": 10,
+    "automation.crm_minutes": 5,
+    "automation.keep_in_tray": true,
+    "automation.autopilot": true
+  },
+  "category_map": {
+    "mismatch_allowed": false,
+    "match_mode": "action_test_4"
+  }
+}

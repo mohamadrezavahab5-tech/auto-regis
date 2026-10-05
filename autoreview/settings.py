@@ -139,11 +139,8 @@ def save_user(overrides: dict) -> list:
     """Atomic write. Returns the rejected paths (if any) so the caller can say what was not saved."""
     clean, rejected = sanitize(overrides)
     data = {"version": 1, **clean}
-    target = settings_file()
-    fd, tmp = tempfile.mkstemp(prefix="settings-", suffix=".json", dir=str(target.parent))
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, target)
+    from .atomic_file import save_json
+    save_json(settings_file(), data)
     return rejected
 
 

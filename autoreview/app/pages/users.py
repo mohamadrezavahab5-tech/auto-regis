@@ -1,5 +1,4 @@
-"""Users (owner only): colleagues get a personal, revocable access code with a role - Online team, Instore team or view only.
-The service-account key never leaves the owner's PC; colleagues go through the Google-hosted service in the owner's sheet."""
+"""Owner tools for publishing verified app updates."""
 import re
 import secrets
 
@@ -17,8 +16,8 @@ from .common import ScrollPage
 
 
 class UsersPage(ScrollPage):
-    title = "کاربران"
-    subtitle = "دسترسی همکاران به گردش کار — فقط مدیر"
+    title = "نسخه‌ها و اتصال تیم"
+    subtitle = "اتصال خودکار همکاران با حساب CRM؛ با وارد کردن امن Service Account روی هر کامپیوتر"
 
     def __init__(self, session, shell):
         super().__init__()
@@ -27,11 +26,8 @@ class UsersPage(ScrollPage):
         how.header("همکاران چطور وصل می‌شوند", None)
         self.how = StepList()
         self.how.set_steps([
-            ("1. یک بار: «کپی کد سرویس» را بزن و در Apps Script همین شیت بچسبان", None,
-             "Deploy ← New deployment ← Web app، با Execute as: Me و Who has access: Anyone. نشانی را به همکاران بده."),
-            ("2. برای هر همکار «افزودن / تغییر دسترسی» را بزن", None, "کد شخصی فقط یک بار نشان داده می‌شود؛ خودت به همکار بده."),
-            ("3. همکار اپ را نصب می‌کند، با CRM خودش وارد می‌شود و نشانی + کد را در «اتصال‌ها» می‌زند", None,
-             "نقش Instore فقط نظر Instore ثبت می‌کند؛ قطع دسترسی از درخواست بعدی همکار اعمال می‌شود."),
+            ('1. در صفحهٔ اتصال‌ها، فایل Service Account JSON را وارد کن.', None, 'هر کامپیوتر فایل را با حساب ویندوز خودش رمزگذاری می‌کند.'),
+            ('2. با حساب CRM خودت وارد شو و اتصال مشترک را تست کن.', None, 'کلید ذخیره‌شده در اجرای بعدی خودکار استفاده می‌شود.'),
         ])
         how.lay.addWidget(self.how)
         self.body.addWidget(how)
@@ -41,9 +37,12 @@ class UsersPage(ScrollPage):
         b_add.clicked.connect(self.edit_user)
         b_refresh = button("به‌روزرسانی", None, "refresh")
         b_refresh.clicked.connect(self.refresh)
-        b_code = button("کپی کد سرویس", None, "copy")
+        b_code = button("تنظیمات اتصال", None, "copy")
         b_code.clicked.connect(self.copy_server)
-        card.header("همکاران", "از تب Users شیت خودت خوانده می‌شود", [b_add, b_refresh, b_code])
+        self.b_code = b_code
+        self.team_card = card
+        self.user_controls = (b_add, b_refresh)
+        card.header("راه‌اندازی اتصال تیم", "اتصال مستقیم Google Sheets API", [b_add, b_refresh, b_code])
         self.status = label("", "caption", wrap=True)
         card.lay.addWidget(self.status)
         self.table = QTableWidget(0, 3)
@@ -93,6 +92,7 @@ class UsersPage(ScrollPage):
         path, _ = QFileDialog.getOpenFileName(self, "فایل نصب", "", "AutoReview Setup (AutoReview-Setup-*.exe)")
         if not path:
             return
+        self.release = None
         m = re.search(r"AutoReview-Setup-(\d+\.\d+\.\d+)\.exe$", path)
         if not m:
             QMessageBox.warning(self, "انتشار", "نام فایل باید مثل AutoReview-Setup-1.2.0.exe باشد.")
@@ -100,7 +100,7 @@ class UsersPage(ScrollPage):
         self.rel_file.setText("در حال محاسبه‌ی امضا…")
 
         def done(sha):
-            self.release = dict(version=m.group(1), sha256=sha)
+            self.release = dict(version=m.group(1), sha256=sha, path=path)
             self.rel_file.setText(f"نسخه‌ی {m.group(1)} — SHA-256: {sha[:16]}…")
         run_bg(lambda _p: updates.file_sha256(path), done, lambda e: self.rel_file.setText(str(e)))
 
@@ -111,19 +111,35 @@ class UsersPage(ScrollPage):
         link = self.rel_link.text().strip()
         try:
             updates.direct_url(link)
-        except updates.UpdateError as e:
-            QMessageBox.warning(self, "انتشار", str(e))
+        except updates.UpdateError as error:
+            QMessageBox.warning(self, "انتشار", str(error))
             return
         if not updates.is_newer(self.release["version"], "0.0.0"):
+            QMessageBox.warning(self, "انتشار", "شماره‌ی نسخه‌ی فایل معتبر نیست.")
             return
         rel, notes, cfg, who = dict(self.release), self.rel_notes.text().strip(), sheets.load(), self.session.user_label()
 
         def work(_p):
+            if cfg.get("auth_mode") == "workspace":
+                return workspace.publish_release(rel["version"], link, rel["sha256"], notes, cfg)
             with Client(cfg["own_sheet_id"]) as google:
                 google.ensure_tabs()
+                releases = google.releases()
+                if any(str(item.get("version", "")).strip() == rel["version"] for item in releases):
+                    raise updates.UpdateError(f"نسخه‌ی {rel['version']} قبلاً منتشر شده؛ شماره‌ی نسخه را بالا ببر")
+                latest = updates.pick_latest(releases)
+                if latest and not updates.is_newer(rel["version"], latest["version"]):
+                    raise updates.UpdateError(
+                        f"نسخه‌ی انتخاب‌شده باید از آخرین نسخه‌ی منتشرشده ({latest['version']}) جدیدتر باشد")
                 google.publish_release(rel["version"], link, rel["sha256"], notes, who)
-        run_bg(work, lambda _r: toast(self.window(), f"نسخه‌ی {rel['version']} منتشر شد؛ اپ همه آن را می‌بیند"),
-               lambda e: QMessageBox.warning(self, "انتشار", str(e)))
+
+        def complete(_result):
+            toast(self.window(), f"نسخه‌ی {rel['version']} روی Drive منتشر شد؛ همکاران با بررسی نسخه آن را می‌گیرند")
+
+        def failed(error):
+            QMessageBox.warning(self, "انتشار", str(error))
+
+        run_bg(work, complete, failed)
 
     def owner(self):
         try:
@@ -132,10 +148,23 @@ class UsersPage(ScrollPage):
             return False
 
     def on_show(self):
-        if self.owner():
-            self.refresh()
+        cfg = sheets.load()
+        if cfg.get("auth_mode") == "workspace":
+            for control in self.user_controls:
+                control.hide()
+            self.table.hide()
         else:
-            self.status.setText("این بخش فقط برای مدیر اصلی (mohammadreza.vahab) است.")
+            for control in self.user_controls:
+                control.show()
+            self.table.show()
+        self.b_code.setVisible(self.owner())
+        if self.owner():
+            if cfg.get("auth_mode") == "workspace":
+                self.status.setText("پس از وارد کردن Service Account، اتصال مستقیم با هویت CRM انجام می‌شود.")
+            else:
+                self.refresh()
+        else:
+            self.status.setText("اتصال شیت از قبل همراه برنامه تنظیم شده و پس از ورود CRM خودکار انجام می‌شود.")
 
     def refresh(self):
         if not self.owner():
@@ -167,11 +196,7 @@ class UsersPage(ScrollPage):
         run_bg(fetch, show, failed)
 
     def copy_server(self):
-        if not self.owner():
-            return
-        QGuiApplication.clipboard().setText(workspace.server_code())
-        QMessageBox.information(self, "کد سرویس", "کپی شد. در Apps Script همین شیت بچسبان و به‌صورت Web app منتشر کن "
-                                "(Execute as: Me، Who has access: Anyone). این کد فایل کلید ندارد؛ هر درخواست با کد شخصی همکار سنجیده می‌شود.")
+        self.shell.go('connections')
 
     def edit_user(self):
         if not self.owner():

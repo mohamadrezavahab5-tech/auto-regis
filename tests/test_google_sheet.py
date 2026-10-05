@@ -122,12 +122,12 @@ def test_failed_atomic_write_can_be_retried(book):
     assert len(book.tabs['Audit'])==2
 
 
-def test_foreign_writer_and_newer_sheet_revision_fail_closed(book):
+def test_two_devices_connect_but_newer_sheet_revision_is_protected(book):
     p=payload()
     with gs.Client('x'*30,transport=httpx.MockTransport(book.handle)) as c:
         c.sync(p)
         p['device_id']='other'
-        with pytest.raises(gs.GoogleSheetError): c.sync(p)
+        c.sync(p)  # device id is audit metadata, never sheet ownership
         p['device_id']=book.tabs['Workflow'][1][16]
         book.tabs['Workflow'][1][13]=999
         with pytest.raises(gs.GoogleSheetError): c.sync(p)
@@ -271,28 +271,16 @@ def covered(b, tab, row, col):
     return None
 
 
-def test_the_sheet_is_locked_except_the_instore_cells():
-    b=full_book(); b.tabs['Notes of mine']=[['x']]; b.ids['Notes of mine']=99
-    b.protections.append({'protectedRangeId':7,'range':{'sheetId':b.ids[gs.OI_TAB],'startColumnIndex':0,'endColumnIndex':7},
-                          'warningOnly':True,'description':'AutoReview این ستون‌ها را پر می‌کند'})
+def test_only_autoreview_protections_are_removed_and_invalid_editors_are_unused():
+    b=full_book()
+    b.protections.append({'protectedRangeId':7,'range':{'sheetId':b.ids[gs.OI_TAB]},'description':'AutoReview legacy'})
     b.protections.append({'protectedRangeId':8,'range':{'sheetId':b.ids['Workflow']},'description':'owner rule'})
     with gs.Client('x'*30,transport=httpx.MockTransport(b.handle)) as c:
-        assert c.lock(['Online@SnappPay.ir']) is True
-        for col in range(7,12):                                     # Instore team: their own columns stay open
-            assert covered(b,gs.OI_TAB,5,col) is None
-            assert covered(b,gs.OI_TAB,0,col)                       # ... but not their header
-        for col in (0,4,6,12,13,20):
-            assert covered(b,gs.OI_TAB,5,col)
-        for tab in ('Workflow','Decisions','Audit','Notes of mine'):
-            assert covered(b,tab,3,2)
-        ours=[p for p in b.protections if p['description'].startswith('AutoReview')]
-        assert all(not p['warningOnly'] and p['editors']['users']==['online@snapppay.ir'] for p in ours)
-        assert not any(p['protectedRangeId']==7 for p in b.protections)        # the old warning is replaced
-        assert any(p['protectedRangeId']==8 for p in b.protections)            # the owner's own protection is untouched
+        assert c.lock(['invalid@example']) is True
+        assert [p['protectedRangeId'] for p in b.protections] == [8]
         writes=b.writes
-        assert c.lock(['online@snapppay.ir']) is False and b.writes==writes  # nothing to change: nothing sent
-        assert c.lock(['online@snapppay.ir','new@snapppay.ir']) is True
-        assert len([p for p in b.protections if p['description'].startswith('AutoReview')])==len(ours)
+        assert c.lock(['anyone@example.com']) is False
+        assert b.writes == writes
 
 
 def test_legal_tab_lists_crm_company_requests_and_never_writes_the_team_columns():

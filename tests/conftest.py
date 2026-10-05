@@ -7,6 +7,9 @@ def isolated_profile(tmp_path, monkeypatch):
     home = tmp_path / "profile"
     home.mkdir()
     monkeypatch.setenv("AUTOREVIEW_HOME", str(home))
+    from autoreview import sheets, crm_sync
+    monkeypatch.setattr(sheets, 'shared_config', lambda: {})
+    monkeypatch.setattr(crm_sync, '_authenticated_identity', None)
     return home
 
 

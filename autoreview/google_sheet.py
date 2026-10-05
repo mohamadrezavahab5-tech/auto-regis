@@ -234,6 +234,7 @@ class Client:
         if r.status_code != 200:
             try: message = r.json().get('error', {}).get('message', '')
             except ValueError: message = ''
+            message = ' '.join(str(message).split())[:300]
             if 'has not been used' in message or 'disabled' in message:
                 raise GoogleSheetError('Google Sheets API پروژه هنوز فعال نیست')
             if r.status_code in (403,404):
@@ -241,7 +242,8 @@ class Client:
             if r.status_code == 429 or r.status_code >= 500:
                 raise GoogleSheetError('Google موقتاً پاسخ نمی‌دهد؛ بعداً دوباره تلاش می‌شود')
             log.warning("Google Sheets %s: %s", r.status_code, message[:400])
-            raise GoogleSheetError(f'خطای Google Sheets ({r.status_code})؛ اطلاعات اتصال یا ساختار شیت را بررسی کن')
+            detail = f': {message}' if message else ''
+            raise GoogleSheetError(f'خطای Google Sheets ({r.status_code}){detail}')
         return r.json()
 
     def metadata(self):
@@ -337,9 +339,6 @@ class Client:
         current=self.read('Workflow',WORKFLOW_HEAD)
         event_ids=self.column('Audit',EVENT_HEAD[0])
         device=payload['device_id']
-        existing_devices={str(r[16]) for r in current if r[0] and r[16]}
-        if existing_devices - {device}:
-            raise GoogleSheetError('شیت به دستگاه دیگری متصل است؛ برای انتقال، اتصال قبلی باید بررسی شود')
         ids={}
         for i,r in enumerate(current):
             if not r[0]: continue
@@ -418,8 +417,14 @@ class Client:
         last = _CHECKED.get(self.sheet_id)
         if last is None or time.monotonic() - last > 1800:
             created = self.ensure_tabs(reason_labels)
-            self.lock(editors)
-            self.tidy()
+            try:
+                self.lock(editors)
+            except GoogleSheetError as e:
+                log.warning("sheet protection not updated: %s", e)
+            try:
+                self.tidy()
+            except GoogleSheetError as e:
+                log.warning("sheet tab order not updated: %s", e)
             try:
                 self.style()                        # the look only: a failure must never stop the data
             except GoogleSheetError as e:
@@ -523,26 +528,13 @@ class Client:
         return len(req)
 
     def lock(self, editors=()):
-        """Owner 2026-10-02: about 20 Instore colleagues work in this sheet; they may only fill their own columns of
-        Online + Instore, everything else is locked. Real protections (not warnings) that only the sheet's owner, the app's
-        service account and `editors` (the Online team's addresses, settings) can change. Idempotent: when the app's
-        protections already look right nothing is sent. -> True when protections were (re)written."""
-        meta = self.request('GET', params={'fields': 'sheets(properties(sheetId,title),protectedRanges(protectedRangeId,'
-                                                     'description,warningOnly,range,editors(users)))'})
-        account = getattr(self.credentials, 'service_account_email', None)
-        users = sorted({e.strip().lower() for e in (*editors, account) if e and '@' in e})
-        wanted = self.wanted_locks(meta['sheets'])
-        ours = [p for s in meta['sheets'] for p in s.get('protectedRanges', []) if (p.get('description') or '').startswith(LOCK_MARK)]
-        have = sorted(json.dumps(p['range'], sort_keys=True) for p in ours if not p.get('warningOnly'))
-        same_users = all(set(users) <= {u.lower() for u in p.get('editors', {}).get('users', [])} for p in ours)
-        if have == sorted(json.dumps(r, sort_keys=True) for _sid, r in wanted) and same_users:
+        """Remove only legacy AutoReview protections; never create editor restrictions."""
+        meta = self.request('GET', params={'fields': 'sheets(protectedRanges(protectedRangeId,description))'})
+        ours = [p for sh in meta['sheets'] for p in sh.get('protectedRanges', [])
+                if (p.get('description') or '').startswith(LOCK_MARK)]
+        if not ours:
             return False
-        req = [{'deleteProtectedRange': {'protectedRangeId': p['protectedRangeId']}} for p in ours]
-        for _sid, rng in wanted:
-            req.append({'addProtectedRange': {'protectedRange': {
-                'range': rng, 'warningOnly': False, 'description': LOCK_MARK + ' — فقط ستون‌های Instore برای تیم Instore باز است',
-                'editors': {'users': users, 'domainUsersCanEdit': False}}}})
-        self.batch(req)
+        self.batch([{'deleteProtectedRange': {'protectedRangeId': p['protectedRangeId']}} for p in ours])
         return True
 
     # ---- Online + Instore tab -------------------------------------------------------------------------------------------

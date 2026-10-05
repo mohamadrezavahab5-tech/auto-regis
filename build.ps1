@@ -8,11 +8,20 @@
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 $root = $PSScriptRoot
+# Keep unrelated tools (for example Poppler's ICU) out of PyInstaller's DLL search.
+# Qt uses the Windows ICU ABI; collecting a same-named DLL from PATH breaks startup.
+$buildPython = (python -c "import sys; print(sys.executable)").Trim()
+$buildPythonDir = Split-Path -Parent $buildPython
+$env:PATH = (@($buildPythonDir, (Join-Path $buildPythonDir 'Scripts'),
+  (Join-Path $env:SystemRoot 'System32'), $env:SystemRoot,
+  (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0')) -join ';')
 $version = (python -c "from autoreview.version import __version__; print(__version__)").Trim()
 New-Item -ItemType Directory -Force "$root\build", "$root\dist" | Out-Null
 
 python "$root\installer\make_assets.py"
 if ($LASTEXITCODE -ne 0) { throw "assets failed" }
+python "$root\installer\stage_resources.py"
+if ($LASTEXITCODE -ne 0) { throw "resource safety check failed" }
 
 $notNeeded = @('tkinter', 'matplotlib', 'scipy', 'numpy', 'pandas', 'playwright', 'IPython', 'PIL',
   'PySide6.Qt3DCore', 'PySide6.Qt3DRender', 'PySide6.QtCharts', 'PySide6.QtDataVisualization', 'PySide6.QtGraphs',
@@ -21,9 +30,9 @@ $notNeeded = @('tkinter', 'matplotlib', 'scipy', 'numpy', 'pandas', 'playwright'
   'PySide6.QtRemoteObjects', 'PySide6.QtTextToSpeech', 'PySide6.QtHttpServer', 'PySide6.QtSpatialAudio', 'PySide6.QtQuick3D')
 $excludeApp = $notNeeded | ForEach-Object { '--exclude-module'; $_ }
 
-python -m PyInstaller --noconfirm --clean --windowed --name AutoReview `
+python "$root\installer\freeze.py" --noconfirm --clean --windowed --name AutoReview `
   --icon "$root\build\autoreview.ico" --version-file "$root\build\version_app.txt" `
-  --add-data "$root\config;config" --add-data "$root\scripts;scripts" --add-data "$root\assets;assets" `
+  --add-data "$root\build\public-resources\config;config" --add-data "$root\build\public-resources\scripts;scripts" --add-data "$root\assets;assets" `
   --distpath "$root\build\app" --workpath "$root\build\work-app" --specpath "$root\build" `
   @excludeApp "$root\run_app.py"
 if ($LASTEXITCODE -ne 0) { throw "app build failed" }
@@ -34,10 +43,12 @@ if ($LASTEXITCODE -ne 0) { throw "payload failed" }
 $excludeSetup = ($notNeeded + @('PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtQuick', 'PySide6.QtQml',
   'PySide6.QtNetwork', 'PySide6.QtWebChannel', 'PySide6.QtPositioning', 'PySide6.QtPdf', 'httpx', 'openpyxl', 'xlsxwriter')) |
   ForEach-Object { '--exclude-module'; $_ }
-python -m PyInstaller --noconfirm --clean --onefile --windowed --name "AutoReview-Setup-$version" `
+python "$root\installer\freeze.py" --noconfirm --clean --onefile --windowed --name "AutoReview-Setup-$version" `
   --icon "$root\build\autoreview.ico" --version-file "$root\build\version_setup.txt" `
   --add-data "$root\build\payload.zip;." `
   --distpath "$root\dist" --workpath "$root\build\work-setup" --specpath "$root\build" `
   --paths "$root" @excludeSetup "$root\installer\setup_app.py"
 if ($LASTEXITCODE -ne 0) { throw "setup build failed" }
+python "$root\installer\verify_payload.py"
+if ($LASTEXITCODE -ne 0) { throw "built payload verification failed" }
 Write-Host "done: dist\AutoReview-Setup-$version.exe"

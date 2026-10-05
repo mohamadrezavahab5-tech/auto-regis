@@ -9,3 +9,8 @@ nbo_cookies.json
 dist/
 build/
 *.spec
+pre-final-release.patch
+config/workspace.json
+build-release/
+
+pre-direct-workspace.patch

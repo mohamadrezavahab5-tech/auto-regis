@@ -1,0 +1,11 @@
+{
+  "secret": "KuJ6hkUDq_XCkdNboAmbuJok3K3twePT",
+  "webapp_url": "",
+  "auto_send": false,
+  "own_sheet_id": "1UHlktMbe6bhDMKQd51Z-H1pvrrgD3ppTl9QmI1cEFrQ",
+  "workflow_sync": false,
+  "auth_mode": "apps_script",
+  "sheet_name": "",
+  "sent_runs": [],
+  "sheet_editors": []
+}

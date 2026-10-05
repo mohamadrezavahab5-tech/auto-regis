@@ -22,6 +22,12 @@ FORMATTED = "@OData.Community.Display.V1.FormattedValue"
 DOMAIN = "SNAPP"                     # the NTLM domain seen from crm.snapppay.ir
 BASE = "http://crm.snapppay.ir/CRM-SnappPay-DB/"
 log = logs.get("crm")
+_authenticated_identity = None
+
+
+def authenticated_identity():
+    """RAM-only identity established by a successful CRM WhoAmI in this process."""
+    return dict(_authenticated_identity) if _authenticated_identity else None
 
 
 class CrmAuthError(RuntimeError):
@@ -100,6 +106,8 @@ def save_credentials(username: str, password: str) -> None:
 
 
 def forget_credentials() -> None:
+    global _authenticated_identity
+    _authenticated_identity = None
     try:
         cred_file().unlink()
     except FileNotFoundError:
@@ -135,7 +143,14 @@ def get(path: str, runner=None) -> dict:
 
 def whoami(runner=None) -> dict:
     """Cheapest authenticated call: proves the stored login works. -> {'UserId': ..., ...}"""
-    return get("WhoAmI", runner)
+    global _authenticated_identity
+    who = get("WhoAmI", runner)
+    name = stored_username()
+    if not who.get('UserId') or not name:
+        _authenticated_identity = None
+        raise CrmAuthError('هویت تأییدشدهٔ CRM دریافت نشد')
+    _authenticated_identity = {'username': name, 'user_id': who['UserId']}
+    return who
 
 
 def login(username: str, password: str, runner=None) -> dict:

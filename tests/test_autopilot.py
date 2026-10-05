@@ -1,10 +1,17 @@
 import os
+import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from autoreview import reference, settings  # noqa: E402
 from autoreview.app.session import Session  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def authenticated_crm(monkeypatch):
+    from autoreview import crm_sync
+    monkeypatch.setattr(crm_sync, '_authenticated_identity', {'username': 'tester', 'user_id': 'test'})
 
 
 def make_session():
@@ -27,6 +34,7 @@ def test_autopilot_waits_for_crm_then_reviews_only_new_requests(monkeypatch):
     finally:
         db.close()
     assert s.autopilot_run() == "no_crm" and not started                 # duplicates need both approved sets
+    s._refresh_workflow_now()
     db = s.db()
     try:
         reference.upsert_crm(db, [], "test", full=True)

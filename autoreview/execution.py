@@ -15,16 +15,17 @@ LABELS = {'PREVIEW': 'آماده؛ منتظر تأیید در NBO', 'SENDING': '
           'UNCERTAIN': 'نتیجه نامشخص؛ تکرار خودکار ممنوع'}
 
 
-def ensure(db):
+def ensure(db, recover=True):
     db.executescript('''CREATE TABLE IF NOT EXISTS nbo_execution (
       smr TEXT NOT NULL, revision INTEGER NOT NULL, state TEXT NOT NULL,
       updated_at TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
       PRIMARY KEY(smr, revision));
       CREATE TABLE IF NOT EXISTS execution_mode_events (
       at TEXT NOT NULL, actor TEXT NOT NULL, live INTEGER NOT NULL);''')
-    with db:
-        db.execute("UPDATE nbo_execution SET state='UNCERTAIN', detail=? WHERE state='SENDING'",
-                   ('برنامه هنگام ارسال بسته شده؛ ابتدا وضعیت NBO بررسی شود',))
+    if recover:
+        with db:
+            db.execute("UPDATE nbo_execution SET state='UNCERTAIN', detail=? WHERE state='SENDING'",
+                       ('برنامه هنگام ارسال بسته شده؛ ابتدا وضعیت NBO بررسی شود',))
 
 
 MAX_SOURCE_AGE = 1800        # the live NBO page is re-read before every click; the export only has to be recent

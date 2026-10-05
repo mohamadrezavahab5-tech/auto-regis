@@ -1,26 +1,30 @@
-"""Results and the review workflow -> the owner's OWN Google Sheet, and nothing else.
-
-Owner rule (2026-10-01): "don't touch their sheets, only the sheet I made". The team's shared sheets (Main-Data,
-Online-Instore) are neither read nor written by this app any more; the old shared-sheet writer was removed, not just switched
-off. Two routes to the own sheet: the service-account key (google_sheet.py, the owner's PC) or the Apps Script web app inside
-that sheet (scripts/own-sheet.gs, which only opens the spreadsheet it is bound to)."""
+"""Direct Google Sheets configuration and reporting; legacy settings are inert."""
 import json
 import re
-import secrets
-import time
 
-import httpx
 
 from . import logs
-from .paths import user_dir
+from .paths import user_dir, config_dir
+from .atomic_file import save_json
 from .texts import ACTION_FA, notes_fa, reasons_fa
 
 log = logs.get("sheet")
 
-_WEBAPP = re.compile(r"^https://script\.google\.com/(?:a/[^/]+/)?macros/s/[A-Za-z0-9_-]{20,}/exec$")
+
 
 class SheetError(RuntimeError):
-    pass
+    def __init__(self, message, code='GOOGLE_API_ERROR'):
+        self.code = code
+        super().__init__(f'{code}: {message}')
+
+
+def shared_config():
+    try:
+        return json.loads((config_dir() / 'workspace.json').read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as error:
+        raise SheetError('تنظیمات همراه برنامه خوانده نشد؛ نصب را ترمیم کن', 'DEPLOYMENT_MISMATCH') from error
 
 
 def config_file():
@@ -32,80 +36,39 @@ def load() -> dict:
         cfg = json.loads(config_file().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         cfg = {}
-    changed = False
-    if not cfg.get("secret"):
-        cfg["secret"] = secrets.token_urlsafe(24)               # per install; it only exists here and inside the person's script
-        changed = True
-    cfg.setdefault("webapp_url", "")
-    cfg.setdefault("auto_send", False)
-    cfg.setdefault("own_sheet_id", "1UHlktMbe6bhDMKQd51Z-H1pvrrgD3ppTl9QmI1cEFrQ")
-    cfg.setdefault("workflow_sync", False)
-    cfg.setdefault("auth_mode", "apps_script")
-    cfg.setdefault("sheet_name", "")
-    cfg.setdefault("sent_runs", [])
-    cfg.setdefault("sheet_editors", [])                         # Online-team addresses that may edit the locked tabs
-    if cfg.pop("oi", None) is not None:                         # the old shared-sheet writer: removed, see module doc
-        changed = True
-    if changed:
+    if not isinstance(cfg, dict):
+        cfg = {}
+    # Keep legacy keys on disk for upgrade recovery, but never consult them for routing.
+    previous = dict(cfg)
+    cfg.setdefault('own_sheet_id', '1UHlktMbe6bhDMKQd51Z-H1pvrrgD3ppTl9QmI1cEFrQ')
+    cfg.setdefault('sent_runs', [])
+    cfg.setdefault('sheet_name', '')
+    cfg.setdefault('sheet_editors', [])
+    cfg.pop('oi', None)
+    cfg.update(auth_mode='workspace', workspace_backend='google_sheets', workflow_sync=True, auto_send=False)
+    if cfg != previous:
         save(cfg)
     return cfg
 
 
 def save(cfg: dict) -> None:
-    config_file().write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Never persist a key accidentally passed by a legacy caller.
+    save_json(config_file(), {k: v for k, v in cfg.items() if k not in ('private_key', 'app_key')})
 
 
-def script_code(cfg: dict = None) -> str:
-    cfg = cfg or load()
-    from .paths import scripts_dir
-    sheet_id = str(cfg.get("own_sheet_id", "")).strip()
-    if not re.fullmatch(r"[A-Za-z0-9_-]{25,80}", sheet_id):
-        raise SheetError("شناسه شیت اختصاصی معتبر نیست")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{30,128}", cfg.get("secret", "")):
-        raise SheetError("کلید اتصال معتبر نیست")
-    return (scripts_dir() / "own-sheet.gs").read_text(encoding="utf-8").replace("__SECRET__", cfg["secret"]).replace("__OWN_ID__", sheet_id)
+def safe_diagnostic(value, payload=None):
+    text = str(value)
+    for key in ('app_key', 'secret', 'token', 'password', 'private_key', 'cookie', 'Authorization'):
+        secret = (payload or {}).get(key)
+        if isinstance(secret, str) and secret:
+            text = text.replace(secret, '[REDACTED]')
+    text = re.sub(r'https?://[^\s"<>]+', '[URL]', text)
+    return text[:1000]
 
 
-def valid_webapp_url(url: str) -> bool:
-    return bool(_WEBAPP.match((url or "").strip()))
-
-
-def _post(url: str, payload: dict, client=None, timeout=90.0) -> dict:
-    if not valid_webapp_url(url):
-        raise SheetError("لینک وب‌اپ درست نیست؛ باید شبیه https://script.google.com/macros/s/…/exec باشد.")
-    own = client is None
-    client = client or httpx.Client(timeout=timeout, follow_redirects=True)
-    try:
-        r = client.post(url.strip(), content=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                        headers={"Content-Type": "application/json; charset=utf-8"})
-    except httpx.HTTPError as e:
-        raise SheetError(f"به Google وصل نشد ({type(e).__name__}). اتصال اینترنت را بررسی کن.") from e
-    finally:
-        if own:
-            client.close()
-    text = r.text.strip()
-    if r.status_code != 200 or not text.startswith("{"):
-        if "accounts.google.com" in str(r.url) or "<html" in text[:200].lower():
-            raise SheetError("وب‌اپ ورود به Google می‌خواهد: در Deploy، گزینه‌ی «Who has access» را روی «Anyone» بگذار و دوباره Deploy کن.")
-        raise SheetError(f"پاسخ نامعتبر از Google (HTTP {r.status_code}).")
-    data = json.loads(text)
-    if not data.get("ok"):
-        if data.get("error") == "forbidden":
-            raise SheetError("کلید اسکریپت با این اپ یکی نیست؛ اسکریپت را دوباره از اپ کپی و Deploy کن.")
-        raise SheetError("Google خطا داد: " + str(data.get("error")))
-    return data
-
-
-def ping(cfg: dict = None, client=None) -> dict:
-    cfg = cfg or load()
-    if cfg.get('auth_mode') == 'service_account':
-        from .google_sheet import Client
-        with Client(cfg['own_sheet_id']) as google:
-            return google.ping()
-    data = _post(cfg.get("webapp_url", ""), {"secret": cfg["secret"], "action": "ping"}, client)
-    cfg["sheet_name"] = data.get("sheet", "")
-    save(cfg)
-    return data
+def ping(cfg=None, client=None):
+    from . import workspace
+    return workspace.health(cfg)
 
 
 def _row(r: dict) -> dict:
@@ -116,22 +79,12 @@ def _row(r: dict) -> dict:
             "decided_at": r.get("decided_at", "")}
 
 
-def send_run(run_id: str, results: list, user_name: str = "", cfg: dict = None, client=None) -> dict:
-    """Adds one run's results to the person's sheet. Sending the same run twice adds nothing (the script checks)."""
+def send_run(run_id, results, user_name='', cfg=None, client=None):
+    """Export the existing Results report using the same direct Google credentials."""
+    from .google_sheet import Client
     cfg = cfg or load()
-    if cfg.get('auth_mode') == 'service_account':
-        from .google_sheet import Client
-        with Client(cfg['own_sheet_id']) as google:
-            return google.append_run(run_id, [_row(r) for r in results])
-    t0 = time.monotonic()
-    data = _post(cfg.get("webapp_url", ""), {"secret": cfg["secret"], "action": "append", "run_id": run_id, "user": user_name or "",
-                                            "rows": [_row(r) for r in results]}, client)
-    if run_id not in cfg["sent_runs"]:
-        cfg["sent_runs"] = (cfg["sent_runs"] + [run_id])[-500:]
-        save(cfg)
-    log.info("run %s sent to the Google Sheet: %s rows%s (%.1fs)", run_id, data.get("appended", 0),
-             " (already there)" if data.get("duplicate") else "", time.monotonic() - t0)
-    return data
+    with Client(cfg['own_sheet_id']) as google:
+        return google.append_run(run_id, [_row(r) for r in results])
 
 
 # ---- NBO's own reason labels ----------------------------------------------------------------------------------------

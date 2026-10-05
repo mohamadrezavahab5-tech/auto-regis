@@ -217,6 +217,21 @@ class Setup(QWidget):
 
 def main():
     args = sys.argv[1:]
+    if '--self-test' in args:
+        # Import/render proof, without installing, closing apps, or touching a profile.
+        import json
+        from PySide6.QtCore import QTimer
+        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+        result = Path(args[args.index('--self-test') + 1])
+        app = QApplication.instance() or QApplication(sys.argv)
+        app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        theme.apply(app)
+        window = Setup()
+        if window.grab().isNull() or not payload_path().is_file():
+            return 2
+        result.write_text(json.dumps({'version': __version__, 'qt_rendered': True, 'payload_found': True}), encoding='utf-8')
+        QTimer.singleShot(0, app.quit)
+        return app.exec()
     if "--silent" in args:
         return silent(args)
     app = QApplication(sys.argv)

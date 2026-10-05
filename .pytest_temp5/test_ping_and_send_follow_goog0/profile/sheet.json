@@ -1,0 +1,13 @@
+{
+  "secret": "gKBj7z9zzd7fLXug9SKdeh9_NjmL8jhw",
+  "webapp_url": "https://script.google.com/macros/s/AKfycbxaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/exec",
+  "auto_send": false,
+  "own_sheet_id": "1UHlktMbe6bhDMKQd51Z-H1pvrrgD3ppTl9QmI1cEFrQ",
+  "workflow_sync": false,
+  "auth_mode": "apps_script",
+  "sheet_name": "AutoReview - Results",
+  "sent_runs": [
+    "run1"
+  ],
+  "sheet_editors": []
+}

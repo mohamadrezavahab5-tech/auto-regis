@@ -9,6 +9,7 @@ What the old code did and this never does:
 Rehearsal = every step except the final click (and except 'Assign to me', which already changes NBO): proves the screen
 flow on a real request without changing anything."""
 import json
+import time
 
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal
 
@@ -33,11 +34,15 @@ ERRORS = {
     "reason_not_selected": "دلیل دقیق NBO انتخاب نشد؛ کاری انجام نشد",
     "final_disabled": "دکمه‌ی نهایی Change Status غیرفعال بود؛ کاری انجام نشد",
     "timeout": "NBO در زمان مناسب پاسخ نداد",
+    "load_failed": "صفحه‌ی NBO بارگذاری نشد؛ اتصال/VPN و دسترسی به NBO را بررسی کن",
 }
 # NBO answered the final click with an error message: its own words are shown
 REFUSED = "NBO تغییر را نپذیرفت — پیام خود NBO: "
 # errors after which NBO may already have changed: never retried automatically
 AFTER_SEND = {"sent_unconfirmed", "nbo_refused"}
+SYSTEMIC_ERRORS = frozenset({
+    "login", "session_expired", "no_search", "load_failed", "script", "browser_failure", "timeout", "busy",
+})
 
 _HELPERS = r"""
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -59,7 +64,8 @@ def _wrap(body: str) -> str:
     """Runs body as an async function; the outcome is left in window.__arAct for polling (runJavaScript cannot await)."""
     return ("(function(){window.__arAct={state:'running'};(async()=>{" + _HELPERS + body +
             "})().then(r=>{window.__arAct=Object.assign({state:'done'},r||{});})"
-            ".catch(e=>{window.__arAct={state:'error',error:'script',message:String(e)};});return true;})()")
+            ".catch(e=>{const sent=!!(window.__arAct&&window.__arAct.sent);"
+            "window.__arAct={state:'error',error:sent?'sent_unconfirmed':'script',message:String(e)};});return true;})()")
 
 
 def search_js(smr: str) -> str:
@@ -115,25 +121,38 @@ def detail_js(smr: str, action: str, reason_label: str, rehearsal: bool, allow_a
   }}
   if (!option) return {{error: 'option_missing'}};
   option.click();
-  await sleep(1500);
   if ({reason}) {{
-    const input = dialog.querySelector("input[id^='react-select-']");
+    let input = null;
+    for (const more = until(5000); more() && !input; ) {{
+      input = dialog.querySelector("input[id^='react-select-']");
+      if (input && (!input.isConnected || !input.getClientRects().length)) input = null;
+      if (!input) await sleep(100);
+    }}
     if (!input) return {{error: 'reason_missing'}};
     input.focus();
     setValue(input, {reason});
     let pick = null;
     for (const more = until(6000); more() && !pick; ) {{
-      await sleep(250);
       pick = [...document.querySelectorAll('[id*="-option-"]')].find(o => txt(o) === {reason});
+      if (!pick) await sleep(100);
     }}
     if (!pick) return {{error: 'reason_not_selected'}};
     pick.click();
-    await sleep(800);
-    const chosen = [...dialog.querySelectorAll('[class*="singleValue"], [class*="multiValue"]')].map(txt);
-    if (!chosen.includes({reason})) return {{error: 'reason_not_selected'}};
+    let selected = false;
+    for (const more = until(3000); more() && !selected; ) {{
+      const chosen = [...dialog.querySelectorAll('[class*="singleValue"], [class*="multiValue"]')].map(txt);
+      selected = chosen.includes({reason});
+      if (!selected) await sleep(100);
+    }}
+    if (!selected) return {{error: 'reason_not_selected'}};
   }}
-  const final = buttons(dialog, 'Change Status').pop();
-  if (!final || final.disabled) {{
+  let final = null;
+  for (const more = until(3000); more() && !final; ) {{
+    final = buttons(dialog, 'Change Status').pop();
+    if (final && final.disabled) final = null;
+    if (!final) await sleep(100);
+  }}
+  if (!final) {{
     document.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Escape', bubbles: true}}));
     return {{error: 'final_disabled'}};
   }}
@@ -152,6 +171,7 @@ def detail_js(smr: str, action: str, reason_label: str, rehearsal: bool, allow_a
   }};
   const before = heard();                               // only what appears AFTER the click counts
   const said = () => heard().filter(t => !before.includes(t)).join(' | ');
+  window.__arAct.sent = true;
   final.click();
   let notice = '', closed = false;
   for (const more = until(10000); more(); ) {{
@@ -179,33 +199,65 @@ class NboActor(QObject):
         self.page = Page(profile or nbo_profile(), self)
         self.busy = False
         self._load_cb = None
+        self._load_timer = QTimer(self)
+        self._load_timer.setSingleShot(True)
+        self._load_timer.timeout.connect(self._load_expired)
         self.page.loadFinished.connect(self._loaded)
 
     # ---- plumbing
     def _loaded(self, ok):
+        self._load_timer.stop()
         cb, self._load_cb = self._load_cb, None
         if cb:
-            QTimer.singleShot(1500, lambda: cb(ok))
+            QTimer.singleShot(500, lambda: cb(ok))
+
+    def _load_expired(self):
+        cb, self._load_cb = self._load_cb, None
+        self.page.setUrl(QUrl('about:blank'))
+        if cb:
+            cb(False)
 
     def _load(self, url, cb):
         self._load_cb = cb
+        self._load_timer.start(45000)
         self.page.load(QUrl(url))
 
-    def _script(self, js, cb, timeout_ms):
-        waited = [0]
+    def _script(self, js, cb, timeout_ms, detail=False):
+        finished = [False]
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+
+        def complete(state, expired=False):
+            if finished[0]:
+                return
+            finished[0] = True
+            timer.stop()
+            timer.deleteLater()
+            if expired:
+                # Cancel the old document before allowing the next request to use this page.
+                self.page.setUrl(QUrl('about:blank'))
+            if detail and state.get('error') == 'timeout':
+                state = dict(state, error='sent_unconfirmed')
+            cb(state)
 
         def poll():
+            if finished[0]:
+                return
             def got(raw):
-                state = json.loads(raw) if isinstance(raw, str) and raw else {}
-                if state.get("state") in ("done", "error"):
-                    cb(state)
-                elif waited[0] >= timeout_ms:
-                    cb({"state": "error", "error": "timeout"})
+                if finished[0]:
+                    return
+                try:
+                    state = json.loads(raw) if isinstance(raw, str) and raw else {}
+                except (ValueError, TypeError):
+                    state = {}
+                if state.get('state') in ('done', 'error'):
+                    complete(state)
                 else:
-                    waited[0] += 400
-                    QTimer.singleShot(400, poll)
-            self.page.runJavaScript("JSON.stringify(window.__arAct||{})", 0, got)
-        self.page.runJavaScript(js, 0, lambda _r: QTimer.singleShot(300, poll))
+                    QTimer.singleShot(250, poll)
+            self.page.runJavaScript('JSON.stringify(window.__arAct||{})', 0, got)
+        timer.timeout.connect(lambda: complete({'state': 'error', 'error': 'timeout'}, expired=True))
+        timer.start(timeout_ms)
+        self.page.runJavaScript(js, 0, lambda _r: QTimer.singleShot(100, poll))
 
     # ---- the flow
     def run(self, smr, action, reason_label, on_done, rehearsal=False):
@@ -217,6 +269,8 @@ class NboActor(QObject):
             return
         self.busy = True
         attempts = {"assign": 0}
+        started = time.monotonic()
+        stage = ["بارگذاری فهرست"]
 
         def finish(result):
             self.busy = False
@@ -228,33 +282,40 @@ class NboActor(QObject):
             if code == "nbo_refused":
                 message = REFUSED + said
             elif code == "sent_unconfirmed":
-                message = "ثبت نهایی زده شد ولی بسته شدن پنجره دیده نشد؛ در NBO نگاه کن" + (f" (NBO: {said})" if said else "")
+                message = "نتیجهٔ مرحلهٔ تغییر وضعیت نامشخص است؛ پیش از تکرار، وضعیت را در NBO بررسی کن" + (f" (NBO: {said})" if said else "")
             else:
                 message = ERRORS.get(code, "" if not code else (said or code))
-            out = {"ok": not code or partial, "sent": bool(result.get("sent")), "rehearsed": bool(result.get("rehearsed")) or partial,
+            elapsed = round(time.monotonic() - started, 1)
+            if code:
+                message += f" — مرحله: {stage[0]}؛ زمان سپری‌شده: {elapsed} ثانیه"
+            out = {"elapsed_seconds": elapsed, "stage": stage[0], "ok": not code or partial, "sent": bool(result.get("sent")), "rehearsed": bool(result.get("rehearsed")) or partial,
                    "error": code or "", "message": message, "notice": said if not code else ""}
             log.info("NBO %s %s for %s -> %s%s", "rehearsal" if rehearsal else "action", action, smr, code or "ok",
                      f" | NBO said: {said}" if said else "")
+            log.info("NBO stage=%s elapsed=%.1fs outcome=%s", stage[0], elapsed, code or "ok")
             on_done(out)
 
         def on_list(ok):
             if not ok:
-                return finish({"error": "timeout"})
+                return finish({"error": "load_failed"})
+            stage[0] = "جستجوی درخواست"
             self.step.emit("جستجوی درخواست در NBO…")
             self._script(search_js(smr), on_found, 40_000)
 
         def on_found(r):
             if r.get("error"):
                 return finish(r)
+            stage[0] = "بارگذاری جزئیات"
             self.step.emit("باز کردن جزئیات درخواست…")
             self._load(r["href"], lambda ok: on_detail(ok, r["href"]))
 
         def on_detail(ok, href):
             if not ok:
-                return finish({"error": "timeout"})
+                return finish({"error": "load_failed"})
             self.step.emit("تمرین تغییر وضعیت (بدون ثبت)…" if rehearsal else "تغییر وضعیت در NBO…")
+            stage[0] = "تغییر وضعیت / تأیید پاسخ NBO"
             self._script(detail_js(smr, action, reason_label, rehearsal, allow_assign=not rehearsal and attempts["assign"] < 1),
-                         lambda r: after_detail(r, href), 120_000)
+                         lambda r: after_detail(r, href), 120_000, detail=not rehearsal)
 
         def after_detail(r, href):
             if r.get("assigned"):

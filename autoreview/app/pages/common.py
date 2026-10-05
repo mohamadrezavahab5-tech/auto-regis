@@ -8,7 +8,7 @@ from ..theme import C
 
 # NBO's own status names, written the way NBO shows them (owner 2026-10-02: English where Persian is not needed)
 NBO_STATUS_FA = {
-    "PENDING": "Pending", "COMMERCIAL_IN_PROGRESS": "Commercial in progress", "COMMERCIAL_APPROVED": "Commercial approved",
+    "PENDING": "Pending", "COMMERCIAL_IN_PROGRESS": "Commercial in progress", "COMMERCIAL_APPROVED": "Approved",
     "ACTIVATING": "Activating", "PENDING_ACTIVATION": "Pending activation", "COMPLETED": "Completed",
     "REQUIRED_EDITING": "Required editing", "CANCELLED": "Cancelled", "DRAFT": "Draft",
     "LEFT_QUEUE": "از صف بیرون رفته — وضعیت دقیق در دریافت کامل بعدی",

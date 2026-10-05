@@ -11,33 +11,7 @@ def sync(db, cfg=None, client=None):
     cfg = cfg or sheets.load()
     if not cfg.get('workflow_sync'):
         raise sheets.SheetError('همگام‌سازی گردش کار خاموش است')
-    if cfg.get('auth_mode') == 'workspace':
-        return sync_workspace(db, cfg)
-    if cfg.get('auth_mode') == 'service_account':
-        from .google_sheet import Client
-        with Client(cfg['own_sheet_id']) as google:
-            return sync_direct(db, google)
-    url = cfg.get('webapp_url', '')
-    def post(action, **values):
-        return sheets._post(url, dict(secret=cfg['secret'], action=action, **values), client)
-    info = post('ping')
-    if info.get('version', 0) < 3 or info.get('sheet_id') != cfg.get('own_sheet_id'):
-        raise sheets.SheetError('اسکریپت نسخه 3 را در شیت اختصاصی نصب و دوباره Deploy کن')
-    # Publish current revisions before accepting human commands based on them.
-    sent = workflow.pending(db)
-    result = post('workflow_sync', **sent)
-    if result.get('cases') != len(sent['cases']) or result.get('events') != len(sent['events']):
-        raise sheets.SheetError('تعداد رسیدهای شیت با بسته ارسال‌شده برابر نیست؛ دوباره تلاش می‌شود')
-    workflow.acknowledge(db, sent)
-    incoming = post('workflow_commands', device_id=sent['device_id'])
-    commands = incoming.get('commands')
-    if not isinstance(commands, list) or len(commands) > 100:
-        raise sheets.SheetError('پاسخ فرمان‌های شیت معتبر نیست')
-    receipts = [workflow.apply_command(db, c, sheets.nbo_labels()) for c in commands]
-    if receipts:
-        post('workflow_ack', device_id=sent['device_id'], receipts=receipts)
-    return {'remaining': workflow.pending_count(db), 'commands': len(receipts),
-            'rejected': sum(r['status'] == 'rejected' for r in receipts)}
+    return sync_workspace(db, cfg)
 
 
 _LEGAL_NEXT = 0.0
@@ -99,23 +73,163 @@ def sync_direct(db, google):
 
 
 def sync_workspace(db, cfg):
+    """All devices read the same cloud authority. Install a complete generation atomically."""
     import hashlib
-    from . import workspace
-    profile = workspace.call('whoami',cfg)['user']
-    sent = workflow.pending(db,limit=20)
-    if profile['role'] in ('admin','online'):
-        for case in sent['cases']:
-            op = hashlib.sha256((sent['device_id']+case['smr']+str(case['revision'])).encode()).hexdigest()[:32]
-            response = workspace.call('source',cfg,operation_id=op,case=case)
-            workflow.acknowledge(db,{'cases':[case],'events':[]})
-            workspace.cache_cases(db,[response['case']])
-    offset=0
-    while True:
-        response=workspace.call('read',cfg,offset=offset)
-        # Preserve pending local source changes; they must not be lost during a remote read.
-        pending_ids=({r[0] for r in db.execute('SELECT smr FROM workflow_cases WHERE revision>synced_revision')}
-                     if profile['role'] in ('admin','online') else set())
-        workspace.cache_cases(db,[c for c in response['cases'] if c['smr'] not in pending_ids])
-        if response.get('next') is None: break
-        offset=response['next']
-    return {'remaining':workflow.pending_count(db),'commands':0,'rejected':0}
+    import json
+    from . import workspace, store, execution
+    workspace.health(cfg)
+    rejected_count = 0
+    execution.ensure(db, recover=False)
+    workspace.flush_execution(db, cfg)
+    # First direct sync republishes local state without deleting any history.
+    if not db.execute("SELECT 1 FROM workflow_meta WHERE key='workspace_v6_initialized'").fetchone():
+        with db:
+            db.execute('UPDATE workflow_cases SET synced_revision=0')
+            db.execute("INSERT INTO workflow_meta VALUES('workspace_v6_initialized','1')")
+            db.execute("DELETE FROM workflow_meta WHERE key='shared_generation'")
+    sent = workflow.pending(db, limit=50)
+    sent_cases_any = False
+
+    # Drain several safe source batches per sync so a large backlog cannot
+    # keep approved cases waiting for many sync rounds.
+    from .workspace_google import compact
+
+    for _source_batch in range(20):
+        candidates = [
+            json.loads(r[0])
+            for r in db.execute(
+                """SELECT w.body
+                   FROM workflow_cases AS w
+                   WHERE w.revision > w.synced_revision
+                     AND NOT EXISTS (
+                         SELECT 1
+                         FROM nbo_execution AS n
+                         WHERE n.smr = w.smr
+                           AND n.state IN ('SENDING','UNCERTAIN')
+                     )
+                   ORDER BY (w.revision - w.synced_revision) DESC, w.smr
+                   LIMIT 50"""
+            )
+        ]
+
+        if not candidates:
+            break
+
+        for case in candidates:
+            result = store.latest_result(db, case['smr'])
+            case['review'] = (
+                {k: result.get(k) for k in
+                 ('smr','action','reason_codes','decided_at','duration_ms')}
+                if result else case.get('review')
+            )
+            case['previous_executions'] = [
+                dict(revision=r[0], state=r[1], at=r[2])
+                for r in db.execute(
+                    """SELECT revision,state,updated_at
+                       FROM nbo_execution
+                       WHERE smr=?
+                         AND state IN
+                         ('SENT','SENDING','UNCERTAIN','VERIFIED','APPROVED_IN_NBO')""",
+                    (case['smr'],)
+                )
+            ]
+
+        chunk = []
+        for case in candidates:
+            if len(compact(chunk + [case])) > 18000:
+                if not chunk:
+                    raise sheets.SheetError(
+                        '?????? ???? ????? ????? ??? ?? ?? ???? ???? ????? ???? ????? ???',
+                        'SHEET_SCHEMA_ERROR'
+                    )
+                break
+            chunk.append(case)
+
+        retry = db.execute(
+            "SELECT value FROM workflow_meta WHERE key='source_retry'"
+        ).fetchone()
+        nonce = int(retry[0]) if retry else 0
+
+        op = hashlib.sha256(
+            json.dumps(
+                [sent['device_id'], nonce, chunk],
+                sort_keys=True,
+                ensure_ascii=False
+            ).encode()
+        ).hexdigest()[:32]
+
+        response = workspace.call(
+            'source_batch',
+            cfg,
+            operation_id=op,
+            cases=chunk
+        )
+
+        sent_cases_any = True
+
+        accepted = {c['smr'] for c in response.get('cases', [])}
+        refused = response.get('rejected', [])
+        accounted = accepted | {r['smr'] for r in refused}
+
+        if accounted != {c['smr'] for c in chunk}:
+            raise sheets.SheetError(
+                '???? ????? ????? ???? ???? ?????? ???? ??????'
+            )
+
+        accepted |= {
+            r['smr']
+            for r in refused
+            if r.get('status') == 'stale'
+        }
+
+        workflow.acknowledge(
+            db,
+            dict(
+                cases=[c for c in chunk if c['smr'] in accepted],
+                events=[]
+            )
+        )
+
+        hard_rejected = sum(
+            r.get('status') != 'stale'
+            for r in refused
+        )
+        rejected_count += hard_rejected
+
+        if hard_rejected:
+            # Do not spin on the same conflict in this sync round.
+            with db:
+                db.execute(
+                    "INSERT OR REPLACE INTO workflow_meta VALUES('source_retry',?)",
+                    (str(nonce + 1),)
+                )
+            break
+    if sent['events']:
+        events = [workspace.safe_event(e) for e in sent['events']]
+        receipt = workspace.call('audit_batch', cfg, events=events)
+        if set(receipt.get('event_ids', [])) != {e['event_id'] for e in events}:
+            raise sheets.SheetError('رسید لاگ مشترک ناقص است؛ لاگ محلی حفظ شد')
+        workflow.acknowledge(db, {'cases': [], 'events': sent['events']})
+    for _attempt in range(3):
+        offset, generation, cases, ledger = 0, None, [], []
+        while True:
+            known = db.execute("SELECT value FROM workflow_meta WHERE key='shared_generation'").fetchone()
+            response = workspace.call('read', cfg, offset=offset, generation=generation,
+                known_generation=int(known[0]) if known and not sent_cases_any and offset == 0 else None)
+            if response.get('unchanged'):
+                return {'remaining': workflow.pending_count(db), 'commands': 0, 'rejected': rejected_count}
+            if response.get('restart'):
+                break
+            generation = response['generation']
+            cases.extend(response['cases'])
+            if offset == 0:
+                ledger = response.get('executions', [])
+            following = response.get('next')
+            if following is None:
+                pending_ids = {r[0] for r in db.execute('SELECT smr FROM workflow_cases WHERE revision>synced_revision')}
+                workspace.cache_snapshot(db, [c for c in cases if c['smr'] not in pending_ids], ledger, generation)
+                return {'remaining': workflow.pending_count(db), 'commands': 0, 'rejected': rejected_count}
+            if not isinstance(following, int) or following <= offset:
+                raise sheets.SheetError('صفحه‌بندی سرویس نامعتبر است')
+            offset = following
+    raise sheets.SheetError('صف مشترک حین دریافت تغییر کرد؛ دادهٔ قبلی محفوظ است و دوباره دریافت می‌شود')

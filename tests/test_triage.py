@@ -1,4 +1,5 @@
 import os
+import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -8,6 +9,25 @@ from autoreview.app.pages.triage import TriagePage  # noqa: E402
 from autoreview.app.session import Session  # noqa: E402
 
 KEEP = []
+
+
+@pytest.fixture(autouse=True)
+def direct_workspace(monkeypatch):
+    from autoreview import workspace, workspace_google, crm_sync, store
+    from autoreview.app.pages import triage
+    from test_workspace_google import Book
+    backend = workspace_google.Backend(client=Book())
+    def decide(smr, team, action, note, revision, reason=''):
+        backend.health()
+        db = KEEP[-1][0].db()
+        try: backend.cases = {c['smr']: c for c in workflow.cases(db)}
+        finally: db.close()
+        backend.loaded = True
+        return backend.call('decide', 'tester', 'test-machine', 'test', operation_id=__import__('uuid').uuid4().hex,
+                            smr=smr, team=team, decision=action, note=note, revision=revision, reason=reason)
+    monkeypatch.setattr(crm_sync, '_authenticated_identity', {'username':'tester'})
+    monkeypatch.setattr(workspace, 'decide', decide)
+    monkeypatch.setattr(triage, 'run_bg', lambda work, done, error: done(work(None)))
 
 
 def make():
