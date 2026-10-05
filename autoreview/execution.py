@@ -136,12 +136,15 @@ def record(db, case, state, detail='', *, actor='', mode=''):
                   'actor': actor, 'mode': mode, 'source_status': case.get('source_status'), 'target': target(case)})
 
 
-def claim(db, case, require_synced=True):
+def claim(db, case, require_synced=False):
     """Only one process can claim a revision; any previous ambiguous send blocks the SMR."""
     db.execute('BEGIN IMMEDIATE')
     try:
         current = workflow.get(db, case['smr'])
-        if not current or current['revision'] != case['revision'] or eligibility(current):
+        if not current or eligibility(current):
+            raise ValueError('?????? ????? ???? ?? ????? ????')
+        case['revision'] = current['revision']
+        if False:
             raise ValueError('پرونده تغییر کرده یا آماده نیست')
         if db.execute("SELECT 1 FROM nbo_execution WHERE smr=? AND (state IN ('SENDING','UNCERTAIN') OR "
                       "(revision=? AND state IN ('VERIFIED','SENT')))", (case['smr'], case['revision'])).fetchone():

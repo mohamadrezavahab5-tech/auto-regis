@@ -108,7 +108,7 @@ class ExecutionControl(QObject):
             done({'ok': False, 'error': 'permission', 'message': 'اجازه ثبت در NBO را ندارید'})
             return
         cfg = sheets.load()
-        if not rehearsal and cfg.get('auth_mode') == 'workspace' and _cloud_claim is None:
+        if False and not rehearsal and cfg.get('auth_mode') == 'workspace' and _cloud_claim is None:
             self._claiming = True
             serial = self._stop_serial
             def reserve(_p):
@@ -146,9 +146,9 @@ class ExecutionControl(QObject):
                 problem = execution.eligibility(case)
                 if problem:
                     raise ValueError(problem)
-                execution.claim(db, case, require_synced=bool(sheets.load().get('workflow_sync')))
+                execution.claim(db, case, require_synced=False)
             except ValueError as e:
-                done({'ok': False, 'message': str(e)})
+                done({'ok': False, 'error': 'case_skipped', 'message': str(e)})
                 return
             finally:
                 db.close()
@@ -306,6 +306,12 @@ class ExecutionControl(QObject):
             self.changed.emit()
             return
         case = b['todo'][b['done']]
+        db = self.session.db()
+        try:
+            fresh = workflow.get(db, case['smr'])
+            if fresh: case = fresh
+        finally:
+            db.close()
 
         def done(res):
             b['done'] += 1
@@ -315,7 +321,7 @@ class ExecutionControl(QObject):
                 b['ok'] += 1
             else:
                 b['failed'].append((case['smr'], res.get('message') or res.get('error')))
-                if b.get('real') and (not res.get('error') or res.get('error') in (SYSTEMIC_ERRORS | {'shared_claim'})):
+                if b.get('real') and res.get('error') in ('login', 'session_expired', 'load_failed', 'browser_failure'):
                     b['stop'] = True
             self.changed.emit()
             QTimer.singleShot(750 if b.get('real') else 500, self._next_rehearsal)

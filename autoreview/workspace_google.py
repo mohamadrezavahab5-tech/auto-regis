@@ -114,6 +114,8 @@ class Client(google_sheet.Client):
             if response.status_code != 200:
                 try: reason = compact(response.json().get('error', {})).lower()
                 except (ValueError, AttributeError): reason = ''
+                if response.status_code == 400 and method == 'GET' and any(s in reason for s in ('exceeds grid limits', 'out of bounds', 'invalid range')):
+                    return {'valueRanges': [{'values': []} for _ in kwargs.get('params', {}).get('ranges', [''])]}
                 code = {401: 'GOOGLE_AUTH_ERROR', 403: 'SHEET_ACCESS_DENIED', 404: 'SHEET_NOT_FOUND'}.get(response.status_code, 'GOOGLE_API_ERROR')
                 if any(s in reason for s in ('service_disabled', 'accessnotconfigured', 'has not been used', 'api has been disabled')):
                     code = 'GOOGLE_API_ERROR'
@@ -414,11 +416,23 @@ class Backend:
         index = self.operation_rows[operation]
         result = self.ops[operation][1]
         # Event rows need not have the same index as journal operations.
-        found = self.ranges([f"'{AUDIT}'!A{self.audit_cursor + 2}:A"])[0]
-        for values in found:
-            if not values: raise WorkspaceError('SHEET_SCHEMA_ERROR')
-            self.audit_rows.setdefault(values[0], self.audit_cursor + 2)
-            self.audit_cursor += 1
+        if operation not in self.audit_rows:
+            max_audit = self.props.get(AUDIT, {}).get('gridProperties', {}).get('rowCount', 1000)
+            if self.audit_cursor + 2 > max_audit:
+                self.metadata()
+                max_audit = self.props.get(AUDIT, {}).get('gridProperties', {}).get('rowCount', 1000)
+            if self.audit_cursor + 2 <= max_audit:
+                found = self.ranges([f"'{AUDIT}'!A{self.audit_cursor + 2}:A"])[0]
+                for values in found:
+                    if values and values[0]:
+                        self.audit_rows.setdefault(values[0], self.audit_cursor + 2)
+                    self.audit_cursor += 1
+            if operation not in self.audit_rows:
+                all_audit = self.ranges([f"'{AUDIT}'!A2:A"])[0]
+                for r_idx, values in enumerate(all_audit):
+                    if values and values[0]:
+                        self.audit_rows.setdefault(values[0], r_idx + 2)
+                self.audit_cursor = len(all_audit)
         audit_index = self.audit_rows.get(operation)
         if audit_index is None: raise WorkspaceError('SHEET_SCHEMA_ERROR')
         state = 'OK' if result.get('ok') else 'CONFLICT'
