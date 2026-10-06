@@ -370,3 +370,17 @@ def test_workflow_preserves_identity_and_ownership_fields_for_shared_review(db):
     assert shared['account_holder'] == row['account_holder']
     assert shared['owner_name'] == row['owner_name']
     assert shared['owner_family'] == row['owner_family']
+
+
+def test_shared_queue_name_fields_are_enough_for_name_rule(db):
+    row = dict(smr='SMR-778', site='shop.test', category='مد و پوشاک', status='PENDING',
+               ownership='INDIVIDUAL', has_online='true', has_instore='false',
+               account_holder='محمدرضا وهاب', owner_name='محمد رضا', owner_family='وهاب')
+    workflow.refresh(db, [row], {'SMR-778'})
+    from autoreview import workspace
+    from autoreview.facts import registrant_name
+    from autoreview.normalize import names_equal
+    shared = workspace.shared_queues(db)[0][0]
+    assert shared['account_holder']
+    assert registrant_name(shared)
+    assert names_equal(registrant_name(shared), shared['account_holder']) is True
