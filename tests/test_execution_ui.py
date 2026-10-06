@@ -239,6 +239,19 @@ def test_real_batch_stops_on_systemic_nbo_errors(monkeypatch, error):
     control.stop()
 
 
+def test_autopilot_respects_selected_action_types_and_rejects_empty_selection(monkeypatch):
+    QApplication.instance() or QApplication([])
+    from autoreview import settings
+    control = ExecutionControl(Session())
+    monkeypatch.setattr(settings, 'load_rules', lambda: {'execution': {'auto_actions': ['EDIT', 'CANCEL']}})
+    assert control.auto_actions() == {'EDIT', 'CANCEL'}
+    monkeypatch.setattr(settings, 'load_rules', lambda: {'execution': {'auto_actions': []}})
+    with pytest.raises(ValueError, match='حداقل یکی از عملیات'):
+        control.set_live(True)
+    assert not control.mode.live
+    control.stop()
+
+
 def test_autopilot_only_takes_online_cases(monkeypatch):
     QApplication.instance() or QApplication([])
     control = ExecutionControl(Session())

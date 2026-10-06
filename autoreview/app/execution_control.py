@@ -64,10 +64,19 @@ class ExecutionControl(QObject):
 
     @staticmethod
     def auto_actions():
-        return {'APPROVE', 'EDIT', 'CANCEL'}
+        """The exact verdict kinds the owner allowed Autopilot to execute.
+
+        The UI stores this in rules.execution.auto_actions. Keep the shipped
+        default (APPROVE only) when an old profile has no override, and ignore
+        unknown values instead of silently widening permissions.
+        """
+        configured = settings.load_rules().get('execution', {}).get('auto_actions', ['APPROVE'])
+        return {action for action in configured if action in ACTION_FA}
 
     # ---- mode
     def set_live(self, enabled):
+        if enabled and not self.auto_actions():
+            raise ValueError('حداقل یکی از عملیات تأیید، اصلاح یا لغو را برای Autopilot مجاز کن')
         db = self.session.db()
         try:
             self.mode.set(enabled, self.session.profile.get('username'), db, self.readiness)
