@@ -230,7 +230,7 @@ def sync_workspace(db, cfg):
         workflow.acknowledge(db, {'cases': [], 'events': sent['events']})
     for _attempt in range(3):
         offset, generation, cases, ledger = 0, None, [], []
-        while True:
+        for _page in range(5000):
             known = db.execute("SELECT value FROM workflow_meta WHERE key='shared_generation'").fetchone()
             response = workspace.call('read', cfg, offset=offset, generation=generation,
                 known_generation=int(known[0]) if known and not sent_cases_any and offset == 0 else None)
@@ -251,4 +251,6 @@ def sync_workspace(db, cfg):
             if not isinstance(following, int) or following <= offset:
                 raise sheets.SheetError('صفحه‌بندی سرویس نامعتبر است')
             offset = following
+        else:
+            raise sheets.SheetError('تعداد صفحات فضای مشترک غیرعادی شد؛ همگام‌سازی متوقف شد و دادهٔ قبلی محفوظ ماند.')
     raise sheets.SheetError('صف مشترک حین دریافت تغییر کرد؛ دادهٔ قبلی محفوظ است و دوباره دریافت می‌شود')
