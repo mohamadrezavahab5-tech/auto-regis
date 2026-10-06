@@ -126,6 +126,7 @@ class Client(google_sheet.Client):
 
 class Backend:
     def __init__(self, sheet_id=EXPECTED_SHEET_ID, client=None):
+        self.sheet_id = sheet_id
         if sheet_id != EXPECTED_SHEET_ID:
             raise WorkspaceError('SHEET_NOT_FOUND')
         self.client = client or Client(sheet_id)
@@ -149,7 +150,7 @@ class Backend:
 
     def metadata(self):
         data = self.client.request('GET', params={'fields': 'spreadsheetId,sheets.properties'})
-        if data.get('spreadsheetId') != self.sheet_id: raise WorkspaceError('SHEET_NOT_FOUND')
+        if data.get('spreadsheetId') != getattr(self, 'sheet_id', EXPECTED_SHEET_ID): raise WorkspaceError('SHEET_NOT_FOUND')
         self.props = {s['properties']['title']: s['properties'] for s in data.get('sheets', [])}
 
     def initialize(self):

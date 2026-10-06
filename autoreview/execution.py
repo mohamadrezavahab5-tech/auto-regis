@@ -136,7 +136,7 @@ def record(db, case, state, detail='', *, actor='', mode=''):
                   'actor': actor, 'mode': mode, 'source_status': case.get('source_status'), 'target': target(case)})
 
 
-def claim(db, case, require_synced=False):
+def claim(db, case):
     """Only one process can claim a revision; any previous ambiguous send blocks the SMR."""
     db.execute('BEGIN IMMEDIATE')
     try:
@@ -144,15 +144,12 @@ def claim(db, case, require_synced=False):
         if not current or eligibility(current):
             raise ValueError('?????? ????? ???? ?? ????? ????')
         case['revision'] = current['revision']
-        if False:
-            raise ValueError('پرونده تغییر کرده یا آماده نیست')
         if db.execute("SELECT 1 FROM nbo_execution WHERE smr=? AND (state IN ('SENDING','UNCERTAIN') OR "
                       "(revision=? AND state IN ('VERIFIED','SENT')))", (case['smr'], case['revision'])).fetchone():
             raise ValueError('این درخواست قبلاً ارسال شده یا نتیجه نامشخص دارد')
-        if require_synced:
-            row = db.execute('SELECT synced_revision FROM workflow_cases WHERE smr=?', (case['smr'],)).fetchone()
-            if not row or row[0] < case['revision']:
-                raise ValueError('تأییدها هنوز با شیت همگام نشده‌اند')
+        row = db.execute('SELECT synced_revision FROM workflow_cases WHERE smr=?', (case['smr'],)).fetchone()
+        if not row or row[0] < case['revision']:
+            raise ValueError('تأییدها هنوز با شیت همگام نشده‌اند')
         db.execute('''INSERT INTO nbo_execution VALUES(?,?,?,?,?) ON CONFLICT(smr,revision)
           DO UPDATE SET state=excluded.state,updated_at=excluded.updated_at,detail=excluded.detail''',
                    (case['smr'], case['revision'], 'SENDING', store.now(), ''))
