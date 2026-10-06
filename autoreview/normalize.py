@@ -1,4 +1,4 @@
-"""Text/site/name normalisation. Pure functions, no I/O."""
+﻿"""Text/site/name normalisation. Pure functions, no I/O."""
 import re
 from collections import Counter
 from itertools import product
@@ -33,7 +33,7 @@ def normalize_site(value) -> str:
 
 
 # ---- person names --------------------------------------------------------------------------------------------------------
-_HONORIFICS = {"اقای", "اقا", "خانم", "جناب", "سرکار", "دکتر", "مهندس", "mr", "mrs", "ms", "dr"}
+_HONORIFICS = {"اقای", "اقا", "خانم", "جناب", "سرکار", "دکتر", "مهندس", "سید", "سیده", "سادات", "حاج", "حاجی", "mr", "mrs", "ms", "dr"}
 _ARABIC_SCRIPT = re.compile(r"[؀-ۿ]")
 _LATIN_SCRIPT = re.compile(r"[a-z]", re.I)
 
