@@ -296,8 +296,9 @@ class Shell(QMainWindow):
         span = LiveChart.BUCKET * LiveChart.POINTS
         start = now - timedelta(seconds=span)
         counts = [0] * LiveChart.POINTS
-        db = self.session.db()
+        db = None
         try:
+            db = self.session.read_db()
             stamps = [r[0] for r in db.execute("SELECT decided_at FROM results WHERE decided_at >= ?",
                                                (start.isoformat(timespec="seconds"),))]
             stamps += [r[0] for r in db.execute("SELECT updated_at FROM nbo_execution WHERE updated_at >= ? AND state IN "
@@ -305,7 +306,8 @@ class Shell(QMainWindow):
         except Exception:                                   # the chart never gets in the way of the work
             stamps = []
         finally:
-            db.close()
+            if db is not None:
+                db.close()
         newest = int(now.timestamp() // LiveChart.BUCKET)    # buckets sit on the clock, so the line can slide between them
         for at in stamps:
             try:
@@ -369,11 +371,16 @@ class Shell(QMainWindow):
 
     def _update_status(self):
         b = self.session
-        db = b.db()
+        db = None
         try:
+            db = b.read_db()
             m_nbo, m_crm = reference.meta(db, "nbo"), reference.meta(db, "crm")
+        except Exception:
+            # Status painting is optional. Never block/freeze the window for it.
+            return
         finally:
-            db.close()
+            if db is not None:
+                db.close()
 
         def show(pill, name, meta, busy):
             if busy:
