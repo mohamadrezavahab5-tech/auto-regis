@@ -191,11 +191,13 @@ def refresh(db, rows, eligible_ids, source_loaded_at=None, approved_statuses=(),
                 continue
             channel = 'both' if str(row.get('has_instore')).lower() == 'true' else 'online'
             case = dict(smr=smr, site=row.get('site', ''), category=row.get('category', ''),
-                        brand=row.get('brand_fa', ''), source_status=status, channel=channel,
-                        active=active, outcome=outcome, fingerprint=fingerprint, online=None, instore=None,
-                        suggestion=None, online_hold=False,
-                        revision=old['revision'] if old else 0, source_loaded_at=loaded,
-                        reset_at=store.now() if old else '')       # reviews before a reset no longer describe this request
+                         brand=row.get('brand_fa', ''), source_status=status, channel=channel,
+                         active=active, outcome=outcome, fingerprint=fingerprint, online=None, instore=None,
+                         suggestion=None, online_hold=False,
+                         account_holder=row.get('account_holder', ''), owner_name=row.get('owner_name', ''),
+                         owner_family=row.get('owner_family', ''),
+                         revision=old['revision'] if old else 0, source_loaded_at=loaded,
+                         reset_at=store.now() if old else '')       # reviews before a reset no longer describe this request
             _save(db, case, 'WORKFLOW_SOURCE_CHANGED' if old else 'WORKFLOW_IMPORTED',
                   detail={'approvals_reset': bool(old)})
         for old in cases(db) if complete else ():     # a partial NBO refresh proves nothing about absent requests

@@ -204,7 +204,7 @@ def prepare_execution(db, case, cfg, automatic=False):
         raise ValueError(problem)
     if automatic and case.get('channel') != 'online':
         raise ValueError('ثبت خودکار فقط برای Online است')
-    execution.claim(db, case, require_synced=True)
+    execution.claim(db, case)
     claim = uuid.uuid4().hex
     payload = dict(smr=case['smr'], revision=case['revision'], claim=claim,
                    state='UNCERTAIN', detail='برنامه هنگام ثبت بسته شد؛ نتیجه باید در NBO بررسی شود')
@@ -262,7 +262,9 @@ def shared_queues(db):
             continue
         row = dict(smr=c['smr'], site=c.get('site', ''), category=c.get('category', ''),
                    status=c.get('source_status', ''), created_at=c.get('source_created_at', ''),
-                   has_online='true', has_instore='true' if c['channel'] == 'both' else 'false')
+                   has_online='true', has_instore='true' if c['channel'] == 'both' else 'false',
+                   account_holder=c.get('account_holder', ''), owner_name=c.get('owner_name', ''),
+                   owner_family=c.get('owner_family', ''))
         (both if c['channel'] == 'both' else online).append(row)
     return online, [], both
 
@@ -272,3 +274,47 @@ def shared_reviews(db):
     return {c['smr']: (c['suggestion']['action'], c['suggestion'].get('reason_codes', []),
                       c['suggestion'].get('decided_at', ''))
             for c in workflow.cases(db) if c.get('suggestion')}
+
+
+def server_code(cfg=None):
+    """Generate complete, configured Apps Script code for deployment.
+    
+    Reads scripts/workspace-server.gs, substitutes APP_SHARED_KEY and EXPECTED_SHEET_ID,
+    and returns ready-to-paste code for Google Apps Script editor.
+    """
+    if not cfg:
+        # Load from bundled config, not user settings (which may not have app_key yet)
+        from .paths import config_dir
+        try:
+            cfg = json.loads((config_dir() / 'workspace.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            cfg = {}
+    
+    own_sheet = cfg.get('own_sheet_id', '')
+    app_key = cfg.get('app_key', '')
+    
+    if not app_key:
+        raise ValueError('app_key not configured in config/workspace.json')
+    
+    # Read the base workspace server code
+    server_path = scripts_dir() / 'workspace-server.gs'
+    with open(server_path, 'r', encoding='utf-8') as f:
+        code = f.read()
+    
+    # Substitute the configuration placeholders using regex to match various formats
+    code = re.sub(r"const APP_SHARED_KEY = '[^']*'", 
+                  f"const APP_SHARED_KEY = '{app_key}'", code)
+    
+    # Add EXPECTED_SHEET_ID if not present
+    if 'EXPECTED_SHEET_ID' not in code:
+        lines = code.split('\n')
+        for i, line in enumerate(lines):
+            if 'const APP_SHARED_KEY' in line:
+                lines.insert(i + 1, f"const EXPECTED_SHEET_ID = '{own_sheet}';")
+                code = '\n'.join(lines)
+                break
+    else:
+        code = re.sub(r"const EXPECTED_SHEET_ID = '[^']*'",
+                      f"const EXPECTED_SHEET_ID = '{own_sheet}'", code)
+    
+    return code
