@@ -97,6 +97,10 @@ class Session(QObject):
     def db(self):
         return store.connect(self.db_path)
 
+    def read_db(self, busy_timeout_ms=150):
+        """Short read-only handle for UI paints/searches; never waits seconds on a writer."""
+        return store.connect_read(self.db_path, busy_timeout_ms)
+
     def rules(self):
         return settings.load_rules()
 
