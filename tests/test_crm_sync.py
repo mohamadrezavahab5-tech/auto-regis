@@ -93,3 +93,23 @@ def test_save_credentials_round_trip_through_powershell():
                        env=c.powershell_environment())
     assert r.stdout.decode("utf-8") == f"SNAPP\\test.user|{pw}"
     assert c.stored_username() == "SNAPP\\test.user"
+
+
+def test_crm_get_timeout_becomes_clear_unreachable_error(monkeypatch):
+    monkeypatch.setattr(c, "_ps", lambda *a, **k: (_ for _ in ()).throw(subprocess.TimeoutExpired("powershell", 90)))
+    with pytest.raises(c.CrmUnreachable, match="۹۰"):
+        c.get("WhoAmI")
+
+
+def test_reference_paging_loop_is_stopped(monkeypatch):
+    mapping = {
+        "entity_set": "regs",
+        "reference": {"fields": {
+            "caseid": "id", "status": "st", "site": "site", "brand": "brand",
+            "person_company": "pc", "store_type": "store", "created_on": "created", "modified_on": "modified"
+        }}
+    }
+    def loop(_path):
+        return {"value": [], "@odata.nextLink": "NEXT"}
+    with pytest.raises(RuntimeError, match="صفحه‌بندی تکراری"):
+        c.fetch_reference(mapping=mapping, runner=loop)
