@@ -360,11 +360,15 @@ class ReviewPage(ScrollPage):
         self._sync_buttons()
         if not self.isVisible() or len(self._shown_ids) >= p.done:
             return
-        db = self.session.db()
+        db = None
         try:
+            db = self.session.read_db()
             res = store.results_of(db, p.run_id)
+        except Exception:
+            return
         finally:
-            db.close()
+            if db is not None:
+                db.close()
         for x in res:
             if x["smr"] in self._shown_ids:
                 continue

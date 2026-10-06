@@ -91,7 +91,7 @@ def _timeline(db, smr):
 def case_widget(session, shell, smr, on_close=None):
     """-> the sheet for `smr` (a QWidget), or None when the app has never seen this request."""
     from .results import evidence_card
-    db = session.db()
+    db = session.read_db(300)
     try:
         case = workflow.get(db, smr)
         result = store.latest_result(db, smr)
@@ -224,7 +224,7 @@ def find_requests(session, text, limit=12):
     q = str(text or "").strip()
     if not q:
         return []
-    db = session.db()
+    db = session.read_db(300)
     try:
         digits = q.upper().replace("SMR-", "").replace("SMR", "").strip()
         if digits.isdigit():

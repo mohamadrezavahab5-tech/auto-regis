@@ -346,3 +346,41 @@ def test_always_manual_categories_take_back_the_engines_approval(db):
     assert workflow.state(workflow.get(db, 'SMR-2')) == 'READY'            # an ordinary category is untouched
     assert workflow.state(workflow.get(db, 'SMR-3')) == 'EDIT'             # a clear edit stays the rules' decision
     assert workflow.hold_manual_categories(db, rules) == 0                 # once
+
+
+def test_workflow_preserves_identity_and_ownership_fields_for_shared_review(db):
+    row = dict(smr='SMR-777', site='shop.test', category='مد و پوشاک', status='PENDING',
+               ownership='INDIVIDUAL', has_online='true', has_instore='false',
+               created_at='2026-10-06T10:00:00+00:00',
+               account_holder='محمد رضا وهاب', owner_name='محمدرضا', owner_family='وهاب')
+    workflow.refresh(db, [row], {'SMR-777'})
+    case = workflow.get(db, 'SMR-777')
+    assert case['ownership'] == 'INDIVIDUAL'
+    assert case['source_created_at'] == row['created_at']
+    assert case['account_holder'] == row['account_holder']
+    assert case['owner_name'] == row['owner_name']
+    assert case['owner_family'] == row['owner_family']
+
+    from autoreview import workspace
+    online, _unused, both = workspace.shared_queues(db)
+    assert not both and len(online) == 1
+    shared = online[0]
+    assert shared['ownership'] == 'INDIVIDUAL'
+    assert shared['created_at'] == row['created_at']
+    assert shared['account_holder'] == row['account_holder']
+    assert shared['owner_name'] == row['owner_name']
+    assert shared['owner_family'] == row['owner_family']
+
+
+def test_shared_queue_name_fields_are_enough_for_name_rule(db):
+    row = dict(smr='SMR-778', site='shop.test', category='مد و پوشاک', status='PENDING',
+               ownership='INDIVIDUAL', has_online='true', has_instore='false',
+               account_holder='محمدرضا وهاب', owner_name='محمد رضا', owner_family='وهاب')
+    workflow.refresh(db, [row], {'SMR-778'})
+    from autoreview import workspace
+    from autoreview.facts import registrant_name
+    from autoreview.normalize import names_equal
+    shared = workspace.shared_queues(db)[0][0]
+    assert shared['account_holder']
+    assert registrant_name(shared)
+    assert names_equal(registrant_name(shared), shared['account_holder']) is True
