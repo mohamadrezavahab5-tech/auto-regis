@@ -82,6 +82,8 @@ class Shell(QMainWindow):
         self._tick()
         self._quitting = False
         self._told_tray = False
+        self._closing_runner_since = None
+        self._force_close = False
         self._make_tray()
         self.execution.notice.connect(self._execution_notice)
         self.update_info = None
@@ -552,12 +554,21 @@ class Shell(QMainWindow):
                 self.tray.showMessage("AutoReview", "کنار ساعت ویندوز ماند و با شیت همگام است. خروج کامل: راست‌کلیک روی آیکون.")
             return
         r = self.session.runner
-        if r and r.is_active():
-            if QMessageBox.question(self, "بستن برنامه", "یک بررسی در حال اجراست. متوقفش کنم و ببندم؟") != QMessageBox.StandardButton.Yes:
+        if r and r.is_active() and not self._force_close:
+            if self._closing_runner_since is None:
+                if QMessageBox.question(self, "بستن برنامه", "یک بررسی در حال اجراست. متوقفش کنم و ببندم؟") != QMessageBox.StandardButton.Yes:
+                    e.ignore()
+                    return
+                r.stop()
+                self._closing_runner_since = datetime.now(timezone.utc)
+            elapsed = (datetime.now(timezone.utc) - self._closing_runner_since).total_seconds()
+            if elapsed < 20:
+                # Never block the Qt window thread with Thread.join(). Keep pumping
+                # events while the worker stops, so Windows never shows Not Responding.
                 e.ignore()
+                QTimer.singleShot(100, self.close)
                 return
-            r.stop()
-            r.join(20)
+            self._force_close = True
         self.automatic.stop()
         self.execution.stop()
         self.session.disconnect_workspace()
