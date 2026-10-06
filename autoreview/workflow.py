@@ -181,13 +181,33 @@ def refresh(db, rows, eligible_ids, source_loaded_at=None, approved_statuses=(),
             # there - it had been counted 'closed in NBO' and as the engine being wrong (live 2026-10-03: 15 of 70).
             outcome = None if active or status in NBO_OPEN else ('approved' if status in approved else 'closed')
             if old and old['fingerprint'] == fingerprint and not (active and not old['active']):
+                # Releases before 1.3.24 stored the fingerprint of identity fields but did not persist
+                # the fields themselves in workflow_cases. Because the fingerprint still matched, a
+                # normal refresh never rebuilt the case and shared queues kept empty names forever.
+                # Backfill missing source metadata without invalidating an existing verdict.
+                source_values = {
+                    'site': row.get('site', ''), 'category': row.get('category', ''),
+                    'brand': row.get('brand_fa', ''), 'ownership': row.get('ownership', ''),
+                    'source_created_at': row.get('created_at', ''),
+                    'account_holder': row.get('account_holder', ''),
+                    'owner_name': row.get('owner_name', ''), 'owner_family': row.get('owner_family', ''),
+                }
+                backfilled = []
+                for key, value in source_values.items():
+                    if not old.get(key) and value not in (None, ''):
+                        old[key] = value
+                        backfilled.append(key)
+
                 if old.get('source_status') == status and old['active'] == active and old.get('outcome') == outcome:
-                    if source_loaded_at and old.get('source_loaded_at') != source_loaded_at:
+                    refreshed = bool(source_loaded_at and old.get('source_loaded_at') != source_loaded_at)
+                    if refreshed:
                         old['source_loaded_at'] = source_loaded_at
-                        _save(db, old, 'WORKFLOW_SOURCE_REFRESH')
+                    if backfilled or refreshed:
+                        _save(db, old, 'WORKFLOW_SOURCE_BACKFILL' if backfilled else 'WORKFLOW_SOURCE_REFRESH',
+                              detail={'fields': backfilled} if backfilled else None)
                     continue
                 old.update(source_status=status, active=active, outcome=outcome, source_loaded_at=loaded)
-                _save(db, old, 'WORKFLOW_NBO_STATUS', detail={'status': status})
+                _save(db, old, 'WORKFLOW_NBO_STATUS', detail={'status': status, 'backfilled': backfilled})
                 continue
             channel = 'both' if str(row.get('has_instore')).lower() == 'true' else 'online'
             case = dict(smr=smr, site=row.get('site', ''), category=row.get('category', ''),
