@@ -261,7 +261,8 @@ def shared_queues(db):
         if not c.get('active'):
             continue
         row = dict(smr=c['smr'], site=c.get('site', ''), category=c.get('category', ''),
-                   status=c.get('source_status', ''), created_at=c.get('source_created_at', ''),
+                   ownership=c.get('ownership', ''), status=c.get('source_status', ''),
+                   created_at=c.get('source_created_at', ''),
                    has_online='true', has_instore='true' if c['channel'] == 'both' else 'false',
                    account_holder=c.get('account_holder', ''), owner_name=c.get('owner_name', ''),
                    owner_family=c.get('owner_family', ''))
