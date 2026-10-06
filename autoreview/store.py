@@ -6,6 +6,7 @@ import json
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS requests (
@@ -51,6 +52,22 @@ def connect(path=":memory:"):
             if name not in have:
                 db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
     db.commit()
+    return db
+
+
+def connect_read(path, busy_timeout_ms=150):
+    """Fast read-only connection for UI-thread reads.
+
+    It skips schema work and gives up quickly if SQLite is busy, so a repaint
+    or search cannot sit on a writer long enough to freeze the window.
+    """
+    if str(path) == ":memory:":
+        return connect(path)
+    uri = Path(path).resolve().as_uri() + "?mode=ro"
+    db = sqlite3.connect(uri, uri=True, check_same_thread=False,
+                         timeout=max(0.001, busy_timeout_ms / 1000))
+    db.execute(f"PRAGMA busy_timeout={max(1, int(busy_timeout_ms))}")
+    db.execute("PRAGMA query_only=ON")
     return db
 
 
