@@ -191,7 +191,8 @@ def refresh(db, rows, eligible_ids, source_loaded_at=None, approved_statuses=(),
                 continue
             channel = 'both' if str(row.get('has_instore')).lower() == 'true' else 'online'
             case = dict(smr=smr, site=row.get('site', ''), category=row.get('category', ''),
-                         brand=row.get('brand_fa', ''), source_status=status, channel=channel,
+                         brand=row.get('brand_fa', ''), ownership=row.get('ownership', ''),
+                         source_created_at=row.get('created_at', ''), source_status=status, channel=channel,
                          active=active, outcome=outcome, fingerprint=fingerprint, online=None, instore=None,
                          suggestion=None, online_hold=False,
                          account_holder=row.get('account_holder', ''), owner_name=row.get('owner_name', ''),
