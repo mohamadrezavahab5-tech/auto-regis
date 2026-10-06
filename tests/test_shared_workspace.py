@@ -127,3 +127,24 @@ def test_another_crm_user_cannot_flush_previous_users_execution(monkeypatch):
     monkeypatch.setattr(workspace, 'call', lambda *a, **k: pytest.fail('wrong actor'))
     workspace.flush_execution(db)
     assert db.execute('SELECT count(*) FROM workspace_execution_outbox').fetchone()[0] == 1
+
+
+def test_workspace_read_pagination_has_a_hard_safety_cap(monkeypatch):
+    db = database()
+    db.execute("INSERT INTO workflow_meta VALUES('workspace_v6_initialized','1')")
+    db.commit()
+    calls = {'read': 0}
+
+    def remote(action, cfg=None, **body):
+        if action == 'health':
+            return {'server_version': 6, 'schema_version': 6, 'sheet_ok': True}
+        if action == 'read':
+            calls['read'] += 1
+            offset = body.get('offset', 0)
+            return {'generation': 1, 'cases': [], 'executions': [], 'next': offset + 1}
+        raise AssertionError(action)
+
+    monkeypatch.setattr(workspace, 'call', remote)
+    with pytest.raises(sheets.SheetError, match='تعداد صفحات فضای مشترک غیرعادی شد'):
+        workflow_sync.sync_workspace(db, {})
+    assert calls['read'] == 5000
