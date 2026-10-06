@@ -158,9 +158,15 @@ def load_category_map(overrides: dict = None) -> dict:
 
     Old installs could save match_mode/mismatch_allowed in the user's settings.
     Keeping those overrides across an upgrade can silently resurrect the old
-    Action Test 4 category rule, so only shipped category policy is used here.
+    Action Test 4 category rule, so those two policy keys are always taken from
+    the shipped release. Other future safe category-map overrides may still merge.
     """
-    return merged("category_map", overrides)
+    source = copy.deepcopy(load_user() if overrides is None else overrides)
+    category = source.get("category_map")
+    if isinstance(category, dict):
+        category.pop("match_mode", None)
+        category.pop("mismatch_allowed", None)
+    return merged("category_map", source)
 
 
 def current_value(file: str, dotted: str, overrides: dict = None):
