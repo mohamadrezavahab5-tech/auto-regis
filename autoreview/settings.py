@@ -76,8 +76,6 @@ EDITABLE = {
     ("rules", "appearance.theme"): _one_of("light", "dark"),
     ("rules", "automation.autopilot"): _is_bool,
     ("rules", "execution.auto_actions"): lambda v: isinstance(v, list) and set(v) <= {"APPROVE", "EDIT", "CANCEL"},
-    ("category_map", "mismatch_allowed"): _is_bool,
-    ("category_map", "match_mode"): _one_of("action_test_4", "strict"),
 }
 
 
@@ -156,6 +154,12 @@ def load_rules(overrides: dict = None) -> dict:
 
 
 def load_category_map(overrides: dict = None) -> dict:
+    """Category matching policy is release-owned.
+
+    Old installs could save match_mode/mismatch_allowed in the user's settings.
+    Keeping those overrides across an upgrade can silently resurrect the old
+    Action Test 4 category rule, so only shipped category policy is used here.
+    """
     return merged("category_map", overrides)
 
 
