@@ -384,3 +384,38 @@ def test_shared_queue_name_fields_are_enough_for_name_rule(db):
     assert shared['account_holder']
     assert registrant_name(shared)
     assert names_equal(registrant_name(shared), shared['account_holder']) is True
+
+
+def test_refresh_backfills_legacy_case_names_without_resetting_verdict(db):
+    row = dict(smr='SMR-779', site='shop.test', category='مد و پوشاک', status='PENDING',
+               ownership='INDIVIDUAL', has_online='true', has_instore='false',
+               created_at='2026-10-06T10:00:00+00:00', brand_fa='فروشگاه',
+               account_holder='محمدرضا وهاب', owner_name='محمدرضا', owner_family='وهاب')
+    workflow.refresh(db, [row], {'SMR-779'}, source_loaded_at='2026-10-06T10:01:00+00:00')
+    case = workflow.get(db, 'SMR-779')
+    case['online'] = dict(action='APPROVE', actor='human', source='workspace', note='ok', at=store.now())
+    case['suggestion'] = dict(action='APPROVE', reason_codes=[], notes=['ok'], decided_at=store.now())
+    # Simulate a pre-1.3.24 case body: fingerprint contains the identity values, body does not.
+    for key in ('ownership', 'source_created_at', 'account_holder', 'owner_name', 'owner_family'):
+        case.pop(key, None)
+    with db:
+        db.execute('UPDATE workflow_cases SET body=? WHERE smr=?',
+                   (json.dumps(case, ensure_ascii=False), 'SMR-779'))
+
+    before = workflow.get(db, 'SMR-779')
+    assert before['fingerprint'] == workflow._fingerprint(row)
+    assert not before.get('account_holder')
+
+    workflow.refresh(db, [row], {'SMR-779'}, source_loaded_at='2026-10-06T10:02:00+00:00')
+    fixed = workflow.get(db, 'SMR-779')
+    assert fixed['account_holder'] == 'محمدرضا وهاب'
+    assert fixed['owner_name'] == 'محمدرضا'
+    assert fixed['owner_family'] == 'وهاب'
+    assert fixed['ownership'] == 'INDIVIDUAL'
+    assert fixed['source_created_at'] == row['created_at']
+    assert fixed['online']['action'] == 'APPROVE'
+    from autoreview import workspace
+    shared = workspace.shared_queues(db)[0][0]
+    assert shared['account_holder'] == 'محمدرضا وهاب'
+    assert shared['owner_name'] == 'محمدرضا'
+    assert shared['owner_family'] == 'وهاب'
