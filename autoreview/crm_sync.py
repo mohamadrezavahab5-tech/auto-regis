@@ -127,7 +127,10 @@ def get(path: str, runner=None) -> dict:
     """One GET against the CRM Web API. `runner` is injectable for tests."""
     if runner:
         return runner(path)
-    r = _ps([str(_script("crm-get.ps1")), "-Path", path, "-CredFile", str(cred_file())])
+    try:
+        r = _ps([str(_script("crm-get.ps1")), "-Path", path, "-CredFile", str(cred_file())], timeout=90)
+    except subprocess.TimeoutExpired:
+        raise CrmUnreachable("CRM بیش از ۹۰ ثانیه پاسخ نداد؛ اتصال شبکه / VPN را بررسی کن.")
     if r.returncode != 0:
         err = r.stderr.decode("utf-8", "replace").strip() or r.stdout.decode("utf-8", "replace").strip()
         if "401" in err or "Unauthorized" in err:
@@ -218,7 +221,11 @@ def fetch_reference(since=None, runner=None, progress=None, mapping=None):
         path += "&$filter=" + quote(f"{f['modified_on']} gt {since}", safe="")
     t0 = time.monotonic()
     rows, pages = [], 0
-    while path:
+    seen_pages = set()
+    while path and pages < 5000:
+        if path in seen_pages:
+            raise RuntimeError("CRM صفحه‌بندی تکراری برگرداند؛ دریافت متوقف شد تا در حلقه نیفتد.")
+        seen_pages.add(path)
         data = get(path, runner)
         for r in data.get("value", []):
             caseid = str(r.get(f["caseid"]) or "").strip()
@@ -235,6 +242,8 @@ def fetch_reference(since=None, runner=None, progress=None, mapping=None):
         if progress:
             progress(pages, len(rows))
         path = data.get("@odata.nextLink")
+    if path:
+        raise RuntimeError("CRM بیش از ۵۰۰۰ صفحه برگرداند؛ دریافت برای جلوگیری از حلقه متوقف شد.")
     log.info("CRM reference: %d rows (%s) in %.1fs", len(rows), f"changed since {since}" if since else "full", time.monotonic() - t0)
     return rows
 
