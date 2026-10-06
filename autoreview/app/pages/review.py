@@ -21,6 +21,65 @@ STATE_FA = {"running": "در حال اجرا", "paused": "متوقف موقت", 
             "stopped": "متوقف شد", "error": "خطا", "idle": "آماده"}
 
 
+def export_nbo_statuses(client, statuses, finished, schedule=QTimer.singleShot, gap_ms=20_000):
+    """Fetch NBO exports one status at a time.
+
+    NBO's combined all-status export can return gateway 504. Per-status requests
+    are smaller, preserve already received data, retry transient failures once,
+    and stop cleanly on login/rate-limit instead of hammering the gateway.
+    finished(result) receives parts/done/refused/fatal/last_error.
+    """
+    order = list(statuses)
+    parts, done, refused, retried = [], [], [], set()
+    result = dict(parts=parts, done=done, refused=refused, fatal=None, last_error=None)
+
+    def complete(fatal=None, last_error=None):
+        result["fatal"] = fatal
+        result["last_error"] = last_error
+        finished(result)
+
+    def step(index):
+        if index >= len(order):
+            complete()
+            return
+        status = order[index]
+
+        def got(data, error):
+            if error in ("login", "http_401"):
+                complete("login", error)
+                return
+            if error == "http_429":
+                refused.append(f"{status} (http_429)")
+                complete("limited", error)
+                return
+
+            transient = bool(error and (
+                error in ("timeout", "network", "script") or str(error).startswith("http_5")
+            ))
+            if transient and status not in retried:
+                retried.add(status)
+                if error in ("network", "script") and hasattr(client, "reload"):
+                    client.reload()
+                schedule(gap_ms, lambda: client.export([status], got))
+                return
+
+            if error:
+                refused.append(f"{status} ({error})")
+                result["last_error"] = error
+            else:
+                parts.append(data)
+                done.append(status)
+
+            if index + 1 < len(order):
+                schedule(gap_ms, lambda: step(index + 1))
+            else:
+                complete(last_error=result.get("last_error"))
+
+        client.export([status], got)
+
+    step(0)
+
+
 class ReviewPage(ScrollPage):
     title = "بررسی خودکار"
     subtitle = "مرحله‌ی 1 از 5: موتور درخواست‌های در انتظار NBO را با قوانین بررسی می‌کند — خودش بعد از هر دریافت NBO، یا اینجا با دست"
@@ -213,27 +272,56 @@ class ReviewPage(ScrollPage):
             return
         client = self.shell.nbo_client
         self.session._busy('nbo', True)
-        toast(self.window(), "در حال گرفتن خروجی از NBO…", "info")
-        self.nbo_pill.set("در حال دریافت…", C["info"], C["info_soft"])
+        toast(self.window(), "دریافت NBO به‌صورت مرحله‌ای شروع شد…", "info")
+        self.nbo_pill.set("در حال دریافت مرحله‌ای…", C["info"], C["info_soft"])
+        from ..web import ALL_NBO_STATUSES
+        order = list(ALL_NBO_STATUSES)
 
-        def exported(data, err):
-            if err == "login":
+        def finished(result):
+            fatal = result.get("fatal")
+            if fatal == "login":
                 self.session._busy('nbo', False)
                 self.on_show()
                 if self.shell.nbo_login():
                     self.fetch_nbo()
                 return
-            if err:
+
+            parts = result["parts"]
+            done = result["done"]
+            refused = result["refused"]
+            if not parts:
                 self.session._busy('nbo', False)
-                msg = {"network": "به NBO وصل نشد. اتصال اینترنت را بررسی کن.", "timeout": "NBO در زمان مناسب پاسخ نداد.",
-                       "not_excel": "پاسخ NBO فایل Excel نبود.", "http_403": "این حساب اجازه‌ی Export در NBO را ندارد."}.get(err, f"خطا از NBO: {err}")
+                err = result.get("last_error") or fatal or "export"
+                msg = {
+                    "network": "به NBO وصل نشد. اتصال اینترنت را بررسی کن.",
+                    "timeout": "NBO در زمان مناسب پاسخ نداد.",
+                    "script": "صفحه‌ی داخلی NBO پاسخ قابل اجرا نداد؛ یک بار صفحه NBO را باز کن و دوباره دریافت بزن.",
+                    "http_403": "این حساب اجازه‌ی Export در NBO را ندارد.",
+                    "http_504": "درگاه NBO پاسخ 504 داد؛ دریافت مرحله‌ای هم موفق نشد.",
+                    "limited": "NBO محدودیت درخواست اعمال کرد؛ چند دقیقه بعد دوباره امتحان کن.",
+                }.get(err, f"خطا از NBO: {err}")
                 self.on_show()
                 QMessageBox.warning(self, "دریافت از NBO", msg)
                 return
-            self.session.import_nbo_bytes(data, lambda n: toast(self.window(), f"NBO: {num(n)} درخواست بارگذاری شد"),
-                                          lambda e: QMessageBox.warning(self, "خروجی NBO", str(e)))
-        from ..web import ALL_NBO_STATUSES
-        client.export(ALL_NBO_STATUSES, exported)
+
+            whole = len(done) == len(order)
+            only_statuses = None if whole else done
+
+            def imported(n):
+                if refused:
+                    toast(self.window(), f"NBO: {num(n)} درخواست به‌روز شد؛ بعضی وضعیت‌ها فعلاً از داده قبلی ماندند", "warn")
+                else:
+                    toast(self.window(), f"NBO: {num(n)} درخواست بارگذاری شد")
+                self.on_show()
+
+            self.session.import_nbo_parts(
+                parts,
+                imported,
+                lambda e: QMessageBox.warning(self, "خروجی NBO", str(e)),
+                only_statuses=only_statuses,
+            )
+
+        export_nbo_statuses(client, order, finished)
 
     def pick_nbo_file(self):
         f, _ = QFileDialog.getOpenFileName(self, "خروجی NBO", "", "Excel (*.xlsx);;CSV (*.csv)")
