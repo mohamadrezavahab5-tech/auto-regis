@@ -26,8 +26,15 @@ def _is_bool(v):
     return isinstance(v, bool)
 
 
+def _looks_mojibake(value: str) -> bool:
+    """Common UTF-8-as-ANSI damage markers; reject instead of persisting broken Persian policy text."""
+    text = str(value or "")
+    return any(mark in text for mark in ("Ã", "Â", "Ø", "Ù", "Û", "ƒ", "â€", "Å", "Ú"))
+
+
 def _str_list(v):
-    return isinstance(v, list) and all(isinstance(x, str) and x.strip() for x in v)
+    return (isinstance(v, list) and all(isinstance(x, str) and x.strip() for x in v)
+            and not any(_looks_mojibake(x) for x in v))
 
 
 def _cat_limits(v):
